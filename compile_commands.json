@@ -1,0 +1,262 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/course.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/course.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/course.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/course.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/display.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/display.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/display.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/display.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/haha.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/haha.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/haha.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/haha.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/helpers.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/helpers.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/helpers.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/helpers.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/rider.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/rider.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/rider.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/rider.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/sim.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/sim.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/sim.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/sim.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/texturemanager.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/texturemanager.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/texturemanager.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/texturemanager.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game_lib.dir/src/widget.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/widget.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/widget.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/widget.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/game.dir/src/main.cpp.o",
+      "/home/aleks/Documents/cpp/game/src/main.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/src/main.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game.dir/src/main.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/test_course.dir/tests/test_course.cpp.o",
+      "/home/aleks/Documents/cpp/game/tests/test_course.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/tests/test_course.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_course.dir/tests/test_course.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/test_display.dir/tests/test_display.cpp.o",
+      "/home/aleks/Documents/cpp/game/tests/test_display.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/tests/test_display.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_display.dir/tests/test_display.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/test_rider.dir/tests/test_rider.cpp.o",
+      "/home/aleks/Documents/cpp/game/tests/test_rider.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/tests/test_rider.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_rider.dir/tests/test_rider.cpp.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/c++",
+      "-I/home/aleks/opt/SDL3/include",
+      "-I/home/aleks/opt/SDL3_ttf/include",
+      "-I/usr/include/freetype2",
+      "-I/usr/include/libpng16",
+      "-I/home/aleks/opt/SDL3_image/include",
+      "-I/home/aleks/Documents/cpp/game/include",
+      "-g",
+      "-std=gnu++17",
+      "-c",
+      "-o",
+      "CMakeFiles/test_widget.dir/tests/test_widget.cpp.o",
+      "/home/aleks/Documents/cpp/game/tests/test_widget.cpp"
+    ],
+    "directory": "/home/aleks/Documents/cpp/game/build",
+    "file": "/home/aleks/Documents/cpp/game/tests/test_widget.cpp",
+    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_widget.dir/tests/test_widget.cpp.o"
+  }
+]
