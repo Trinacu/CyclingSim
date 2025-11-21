@@ -105,8 +105,6 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
     delete state->physics_thread;
     delete state->display;
     delete state->sim;
-    SDL_DestroyWindow(state->window);
-    SDL_DestroyRenderer(state->renderer);
     delete state;
     /* SDL will clean up the window/renderer for us. */
 }

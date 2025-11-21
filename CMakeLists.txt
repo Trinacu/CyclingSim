@@ -13,7 +13,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Set PKG_CONFIG_PATH environment variable clearly for pkg-config
 set(ENV{PKG_CONFIG_PATH}
-    "$ENV{HOME}/opt/SDL3/lib/pkgconfig:$ENV{HOME}/opt/SDL3_ttf/lib/pkgconfig:$ENV{HOME}/opt/SDL3_image/lib/pkgconfig"
+    "$ENV{HOME}/opt/SDL3/lib64/pkgconfig:$ENV{HOME}/opt/SDL3_ttf/lib64/pkgconfig:$ENV{HOME}/opt/SDL3_image/lib64/pkgconfig"
 )
 
 find_package(PkgConfig REQUIRED)

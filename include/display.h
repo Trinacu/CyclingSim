@@ -110,8 +110,8 @@ class DisplayEngine {
     bool load_image(const char* id, const char* filename);
 
     ~DisplayEngine() {
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
+        if (renderer) SDL_DestroyRenderer(renderer);
+        if (window) SDL_DestroyWindow(window);
         SDL_Quit();
     }
 

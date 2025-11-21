@@ -6,6 +6,8 @@
 #include "rider.h"
 #include <mutex>
 
+#include <atomic>
+
 class PhysicsEngine {
   private:
     const Course* course;

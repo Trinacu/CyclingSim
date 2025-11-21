@@ -6,18 +6,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/course.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/course.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/course.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/course.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/course.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/course.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/course.cpp.o"
   },
   {
     "arguments": [
@@ -26,18 +32,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/display.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/display.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/display.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/display.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/display.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/display.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/display.cpp.o"
   },
   {
     "arguments": [
@@ -46,18 +58,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/haha.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/haha.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/haha.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/haha.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/haha.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/haha.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/haha.cpp.o"
   },
   {
     "arguments": [
@@ -66,18 +84,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/helpers.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/helpers.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/helpers.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/helpers.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/helpers.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/helpers.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/helpers.cpp.o"
   },
   {
     "arguments": [
@@ -86,18 +110,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/rider.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/rider.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/rider.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/rider.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/rider.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/rider.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/rider.cpp.o"
   },
   {
     "arguments": [
@@ -106,18 +136,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/sim.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/sim.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/sim.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/sim.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/sim.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/sim.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/sim.cpp.o"
   },
   {
     "arguments": [
@@ -126,18 +162,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/texturemanager.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/texturemanager.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/texturemanager.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/texturemanager.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/texturemanager.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/texturemanager.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/texturemanager.cpp.o"
   },
   {
     "arguments": [
@@ -146,18 +188,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game_lib.dir/src/widget.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/widget.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/widget.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/widget.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game_lib.dir/src/widget.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/widget.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/widget.cpp.o"
   },
   {
     "arguments": [
@@ -166,18 +214,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/game.dir/src/main.cpp.o",
-      "/home/aleks/Documents/cpp/game/src/main.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/src/main.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/src/main.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/game.dir/src/main.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/main.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game.dir/src/main.cpp.o"
   },
   {
     "arguments": [
@@ -186,18 +240,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/test_course.dir/tests/test_course.cpp.o",
-      "/home/aleks/Documents/cpp/game/tests/test_course.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/tests/test_course.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/tests/test_course.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_course.dir/tests/test_course.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/tests/test_course.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/test_course.dir/tests/test_course.cpp.o"
   },
   {
     "arguments": [
@@ -206,18 +266,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/test_display.dir/tests/test_display.cpp.o",
-      "/home/aleks/Documents/cpp/game/tests/test_display.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/tests/test_display.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/tests/test_display.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_display.dir/tests/test_display.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/tests/test_display.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/test_display.dir/tests/test_display.cpp.o"
   },
   {
     "arguments": [
@@ -226,18 +292,24 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/test_rider.dir/tests/test_rider.cpp.o",
-      "/home/aleks/Documents/cpp/game/tests/test_rider.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/tests/test_rider.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/tests/test_rider.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_rider.dir/tests/test_rider.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/tests/test_rider.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/test_rider.dir/tests/test_rider.cpp.o"
   },
   {
     "arguments": [
@@ -246,17 +318,23 @@
       "-I/home/aleks/opt/SDL3_ttf/include",
       "-I/usr/include/freetype2",
       "-I/usr/include/libpng16",
+      "-I/usr/include/harfbuzz",
+      "-I/usr/include/glib-2.0",
+      "-I/usr/lib64/glib-2.0/include",
+      "-I/usr/include/sysprof-6",
       "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/game/include",
+      "-I/home/aleks/Documents/cpp/CyclingSim/include",
       "-g",
       "-std=gnu++17",
+      "-DWITH_GZFILEOP",
+      "-pthread",
       "-c",
       "-o",
       "CMakeFiles/test_widget.dir/tests/test_widget.cpp.o",
-      "/home/aleks/Documents/cpp/game/tests/test_widget.cpp"
+      "/home/aleks/Documents/cpp/CyclingSim/tests/test_widget.cpp"
     ],
-    "directory": "/home/aleks/Documents/cpp/game/build",
-    "file": "/home/aleks/Documents/cpp/game/tests/test_widget.cpp",
-    "output": "/home/aleks/Documents/cpp/game/build/CMakeFiles/test_widget.dir/tests/test_widget.cpp.o"
+    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
+    "file": "/home/aleks/Documents/cpp/CyclingSim/tests/test_widget.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/test_widget.dir/tests/test_widget.cpp.o"
   }
 ]
