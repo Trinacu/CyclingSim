@@ -1,0 +1,2363 @@
+include/appstate.h
+```
+// appstate.h
+#ifndef APPSTATE_H
+#define APPSTATE_H
+
+#include "SDL3/SDL_video.h"
+#include "sim.h"
+#include <SDL3/SDL.h>
+#include <thread>
+
+enum class ScreenType;
+
+struct AppState {
+  int SCREEN_WIDTH = 1000;
+  int SCREEN_HEIGHT = 640;
+
+  SDL_Window* window = nullptr;
+  SDL_Renderer* renderer = nullptr;
+
+  // model layer
+  Course* course = nullptr;
+  Simulation* sim = nullptr;
+  std::thread* physics_thread = nullptr;
+
+  // view layer
+  class IScreen* screen = nullptr;
+  ScreenType current_screen;
+
+  void switch_screen(ScreenType type);
+};
+
+#endif
+```
+
+include/course.h
+```
+// course.h
+#ifndef COURSE_H
+#define COURSE_H
+
+#include "pch.hpp"
+
+struct Wind {
+  double speed;
+  double heading;
+};
+
+struct Segment {
+  double start_x;
+  double length;
+  double slope;
+  double end_x;
+  double heading;
+
+  double altitude_at(double x) const { return slope * (x - start_x); }
+};
+
+std::ostream& operator<<(std::ostream& os, const Segment& seg);
+
+class ICourseView {
+public:
+  virtual double get_slope(double pos) const = 0;
+  virtual double get_altitude(double pos) const = 0;
+  virtual Wind get_wind(double pos) const = 0;
+  // virtual bool isCheckpoint(double pos) const = 0;
+  virtual ~ICourseView() = default;
+};
+
+class Course : public ICourseView {
+private:
+  std::vector<Segment> segments;
+  std::vector<double> altitudes; // y at each segment start
+
+public:
+  double total_length;
+
+  Course(const std::vector<std::array<double, 3>> segments);
+  static Course
+  from_segments(const std::vector<std::array<double, 3>> segments);
+
+  double get_altitude(double pos) const override;
+  double get_slope(double pos) const override;
+  Wind get_wind(double pos) const override;
+
+  int find_segment(double pos) const;
+
+  MatrixX2d get_points(double x_min, double x_max) const;
+
+  static Course create_flat();
+  static Course create_endulating();
+
+  void print();
+};
+#endif
+```
+
+include/display.h
+```
+// display.h
+#ifndef DISPLAY_H
+#define DISPLAY_H
+
+#include "course.h"
+#include "sim.h"
+#include "texturemanager.h"
+#include <memory>
+
+#include <SDL3/SDL.h>
+
+class Camera {
+private:
+  const Course* course;
+  int world_width;
+  double scale;
+  double vert_scale;
+  Vector2d pos;
+  const Rider* target_rider = nullptr;
+
+public:
+  // screensize could be private?
+  Vector2d screensize;
+  Camera(const Course* course_, int world_width_, Vector2d screensize_);
+
+  void follow_course(double x);
+  void update(double x);
+  void set_target_rider(const Rider* rider) { target_rider = rider; }
+  void _set_pos(Vector2d pos_);
+
+  Vector2d world_to_screen(Vector2d world_pos) const;
+  MatrixX2d world_to_screen(MatrixX2d world_pos_list) const;
+
+  Vector2d screen_to_world(Vector2d world_pos) const;
+  MatrixX2d screen_to_world(MatrixX2d world_pos_list) const;
+
+  MatrixX2d get_visible_points() const;
+};
+
+struct RenderContext {
+  SDL_Renderer* renderer;
+  Camera* camera;
+  const std::vector<RiderSnapshot>* rider_snapshots;
+  ResourceProvider* resources;
+
+  const RiderSnapshot* get_snapshot(const void* id) const {
+    for (const auto& snap : *rider_snapshots) {
+      if (snap.id == id) {
+        return &snap;
+      }
+    }
+    return nullptr;
+  }
+};
+
+enum class RenderLayer : int { Course = 0, Riders = 1, UI = 2, COUNT };
+
+class Drawable {
+public:
+  virtual RenderLayer layer() const = 0;
+  // Called each frame; the implementer draws itself with the given SDL_Renderer
+  virtual void render(const RenderContext* ctx) = 0;
+  virtual bool handle_event(const SDL_Event* e) { return false; }
+  virtual ~Drawable() = default;
+};
+
+class CourseDrawable : public Drawable {
+private:
+  const Course* course;
+
+public:
+  CourseDrawable(const Course* course_);
+  RenderLayer layer() const override { return RenderLayer::Course; }
+
+  void render(const RenderContext* ctx) override;
+};
+
+class RiderDrawable : public Drawable {
+public:
+  RiderDrawable() = default;
+  RenderLayer layer() const override { return RenderLayer::Riders; }
+
+  void render(const RenderContext* ctx) override;
+};
+
+class DisplayEngine {
+private:
+  SDL_Window* window = nullptr;
+  SDL_Renderer* renderer = nullptr;
+  ResourceProvider* resources = nullptr;
+  int width, height;
+  Camera* camera;
+  const Simulation* sim; // holds the physics engine
+  std::vector<std::unique_ptr<Drawable>> drawables;
+
+  // snapshots positions so we can let go of frame_lock for PhysicsEngine
+  std::vector<Vector2d> rider_positions;
+
+  std::chrono::steady_clock::time_point last_frame_time;
+  const double target_fps = 60.0;
+  const std::chrono::duration<double> target_frame_duration =
+      std::chrono::duration<double>(1.0 / target_fps);
+  std::vector<RiderSnapshot> get_rider_snapshots();
+
+public:
+  DisplayEngine(Simulation* s, int w, int h, Camera* camera_);
+  SDL_Texture* img1;
+  SDL_Texture* img2;
+
+  bool load_image(const char* id, const char* filename);
+
+  ~DisplayEngine() {
+    if (renderer)
+      SDL_DestroyRenderer(renderer);
+    if (window)
+      SDL_DestroyWindow(window);
+    SDL_Quit();
+  }
+
+  void set_resources(ResourceProvider* resources);
+  ResourceProvider* get_resources() const;
+
+  bool handle_event(const SDL_Event* event);
+  void add_drawable(std::unique_ptr<Drawable> d);
+  void render_frame();
+  SDL_Renderer* get_renderer();
+  Camera* get_camera();
+};
+#endif
+```
+
+include/helpers.h
+```
+struct SDL_Surface;
+struct SDL_Texture;
+struct SDL_Renderer;
+
+void convert_color(SDL_Surface* surf);
+
+SDL_Surface* load_transparent_bmp(const char* filename);
+SDL_Texture* load_from_file(SDL_Renderer* renderer, const char* filename);
+```
+
+include/mytypes.h
+```
+```
+
+include/pch.hpp
+```
+// pch.hpp
+#ifndef PCH_HPP
+#define PCH_HPP
+
+#include <Eigen/Core> // Minimal Eigen header
+#include <cmath>
+#include <iostream>
+#include <vector>
+// Add other common headers here
+//
+using Vector2d = Eigen::RowVector2d;
+using MatrixX2d = Eigen::MatrixX2d;
+using MatrixX3d = Eigen::MatrixX3d;
+
+#endif // PCH_HPP
+```
+
+include/rider.h
+```
+// rider.h
+#ifndef RIDER_H
+#define RIDER_H
+
+#include "course.h"
+#include "texturemanager.h"
+#include <SDL3/SDL.h>
+#include <iostream>
+#include <mutex>
+
+struct SDL_Texture;
+
+class Team {
+private:
+public:
+  const char* name;
+  const SDL_Texture* rider_img;
+  Team(const char* name_);
+};
+
+struct RiderSnapshot {
+  const void* id;
+  std::string name;
+  double pos;
+  double km;
+  Vector2d pos2d;
+  double power;
+  double effort;
+  double speed;
+  double km_h;
+  double heading;
+  Team team;
+};
+
+class Bike {
+public:
+  double mass;
+  double wheel_i;
+  double wheel_r;
+  double wheel_drag_factor;
+  double crr;
+  double dt_loss;
+
+  Bike(double mass_, double wheel_i_, double wheel_r_,
+       double wheel_drag_factor_, double crr_, double dt_loss_);
+  static Bike create_generic();
+};
+
+class Rider {
+private:
+  const void* const id;
+  double ftp_base;
+  double effort;
+  double cda;
+  double cda_factor;
+  double effective_cda;
+  double mass;
+  double total_mass;
+  double heading = 0;
+  double v_hw;
+  Vector2d _pos2d = Vector2d{0, 0};
+
+  double power;
+
+  double drag_coeff;
+  double roll_coeff;
+  double inertia_coeff;
+  double f_grav;
+  double slope;
+  double mass_ir;
+
+  double timestep;
+
+  mutable std::mutex mutex;
+
+  Bike bike;
+  Team team;
+  TextureManager* tex_manager;
+  const ICourseView* course;
+
+  void set_cda_factor(double cda_factor_);
+  void set_mass(double total_mass_);
+
+public:
+  std::string name;
+  double target_effort;
+  double pos = 0.0;
+  double altitude = 0.0;
+  double speed;
+  const SDL_Texture* image;
+
+  Rider(std::string name_, double ftp_base_, double mass_, double cda_,
+        Bike bike_, Team team_);
+  static Rider* create_generic(Team team_);
+
+  void set_course(const ICourseView* cv);
+
+  RiderSnapshot snapshot() const;
+
+  void change_bike(Bike bike_);
+
+  void reset();
+  void update(double dt);
+
+  const void* get_id() const;
+
+  double km() const;
+  double km_h() const;
+
+  Vector2d get_pos2d() const;
+  void set_pos2d(Vector2d pos);
+
+  double pow_speed(double new_speed) const;
+  double pow_speed_prime(double new_speed);
+  double pow_speed_double_prime(double new_speed);
+
+  void compute_drag();
+  void compute_roll();
+  void compute_inertia();
+  void compute_coeff();
+  void compute_headwind();
+
+  double newton(double power, double speed_guess, int max_iterations = 20);
+  double householder(double power, double speed_guess, int max_iterations = 20);
+
+  // friend allows aceesing private/protected members
+  friend std::ostream& operator<<(std::ostream& os, const Rider& r);
+};
+
+#endif
+```
+
+include/screen.h
+```
+// screen.h
+#ifndef SCREEN_H
+#define SCREEN_H
+
+#include "SDL3/SDL_events.h"
+#include "appstate.h"
+#include "display.h"
+
+enum class ScreenType { Menu, Simulation, Result };
+
+class IScreen {
+public:
+  virtual ~IScreen() {}
+  virtual void update() = 0;
+  virtual void render() = 0;
+
+  // virtual void handle_event(SDL_Event* e) = 0;
+  void handle_event(SDL_Event* e) {
+    if (e->type == SDL_EVENT_KEY_DOWN) {
+      if (e->key.key == SDLK_RETURN) {
+        // start simulation
+        // state->switch_screen(ScreenType::Simulation);
+      }
+    }
+  }
+};
+
+class MenuScreen : public IScreen {
+public:
+  AppState* state;
+
+  MenuScreen(AppState* s) : state(s) {}
+
+  void update() override {}
+  void render() override;
+};
+
+class ResultsScreen : public IScreen {
+public:
+  AppState* state;
+  ResultsScreen(AppState* s) : state(s) {}
+
+  void update() override {}
+
+  void render() override;
+};
+
+class SimulationScreen : public IScreen {
+public:
+  AppState* state;
+  Camera* camera = nullptr;
+  DisplayEngine* display = nullptr;
+  ResourceProvider* resources = nullptr;
+  int WORLD_WIDTH = 200;
+
+  SimulationScreen(AppState* s);
+  void update() override {}
+
+  // void handle_event(SDL_Event* e) override { state->display->handle_event(e);
+  // }
+
+  void render() override;
+
+  ~SimulationScreen() {
+    delete display;
+    delete resources;
+    delete camera;
+  }
+};
+
+#endif
+```
+
+include/sim.h
+```
+// sim.h
+#ifndef SIM_H
+#define SIM_H
+
+#include "course.h"
+#include "rider.h"
+#include <mutex>
+
+#include <atomic>
+
+class PhysicsEngine {
+private:
+  const Course* course;
+  mutable std::mutex frame_mtx;
+  std::vector<Rider*> riders;
+
+public:
+  explicit PhysicsEngine(const Course* c);
+  void add_rider(Rider* r);
+  void update(double dt);
+
+  const Course* get_course() const { return course; }
+  double get_course_length() const { return course->total_length; }
+
+  // do these returns need to/should be const?
+  const std::vector<Rider*>& get_riders() const;
+  const Rider* get_rider(int idx) const;
+  std::mutex* get_frame_mutex() const;
+
+  ~PhysicsEngine();
+};
+
+// forward declare
+class SimulationCondition;
+
+// Your main simulation loop (runs in its own thread or fixed-step driver)
+class Simulation {
+private:
+  PhysicsEngine engine;
+  std::atomic<bool> running{false};
+  double time_factor = 1.0;
+  double sim_seconds = 0.0;
+
+  const float dt = 0.1; // 10 Hz physics
+
+  void step_fixed(double dt);
+
+public:
+  Simulation(const Course* c);
+
+  void start_realtime();
+
+  void run_max_speed(const SimulationCondition& cond);
+
+  void stop();
+
+  void set_time_factor(double f) { time_factor = f; }
+
+  const double get_sim_seconds() const;
+  const PhysicsEngine* get_engine() const;
+  PhysicsEngine* get_engine();
+};
+
+class SimulationCondition {
+public:
+  virtual ~SimulationCondition() = default;
+  virtual bool is_met(const Simulation& sim) const = 0;
+};
+
+#endif
+```
+
+include/texturemanager.h
+```
+// texturemanager.h
+#ifndef TEXTUREMANAGER_H
+#define TEXTUREMANAGER_H
+
+#include <string>
+#include <unordered_map>
+
+struct SDL_Renderer;
+struct SDL_Texture;
+struct TTF_Font;
+
+class TextureManager {
+  public:
+    // You must give TextureManager a valid SDL_Renderer* at construction time.
+    // It keeps that renderer internally so it can turn surfaces → textures.
+    TextureManager(SDL_Renderer* renderer_);
+
+    ~TextureManager();
+
+    // Non‐copyable / non‐movable for simplicity
+    TextureManager(const TextureManager&) = delete;
+    TextureManager& operator=(const TextureManager&) = delete;
+
+    bool load_texture(const char* id, const char* file_path);
+    SDL_Texture* get_texture(const char* id) const;
+
+    // (Optional) Query width/height of a loaded texture.
+    bool query_texture(const char* id, float& outW, float& outH) const;
+
+  private:
+    SDL_Renderer* renderer;
+    std::unordered_map<std::string, SDL_Texture*> texture_map;
+};
+
+class FontManager {
+  public:
+    FontManager() {};
+
+    ~FontManager();
+
+    // Non‐copyable / non‐movable for simplicity
+    FontManager(const FontManager&) = delete;
+    FontManager& operator=(const FontManager&) = delete;
+
+    bool load_font(const char* id, const char* file_path, int font_size);
+    TTF_Font* get_font(const char* id) const;
+
+  private:
+    std::unordered_map<std::string, TTF_Font*> font_map;
+};
+
+class ResourceProvider {
+  public:
+    virtual TextureManager* get_textureManager() = 0;
+    virtual FontManager* get_fontManager() = 0;
+    virtual ~ResourceProvider() = default;
+};
+
+class GameResources : public ResourceProvider {
+  public:
+    GameResources(SDL_Renderer* renderer_)
+        : renderer(renderer_), textureManager(renderer_) {
+        load_common_resources();
+    }
+
+    TextureManager* get_textureManager() override { return &textureManager; }
+    FontManager* get_fontManager() override { return &fontManager; }
+
+    void load_common_resources() {
+        textureManager.load_texture("player", "resources/collated_grid.png");
+        fontManager.load_font("default", "resources/Roboto-Regular.ttf", 16);
+        fontManager.load_font("stopwatch", "resources/DSEG7Classic-Regular.ttf", 32);
+    }
+
+  private:
+    SDL_Renderer* renderer;
+    TextureManager textureManager;
+    FontManager fontManager;
+};
+
+#endif
+```
+
+include/widget.h
+```
+// widget.h
+#ifndef WIDGET_H
+#define WIDGET_H
+
+#include "display.h"
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
+#include <iomanip>
+
+inline std::string format_number(double value) {
+    char buffer[8];
+    snprintf(buffer, 8, "%.1f", value);
+    return std ::string(buffer);
+}
+
+inline std::string format_number_fixed(double value, int max_digits,
+                                       int precision = 2) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "%.*f", precision, value);
+
+    int digit_count = 0;
+    int end = 0;
+    for (int i = 0; buffer[i] != '\0'; ++i) {
+        if (std::isdigit(buffer[i])) {
+            ++digit_count;
+        }
+        if (digit_count > max_digits)
+            break;
+        ++end;
+    }
+
+    // Trim to the end index
+    std::string result(buffer, end);
+
+    // Suppress trailing decimal point
+    if (!result.empty() && result.back() == '.')
+        result.pop_back();
+
+    return result;
+}
+
+class Widget : public Drawable {
+  public:
+    ~Widget() {
+        free_texture();
+        if (base_texture)
+            SDL_DestroyTexture(base_texture);
+    }
+    RenderLayer layer() const override { return RenderLayer::UI; }
+    virtual void render(const RenderContext* ctx) override = 0; // Still pure virtual
+    std::pair<int, int> get_texture_size() const;
+
+  protected:
+    int tex_w = 0, tex_h = 0;
+    int widget_w = 0, widget_h = 0;
+    const int padding = 4;
+    const int edge_thickness = 2;
+    const int content_offset = edge_thickness + padding;
+
+    bool self_update = true;
+    SDL_Texture* texture = nullptr;
+    SDL_Texture* base_texture = nullptr;
+
+    virtual void update_texture(const RenderContext* ctx) {};
+    virtual void free_texture() {
+        if (texture) {
+            SDL_DestroyTexture(texture);
+            texture = nullptr;
+        }
+    }
+    // makes sure deletion happens at concrete class
+    virtual SDL_Texture* create_base(SDL_Renderer* renderer) { return nullptr; };
+};
+
+class Stopwatch : public Widget {
+  private:
+    Simulation* sim;
+    TTF_Font* font;
+    SDL_Color text_color = SDL_Color{80, 255, 40, 255};
+    int screen_x, screen_y;
+    int update_interval_ms;
+
+    int padding = 6;
+    int edge_thickness = 3;
+    int content_offset = padding + edge_thickness;
+
+    uint32_t last_update_ticks = 0;
+
+    SDL_Texture* render_time(SDL_Renderer* renderer, const char* s, int& out_w,
+                             int& out_h);
+    SDL_Texture* create_base(SDL_Renderer* renderer) override;
+
+  public:
+    Stopwatch(int x, int y, TTF_Font* font_, Simulation* sim_, int update_ms = 100)
+        : sim(sim_), font(font_), screen_x(x), screen_y(y),
+          update_interval_ms(update_ms) {
+        last_update_ticks = 0;
+    }
+
+    // ~Stopwatch() { free_texture(); };
+
+    void update_texture(const RenderContext* ctx) override;
+    void render(const RenderContext* ctx) override;
+};
+
+class ValueField : public Widget {
+  private:
+    void* value_ptr;
+    bool is_numeric;
+    int char_count;
+    TTF_Font* font;
+    SDL_Color text_color = SDL_Color{200, 200, 200, 255};
+    int screen_x, screen_y;
+    int update_interval_ms = 500;
+    uint32_t last_update_ticks = 0;
+    bool right_align;
+    const void* bound_id;
+
+    bool self_update = true;
+
+    std::function<std::string()> value_callback;
+    // takes snapshot, returns value to show
+    std::function<double(const RiderSnapshot)> numeric_getter;
+    void bind_object(const void* id,
+                     std::function<double(const RiderSnapshot)> getter = 0) {
+        bound_id = id;
+        if (getter) {
+            numeric_getter = std::move(getter);
+        }
+    }
+
+    std::string formatter(double val) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1f", val);
+        return std::string(buf);
+    }
+
+    SDL_Texture* render_text(SDL_Renderer* renderer, const char* s, int& out_w,
+                             int& out_h);
+    SDL_Texture* create_base(SDL_Renderer* renderer) override;
+
+  public:
+    // TODO -  maybe we only need the member ptr since we use snapshots?
+    // ✅ 1) Generic bind for pointer-to-field
+    template <typename T>
+    void bind_object(const void* id, T RiderSnapshot::* member_ptr) {
+        bound_id = id;
+        numeric_getter = [member_ptr](const RiderSnapshot& s) {
+            return static_cast<double>(s.*member_ptr);
+        };
+    }
+
+    // ✅ 2) Generic bind for pointer-to-const-member-function
+    template <typename Ret>
+    void bind_object(const void* id, Ret (RiderSnapshot::*method)() const) {
+        bound_id = id;
+        numeric_getter = [method](const RiderSnapshot& s) {
+            return static_cast<double>((s.*method)());
+        };
+    }
+
+    // ✅ 3) Fallback: custom lambda
+    void bind_object(const void* id,
+                     std::function<double(const RiderSnapshot&)> getter) {
+        bound_id = id;
+        numeric_getter = std::move(getter);
+    }
+
+    explicit ValueField(int x, int y, int char_count_, TTF_Font* font_,
+                        bool self_update_ = true, bool right_align_ = true)
+        : screen_x(x), screen_y(y), char_count(char_count_), font(font_),
+          self_update(self_update_), right_align(right_align_) {}
+    // member field
+    template <typename T>
+    explicit ValueField(int x, int y, int char_count_, TTF_Font* font_, const void* id_,
+                        T RiderSnapshot::* member_ptr, bool self_update_ = true,
+                        bool right_align_ = true)
+        : screen_x(x), screen_y(y), char_count(char_count_), font(font_),
+          self_update(self_update_), right_align(right_align_) {
+        bind_object(id_, member_ptr);
+    }
+    // member function
+    template <typename Ret>
+    explicit ValueField(int x, int y, int char_count_, TTF_Font* font_, const void* id_,
+                        Ret (RiderSnapshot::*method)() const, bool self_update_ = true,
+                        bool right_align_ = true)
+        : screen_x(x), screen_y(y), char_count(char_count_), font(font_),
+          self_update(self_update_), right_align(right_align_) {
+        bind_object(id_, method);
+    }
+    // getter lamba
+    explicit ValueField(int x, int y, int char_count_, TTF_Font* font_, const void* id_,
+                        std::function<double(const RiderSnapshot&)> getter,
+                        bool self_update_ = true, bool right_align_ = true)
+        : screen_x(x), screen_y(y), char_count(char_count_), font(font_),
+          self_update(self_update_), right_align(right_align_) {
+        bind_object(id_, getter);
+    }
+
+    void update_texture(SDL_Renderer* renderer, const RiderSnapshot* snapshot);
+    void render(const RenderContext* ctx) override;
+};
+
+class ValueFieldRow : public Widget {
+  private:
+    std::string label_text;
+    TTF_Font* font;
+    SDL_Color label_color{200, 200, 200, 255};
+    SDL_Texture* label_texture = nullptr;
+    int label_w = 0, label_h = 0;
+
+    std::unique_ptr<ValueField> value_field;
+
+    int x, y;           // top-left anchor
+    int spacing_px = 2; // gap between label and value
+
+  public:
+    ValueFieldRow(int x_, int y_, const std::string& label, TTF_Font* font_,
+                  std::unique_ptr<ValueField> vf, int spacing = 10)
+        : x(x_), y(y_), label_text(label), font(font_), value_field(std::move(vf)),
+          spacing_px(spacing) {}
+
+    ~ValueFieldRow() {
+        if (label_texture) {
+            SDL_DestroyTexture(label_texture);
+        }
+    }
+
+    void update_texture(SDL_Renderer* renderer, const RiderSnapshot* snapshot) {
+        if (!label_texture) {
+            SDL_Surface* surf =
+                TTF_RenderText_Blended(font, label_text.c_str(), 0, label_color);
+            label_texture = SDL_CreateTextureFromSurface(renderer, surf);
+            label_w = surf->w;
+            label_h = surf->h;
+            SDL_DestroySurface(surf);
+        }
+        value_field->update_texture(renderer, snapshot);
+    }
+
+    void render(const RenderContext* ctx) override {
+        std::pair<int, int> size = value_field->get_texture_size();
+        float label_x = x + (float)size.first + spacing_px;
+        float label_y = y + ((float)size.second - label_texture->h) / 2;
+        SDL_FRect dst{label_x, label_y, (float)label_w, (float)label_h};
+        SDL_RenderTexture(ctx->renderer, label_texture, nullptr, &dst);
+
+        // Position value to the right
+        // value_field->set_position(x + label_w + spacing_px, y);
+        value_field->render(ctx);
+    }
+
+    void set_position(int x_, int y_) {
+        x = x_;
+        y = y_;
+    }
+
+    ValueField* get_value_field() { return value_field.get(); }
+};
+
+class ValueFieldPanel : public Widget {
+    // TODO - add a set_position() or something
+    // but make sure it also moves the children (ValueFieldRow)
+  private:
+    TTF_Font* font;
+    SDL_Color text_color = SDL_Color{200, 200, 200, 255};
+    int screen_x, screen_y;
+    Rider* rider = nullptr;
+    std::string name;
+    Simulation* sim;
+
+    int name_w;
+    int name_h;
+
+    SDL_Texture* name_texture = nullptr;
+
+    int spacing = 20;
+    int step_y;
+
+    std::vector<std::unique_ptr<ValueField>> fields;
+    std::vector<std::unique_ptr<ValueFieldRow>> rows;
+
+    uint32_t last_update_ticks = 0;
+    int update_interval_ms = 100;
+
+    SDL_Texture* create_base(SDL_Renderer* renderer) override;
+    void update_texture(SDL_Renderer* renderer, const RiderSnapshot* snapshot);
+
+    template <typename T>
+    void add_field(int row, const void* id, T RiderSnapshot::* member_ptr);
+
+    void add_row(std::unique_ptr<ValueFieldRow> row);
+    template <typename... FieldArgs>
+    ValueFieldRow* emplace_row(std::string label, FieldArgs&&... vf_args);
+
+  public:
+    ValueFieldPanel(int x, int y, TTF_Font* font_, Rider* rider_);
+    void render(const RenderContext* ctx) override;
+};
+
+#endif
+```
+
+src/appstate.cpp
+```
+#include "appstate.h"
+#include "screen.h"
+
+void AppState::switch_screen(ScreenType type) {
+  delete screen;
+  current_screen = type;
+
+  switch (type) {
+  case ScreenType::Menu:
+    screen = new MenuScreen(this);
+    break;
+  case ScreenType::Simulation:
+    screen = new SimulationScreen(this);
+    break;
+  case ScreenType::Result:
+    screen = new ResultsScreen(this);
+    break;
+  }
+}
+```
+
+src/course.cpp
+```
+#include "course.h"
+#include "pch.hpp"
+#include <stdexcept>
+
+// make CourseSegment easier to print
+std::ostream& operator<<(std::ostream& os, const Segment& cs) {
+  os << cs.length << " m at " << cs.slope * 100 << "%";
+  return os;
+}
+
+Course::Course(const std::vector<std::array<double, 3>> segments_) {
+  double x = 0.0, y = 0.0;
+  for (auto [len, slope, heading] : segments_) {
+    segments.push_back({x, len, slope, x + len});
+    altitudes.push_back(y);
+    x += len;
+    y += len * slope;
+  }
+  total_length = x;
+  printf("%f", total_length);
+}
+
+Course
+Course::from_segments(const std::vector<std::array<double, 3>> segments) {
+  return Course(segments);
+}
+
+Course Course::create_flat() {
+  std::vector<std::array<double, 3>> v = {{300000, 0, 0}};
+  return Course(v);
+}
+
+Course Course::create_endulating() {
+  std::vector<std::array<double, 3>> v = {
+      {100, 0, 0}, {200, 0.1, 0}, {200, 0.15, 0}, {500, 0, 0}};
+  return Course(v);
+}
+
+double Course::get_altitude(double pos) const {
+  int idx = find_segment(pos);
+  return altitudes[idx] + segments[idx].altitude_at(pos);
+}
+
+double Course::get_slope(double pos) const {
+  return segments[find_segment(pos)].slope;
+}
+
+Wind Course::get_wind(double pos) const { return Wind{1, 0}; }
+
+MatrixX2d Course::get_points(double x_min, double x_max) const {
+  if (x_min > x_max)
+    std::swap(x_min, x_max);
+  if (x_min < 0)
+    x_min = 0;
+  int i0 = find_segment(x_min);
+  int i1 = find_segment(x_max);
+
+  // count points: endpoints + internal breaks
+  int count = 2; // for x_min and x_max
+  for (int i = i0 + 1; i <= i1; ++i) {
+    double bx = segments[i].start_x;
+    if (bx > x_min && bx < x_max)
+      ++count;
+  }
+
+  MatrixX2d pts(count, 2);
+  int row = 0;
+  // x_min
+  pts(row, 0) = x_min;
+  pts(row, 1) = get_altitude(x_min);
+  ++row;
+
+  // internal breaks
+  for (int i = i0 + 1; i <= i1; ++i) {
+    double bx = segments[i].start_x;
+    if (bx > x_min && bx < x_max) {
+      pts(row, 0) = bx;
+      pts(row, 1) = altitudes[i];
+      ++row;
+    }
+  }
+
+  // x_max
+  pts(row, 0) = x_max;
+  pts(row, 1) = get_altitude(x_max);
+  return pts;
+}
+
+int Course::find_segment(double x) const {
+  int lo = 0, hi = segments.size() - 1;
+  while (lo <= hi) {
+    int mid = (lo + hi) / 2;
+    if (x < segments[mid].start_x)
+      hi = mid - 1;
+    else if (x >= segments[mid].end_x)
+      lo = mid + 1;
+    else
+      return mid;
+  }
+  throw std::out_of_range("x out of course bounds");
+}
+
+void Course::print() {
+  std::cout << "Course:" << std::endl;
+  for (const Segment& course_segment : segments) {
+    std::cout << course_segment << std::endl;
+  }
+  for (int i = 0; i < segments.size(); i++) {
+    std::cout << segments[i].start_x << ", " << altitudes[i] << std::endl;
+  }
+  // for (const std::array<double, 3> &seg_range : segment_ranges) {
+  //   std::cout << "x_start: " << seg_range[0] << ",\tx_end:" << seg_range[1]
+  //             << ",\tslope: " << seg_range[2] * 100 << "%" << std::endl;
+  // }
+}
+```
+
+src/display.cpp
+```
+#include "display.h"
+#include "pch.hpp"
+#include "texturemanager.h"
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
+#include <thread>
+
+Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
+    : course(course_), world_width(world_width_), screensize(screensize_) {
+  scale = screensize_[0] / (double)world_width_;
+  vert_scale = 1.0;
+  pos = {0.0, 0.0};
+}
+
+void Camera::follow_course(double x) { pos << x, course->get_altitude(x); }
+
+void Camera::update(double x) {
+  if (target_rider) {
+    pos = target_rider->get_pos2d();
+  } else {
+    follow_course(x);
+  }
+}
+
+void Camera::_set_pos(Vector2d pos_) { this->pos = pos_; }
+
+Vector2d Camera::world_to_screen(Vector2d world_pos) const {
+  // offset from camera pos, multiply by scale, invert y axis
+  // and offset (0, 0) to the center of the screen
+  return ((world_pos - pos) * scale).cwiseProduct(Vector2d(1, -vert_scale)) +
+         Vector2d(screensize[0] / 2, screensize[1] / 2);
+}
+
+MatrixX2d Camera::world_to_screen(MatrixX2d world_pts) const {
+  world_pts.rowwise() -= pos;
+  world_pts *= scale;
+  world_pts.col(1) *= -vert_scale;
+  world_pts.rowwise() += screensize * 0.5;
+  return world_pts;
+}
+
+MatrixX2d Camera::get_visible_points() const {
+  double half_w = (double)world_width * 0.5;
+  MatrixX2d pts = course->get_points(pos[0] + half_w, pos[0] - half_w);
+  return world_to_screen(pts);
+}
+
+CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
+
+void CourseDrawable::render(const RenderContext* ctx) {
+  // should these camera calls/gets be locked with
+  // PhysicsEngine.get_frame_mutex()?
+  MatrixX2d pts = ctx->camera->get_visible_points();
+  float center_x = ctx->camera->screensize[0] * 0.5f;
+  float center_y = ctx->camera->screensize[1] * 0.5f;
+  // maybe i could use vector here?
+  int n = (int)pts.rows();
+  SDL_FPoint* points = new SDL_FPoint[n];
+  for (int i = 0; i < n; ++i) {
+    points[i].x = pts(i, 0);
+    points[i].y = pts(i, 1); // Construct pair from row data
+  }
+
+  SDL_SetRenderDrawColor(ctx->renderer, 200, 200, 200, 255);
+  SDL_RenderLines(ctx->renderer, points, pts.rows());
+  // SDL_SetRenderDrawColor(ctx->renderer, 200, 0, 0, 10);
+  // SDL_FRect r{center_x - 2.0f, center_y - 2.0f, 5.0f, 5.0f};
+  // SDL_RenderFillRect(ctx->renderer, &r);
+  delete[] points;
+};
+
+void RiderDrawable::render(const RenderContext* ctx) {
+  if (ctx->rider_snapshots->size() == 0) {
+    throw std::runtime_error(
+        "rider snapshots are empty (RiderDrawable::render)");
+  }
+
+  SDL_SetRenderDrawColor(ctx->renderer, 0, 255, 0, 255);
+  // Draw each rider as a small 6×6 filled rect, centered on its screen‐space
+  // pos
+  for (const RiderSnapshot rider_snapshot : *ctx->rider_snapshots) {
+    Vector2d screen_pos = ctx->camera->world_to_screen(rider_snapshot.pos2d);
+    float w = 128;
+    float h = 128;
+    float x = static_cast<float>(screen_pos.x()) - w;
+    float y = static_cast<float>(screen_pos.y()) - h;
+    const SDL_FRect dst = SDL_FRect{x, y, w, h};
+    const SDL_FRect src = SDL_FRect{0, 0, 256, 256};
+    const SDL_Texture* tex =
+        ctx->resources->get_textureManager()->get_texture("player");
+    if (!tex) {
+      SDL_Log("Missing texture 'player' while rendering tider %ld",
+              (long)rider_snapshot.id);
+      continue;
+    }
+    SDL_RenderTexture(ctx->renderer, const_cast<SDL_Texture*>(tex), &src, &dst);
+    SDL_FRect r{x - 3.0f, y - 3.0f, 6.0f, 6.0f};
+    SDL_RenderFillRect(ctx->renderer, &r);
+  }
+}
+
+DisplayEngine::DisplayEngine(Simulation* s, int w, int h, Camera* camera_)
+    : sim(s), width(w), height(h), camera(camera_) {
+  if (!SDL_Init(SDL_INIT_VIDEO)) {
+    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
+  }
+  if (!TTF_Init()) {
+    SDL_Log("Couldn't initialize TTF: %s", SDL_GetError());
+  }
+  SDL_CreateWindowAndRenderer("Physics Sim", width, height, 0, &window,
+                              &renderer);
+}
+
+void DisplayEngine::set_resources(ResourceProvider* resources_) {
+  resources = resources_;
+}
+
+ResourceProvider* DisplayEngine::get_resources() const {
+  if (!resources) {
+    SDL_Log("get_resources() called but resources == nullptr!");
+  }
+  return resources;
+}
+
+void DisplayEngine::add_drawable(std::unique_ptr<Drawable> d) {
+  drawables.emplace_back(std::move(d));
+}
+
+std::vector<RiderSnapshot> DisplayEngine::get_rider_snapshots() {
+  std::vector<RiderSnapshot> result;
+
+  std::lock_guard<std::mutex> lock(*sim->get_engine()->get_frame_mutex());
+  const std::vector<Rider*>& riders =
+      sim->get_engine()->get_riders(); // assuming a getter
+
+  result.reserve(riders.size());
+  for (const Rider* rider_ptr : riders) {
+    result.push_back(rider_ptr->snapshot()); // copy out minimal state
+  }
+  return result; // rendering can now proceed without holding any locks
+}
+
+bool DisplayEngine::load_image(const char* id, const char* filename) {
+  return resources->get_textureManager()->load_texture(id, filename);
+}
+
+void DisplayEngine::render_frame() {
+  auto start = std::chrono::steady_clock::now();
+  std::vector<RiderSnapshot> rider_snapshots;
+  rider_snapshots = get_rider_snapshots();
+  if (!rider_snapshots.empty()) {
+    // TODO - hacky!
+    camera->_set_pos(rider_snapshots[0].pos2d);
+    // TODO - else?
+  }
+  SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+  SDL_RenderClear(renderer);
+
+  // Build a RenderContext that hands each Drawable a pointer to our snapshot
+  RenderContext ctx{renderer, camera, &rider_snapshots, resources};
+
+  // Render each Drawable in order (CourseDrawable, RiderDrawable, etc.)
+  for (auto& d : drawables) {
+    d->render(&ctx);
+  }
+
+  // Finally present the composed frame
+  SDL_RenderPresent(renderer);
+
+  auto end = std::chrono::steady_clock::now();
+  std::chrono::duration<double> elapsed = end - start;
+  if (elapsed < target_frame_duration) {
+    std::this_thread::sleep_for(target_frame_duration - elapsed);
+  }
+
+  last_frame_time = std::chrono::steady_clock::now();
+}
+
+// what does this do?
+bool DisplayEngine::handle_event(const SDL_Event* e) {
+  for (auto it = drawables.rbegin(); it != drawables.rend(); ++it) {
+    if ((*it)->handle_event(e)) {
+      return true; // Event was consumed
+    }
+  }
+  return false;
+}
+
+SDL_Renderer* DisplayEngine::get_renderer() { return renderer; }
+Camera* DisplayEngine::get_camera() { return camera; }
+```
+
+src/haha.cpp
+```
+int main() { return 0; }
+```
+
+src/helpers.cpp
+```
+#include <SDL3/SDL.h>
+#include <iostream>
+
+void convert_color(SDL_Surface* surf) {
+    SDL_LockSurface(surf);
+
+    int w = surf->w;
+    int h = surf->h;
+    int pitch = surf->pitch;
+    auto details = SDL_GetPixelFormatDetails(surf->format);
+    int bpp = details->bytes_per_pixel;
+
+    for (int y = 0; y < h; y++) {
+        Uint8* row = (Uint8*)surf->pixels + y * pitch;
+        for (int x = 0; x < w; x++) {
+            Uint8* pixelPtr = row + x * bpp;
+            Uint32 rawpixel = 0;
+
+            // 1) Read exactly bpp bytes into a Uint32:
+            switch (bpp) {
+            case 1:
+                rawpixel = *pixelPtr;
+                break;
+            case 2:
+                rawpixel = *(Uint16*)pixelPtr;
+                break;
+            case 3:
+                if (SDL_BYTEORDER == SDL_BIG_ENDIAN) {
+                    rawpixel = (pixelPtr[0] << 16) | (pixelPtr[1] << 8) | pixelPtr[2];
+                } else {
+                    rawpixel = pixelPtr[0] | (pixelPtr[1] << 8) | (pixelPtr[2] << 16);
+                }
+                break;
+            case 4:
+                rawpixel = *(Uint32*)pixelPtr;
+                break;
+            }
+
+            // 2) Extract R,G,B,A:
+            Uint8 r, g, b, a;
+            SDL_GetRGBA(rawpixel, details, nullptr, &r, &g, &b, &a);
+
+            // 3) Decide if we want to repaint it:
+            if (r > 120 && g < 20 && b > 120) {
+                Uint8 newR = 255;
+                Uint8 newG = 0;
+                Uint8 newB = 255;
+                // keep same alpha
+                Uint32 new_pixel = SDL_MapRGBA(details, nullptr, newR, newG, newB, a);
+
+                // 4) Write exactly bpp bytes back:
+                switch (bpp) {
+                case 1:
+                    *pixelPtr = (Uint8)(new_pixel & 0xFF);
+                    break;
+                case 2:
+                    *(Uint16*)pixelPtr = (Uint16)(new_pixel & 0xFFFF);
+                    break;
+                case 3:
+                    if (SDL_BYTEORDER == SDL_BIG_ENDIAN) {
+                        pixelPtr[0] = (new_pixel >> 16) & 0xFF;
+                        pixelPtr[1] = (new_pixel >> 8) & 0xFF;
+                        pixelPtr[2] = (new_pixel >> 0) & 0xFF;
+                    } else {
+                        pixelPtr[0] = (new_pixel >> 0) & 0xFF;
+                        pixelPtr[1] = (new_pixel >> 8) & 0xFF;
+                        pixelPtr[2] = (new_pixel >> 16) & 0xFF;
+                    }
+                    break;
+                case 4:
+                    *(Uint32*)pixelPtr = new_pixel;
+                    break;
+                }
+            }
+        }
+    }
+
+    SDL_UnlockSurface(surf);
+}
+
+SDL_Surface* load_transparent_bmp(const char* filename) {
+    // The final texture
+    SDL_Texture* newTexture = NULL;
+
+    // Load image at specified path
+    SDL_Surface* surf = SDL_LoadBMP(filename);
+
+    convert_color(surf);
+    // Color key image
+    const SDL_PixelFormatDetails* fmt_details = SDL_GetPixelFormatDetails(surf->format);
+    SDL_SetSurfaceColorKey(surf, true, SDL_MapRGB(fmt_details, nullptr, 0xFF, 0, 0xFF));
+
+    return surf;
+}
+
+const SDL_Texture* load_from_file(SDL_Renderer* renderer, const char* filename) {
+    SDL_Surface* surf = load_transparent_bmp(filename);
+    if (!surf) {
+        std::cerr << "IMG_Load Error: " << SDL_GetError() << "\n";
+        return NULL;
+    }
+    // 2) Create texture
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    if (!tex) {
+        std::cerr << "SDL_CreateTextureFromSurface Error: " << SDL_GetError() << "\n";
+        SDL_DestroySurface(surf);
+        return NULL;
+    }
+
+    // 3) Save dimensions
+    // int width = surf->w;
+    // int height = surf->h;
+
+    SDL_DestroySurface(surf);
+    return tex;
+}
+```
+
+src/main.cpp
+```
+#include "SDL3/SDL_events.h"
+#include "appstate.h"
+#include "sim.h"
+#define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
+#include "course.h"
+#include "screen.h"
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
+
+int SCREEN_WIDTH = 1000;
+int SCREEN_HEIGHT = 640;
+int WORLD_WIDTH = 400;
+
+SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
+  auto* state = new AppState();
+
+  SDL_CreateWindowAndRenderer("Cycle sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0,
+                              &state->window, &state->renderer);
+
+  state->course = new Course(Course::create_endulating());
+  state->sim = new Simulation(state->course);
+  state->sim->set_time_factor(5.0);
+  Team team("Team1");
+  Rider* r = Rider::create_generic(team);
+  state->sim->get_engine()->add_rider(r);
+
+  Rider* r2 = new Rider("Pedro", 200, 80, 0.3, Bike::create_generic(), team);
+  r2->pos = 20;
+  state->sim->get_engine()->add_rider(r2);
+
+  state->physics_thread =
+      new std::thread([sim = state->sim]() { sim->start_realtime(); });
+
+  // state->window =
+  //     SDL_CreateWindow("Cycling Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
+  // state->renderer = SDL_CreateRenderer(state->window, nullptr);
+
+  state->switch_screen(ScreenType::Simulation);
+
+  *appstate = state;
+  return SDL_APP_CONTINUE;
+}
+
+/* This function runs when a new event (mouse input, keypresses, etc) occurs. */
+SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
+  auto* state = static_cast<AppState*>(appstate);
+  if (event->type == SDL_EVENT_QUIT) {
+    return SDL_APP_SUCCESS; /* end the program, reporting success */
+  }
+
+  else {
+    state->screen->handle_event(event);
+  }
+  return SDL_APP_CONTINUE; /* carry on with the program! */
+}
+
+/* This function runs once per frame, and is the heart of the program. */
+SDL_AppResult SDL_AppIterate(void* appstate) {
+  auto* state = static_cast<AppState*>(appstate);
+  // state->display->render_frame();
+  state->screen->update();
+  state->screen->render();
+
+  return SDL_APP_CONTINUE; /* carry on with the program! */
+}
+
+/* This function runs once at shutdown. */
+void SDL_AppQuit(void* appstate, SDL_AppResult result) {
+  auto* state = static_cast<AppState*>(appstate);
+
+  if (state->sim) {
+    state->sim->stop();
+  }
+
+  if (state->physics_thread) {
+    state->physics_thread->join();
+    delete state->physics_thread;
+  }
+
+  delete state->screen;
+  delete state->sim;
+  delete state->course;
+
+  delete state;
+}
+```
+
+src/rider.cpp
+```
+#include "rider.h"
+#include "course.h"
+#include <cmath>
+#include <iostream>
+// for std::setprecision
+#include <iomanip>
+
+#include "helpers.h"
+
+const double ETOL = 1e-1; // W
+const double ERTOL = 1e-3;
+const double PTOL = 2e-3; // m/s
+const double PRTOL = 1e-4;
+
+const double RHO = 1.2234;
+const double G = 9.80665;
+
+const double PI = 3.14159265358979323846;
+
+bool is_close(double value, double target, double tol, double rtol) {
+  return std::fabs(value - target) <= tol + rtol * std::fabs(target);
+}
+
+Bike::Bike(double mass_, double wheel_i_, double wheel_r_,
+           double wheel_drag_factor_, double crr_, double dt_loss_)
+    : mass(mass_), wheel_i(wheel_i_), wheel_r(wheel_r_),
+      wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_) {}
+
+Bike Bike::create_generic() { return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02); }
+
+Team::Team(const char* name_) : name(name_) {}
+
+Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
+             Bike bike_, Team team_)
+    : id(this), name(name_), ftp_base(ftp_base_), mass(mass_), cda(cda_),
+      bike(bike_), team(team_) {
+  cda_factor = 1.0;
+  target_effort = 0.5;
+  pos = 0;
+  speed = 0;
+  slope = 0;
+
+  heading = PI / 3;
+
+  set_cda_factor(1);
+  change_bike(bike);
+
+  timestep = 1;
+}
+
+Rider* Rider::create_generic(Team team_) {
+  Bike bike = Bike::create_generic();
+  return new Rider("Joe Moe", 250, 70, 0.3, bike, team_);
+}
+
+void Rider::set_course(const ICourseView* cv) { course = cv; }
+
+std::ostream& operator<<(std::ostream& os, const Rider& r) {
+  os << std::fixed << std::setprecision(1) << r.name << ":\t" << r.ftp_base
+     << " W\t" << r.mass << " kg\npos: " << r.pos
+     << "m\tspeed: " << r.speed * 3.6 << " km/h" << std::endl;
+  return os;
+}
+
+Vector2d Rider::get_pos2d() const {
+  std::lock_guard<std::mutex> lock(mutex);
+  return _pos2d;
+}
+
+void Rider::set_pos2d(Vector2d pos) {
+  std::lock_guard<std::mutex> lock(mutex);
+  _pos2d = pos;
+}
+
+void Rider::set_cda_factor(double cda_factor_) {
+  cda_factor = cda_factor_;
+  effective_cda = cda_factor * cda;
+  compute_drag();
+}
+
+void Rider::set_mass(double rider_mass) {
+  mass = rider_mass;
+  total_mass = rider_mass + bike.mass;
+  compute_roll();
+  compute_drag();
+  compute_inertia();
+}
+
+void Rider::compute_headwind() {
+  Wind wind = course->get_wind(pos);
+  v_hw = wind.speed * cos(wind.heading - this->heading);
+}
+
+void Rider::compute_drag() {
+  drag_coeff = 0.5 * RHO * (effective_cda + bike.wheel_drag_factor);
+}
+
+void Rider::compute_roll() { roll_coeff = bike.crr * total_mass * G; }
+
+void Rider::compute_inertia() {
+  mass_ir = total_mass + bike.wheel_i / pow(bike.wheel_r, 2);
+  inertia_coeff = 0.5 * mass_ir;
+}
+
+void Rider::compute_coeff() {
+  compute_drag();
+  compute_roll();
+  compute_inertia();
+}
+
+void Rider::change_bike(Bike new_bike) {
+  bike = new_bike;
+  total_mass = mass + bike.mass;
+  f_grav = total_mass * G;
+  compute_coeff();
+}
+
+void Rider::reset() {
+  pos = 0;
+  speed = 0;
+  // TODO - reset energymodel!
+}
+
+void Rider::update(double dt) {
+  timestep = dt;
+  slope = course->get_slope(pos);
+  compute_headwind();
+  double ftp = ftp_base;
+  // this comes from energymodel
+  double effort_limit = 1;
+  power = std::min(target_effort, effort_limit) * ftp;
+  // energy_model.update(power, timestep);
+
+  speed = newton(power, speed);
+  pos += timestep * speed;
+  altitude = course->get_altitude(pos);
+  set_pos2d(Vector2d{pos, altitude});
+}
+
+const void* Rider::get_id() const {
+  // Use the object's memory address as the ID
+  return id;
+}
+
+double Rider::km() const { return pos / 1000.0; }
+
+double Rider::km_h() const { return speed * 3.6; }
+
+double Rider::pow_speed(double new_speed) const {
+  double v_air = new_speed + v_hw;
+  return (drag_coeff * pow(v_air, 2) * new_speed + roll_coeff * new_speed +
+          (0.091 + 0.0087 * new_speed) * new_speed +
+          f_grav * sin(atan(slope)) * new_speed +
+          inertia_coeff * (pow(new_speed, 2) - pow(speed, 2)) / timestep) /
+         (1 - bike.dt_loss);
+}
+
+double Rider::pow_speed_prime(double new_speed) {
+  double v_air = new_speed + v_hw;
+  return (drag_coeff * (2 * v_air * new_speed + pow(v_air, 2)) + roll_coeff +
+          0.091 + 0.0174 * new_speed + f_grav * sin(atan(slope)) +
+          inertia_coeff * 2 * new_speed / timestep) /
+         (1 - bike.dt_loss);
+}
+
+double Rider::pow_speed_double_prime(double new_speed) {
+  double v_air = new_speed + v_hw;
+  return (drag_coeff * (2 * new_speed + 4 * v_air) + 0.0174 +
+          inertia_coeff * 2 / timestep) /
+         (1 - bike.dt_loss);
+}
+
+RiderSnapshot Rider::snapshot() const {
+  std::lock_guard<std::mutex> lock(mutex);
+
+  return RiderSnapshot{
+      .id = this->id,
+      .name = this->name,
+      .pos = this->pos,
+      .km = this->pos / 1000.0,
+      .pos2d = this->_pos2d,
+      .power = this->power,
+      .speed = this->speed,
+      .km_h = this->km_h(),
+      .heading = this->heading,
+      .team = this->team,
+  };
+}
+
+double Rider::newton(double power, double speed_guess, int max_iterations) {
+  double x = speed_guess;
+  double x_next;
+  double f, f_prime;
+
+  for (int i = 0; i < max_iterations; ++i) {
+    f = pow_speed(x) - power;
+    f_prime = pow_speed_prime(x);
+
+    if (std::abs(f_prime) < 1e-12) {
+      throw std::runtime_error("Derivative too small.");
+    }
+
+    x_next = x - f / f_prime;
+
+    // std::cout << "error: " << f << "\tprecision: " << x_next - x <<
+    // std::endl;
+
+    if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
+      return x_next;
+    }
+
+    x = x_next;
+  }
+
+  throw std::runtime_error("Did not converge. Reached max iterations: " +
+                           std::to_string(max_iterations));
+}
+
+double Rider::householder(double power, double speed_guess,
+                          int max_iterations) {
+  double x = speed_guess;
+  double x_next;
+  double f, f_prime, f_double_prime;
+
+  for (int i = 0; i < max_iterations; ++i) {
+    f = pow_speed(x) - power;
+    f_prime = pow_speed_prime(x);
+    f_double_prime = pow_speed_double_prime(x); // must define this
+
+    if (std::abs(f_prime) < 1e-12) {
+      throw std::runtime_error("Derivative too small.");
+    }
+
+    double correction = (f / f_prime);
+    correction *= (1.0 + (f * f_double_prime) / (2.0 * f_prime * f_prime));
+
+    x_next = x - correction;
+
+    std::cout << "error: " << f << "\tprecision: " << x_next - x << std::endl;
+
+    if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
+      return x_next;
+    }
+
+    x = x_next;
+  }
+
+  throw std::runtime_error("Did not converge. Reached max iterations: " +
+                           std::to_string(max_iterations));
+}
+```
+
+src/screen.cpp
+```
+#include "screen.h"
+#include "widget.h"
+
+void MenuScreen::render() {
+  SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
+  SDL_RenderClear(state->renderer);
+
+  // draw a simple "Press ENTER" text
+  // you probably have font rendering already via resources
+
+  SDL_RenderPresent(state->renderer);
+}
+
+void ResultsScreen::render() {
+  SDL_SetRenderDrawColor(state->renderer, 0, 0, 0, 255);
+  SDL_RenderClear(state->renderer);
+
+  // show rider stats
+  // auto snap1 = state->sim->get_engine()->snapshot_of(state->r1);
+  // auto snap2 = state->sim->get_engine()->snapshot_of(state->r2);
+
+  // draw simple text:
+  // "Rider1 final pos: 123.4"
+  // "Rider2 final pos: 110.2"
+
+  SDL_RenderPresent(state->renderer);
+}
+
+SimulationScreen::SimulationScreen(AppState* s) : state(s) {
+  Vector2d screensize(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
+  camera = new Camera(state->course, WORLD_WIDTH, screensize);
+  // maybe this could take screensize rather than 2 ints?
+  display =
+      new DisplayEngine(state->sim, s->SCREEN_WIDTH, s->SCREEN_HEIGHT, camera);
+
+  resources = new GameResources(display->get_renderer());
+  display->set_resources(resources);
+
+  display->add_drawable(std::make_unique<CourseDrawable>(state->course));
+  display->add_drawable(std::make_unique<RiderDrawable>());
+  display->add_drawable(std::make_unique<Stopwatch>(
+      10, 10, resources->get_fontManager()->get_font("stopwatch"), state->sim));
+  //
+  // state->display->add_drawable(std::make_unique<ValueField>(
+  //     300, 300, 5,
+  //     state->resources->get_fontManager()->get_font("default"), r2,
+  //     &RiderSnapshot::pos));
+  // state->display->add_drawable(std::make_unique<ValueFieldPanel>(
+  //     300, 400, state->resources->get_fontManager()->get_font("default"),
+  //     r));
+
+  camera->set_target_rider(state->sim->get_engine()->get_rider(0));
+}
+
+void SimulationScreen::render() { display->render_frame(); }
+```
+
+src/sim.cpp
+```
+#include "sim.h"
+#include <thread>
+
+PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
+
+void PhysicsEngine::add_rider(Rider* r) {
+  std::lock_guard<std::mutex> lock(frame_mtx);
+  riders.push_back(r);
+  r->set_course(course);
+}
+
+void PhysicsEngine::update(double dt) {
+  for (Rider* r : riders) {
+    r->update(dt);
+    // std::cout << "pos: " << r->pos << "\tm\nspeed: " << 3.6 * r->speed <<
+    // "\tkm/h\n" << std::endl;
+  }
+}
+
+// Expose a way for the render thread to grab the same mutex.
+// We need this so that rendering can “lock frame_mtx” before reading any Rider
+// state.
+std::mutex* PhysicsEngine::get_frame_mutex() const { return &frame_mtx; }
+
+const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
+
+// this is (now) only used to set camera to first rider... kinda useless if
+// fixed
+const Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
+
+PhysicsEngine::~PhysicsEngine() {
+  for (Rider* r : riders) {
+    delete r;
+  }
+}
+
+Simulation::Simulation(const Course* c) : engine(c) {}
+
+void Simulation::start_realtime() {
+  running = true;
+  double accumulator = 0.0;
+  double sim_step;
+
+  auto t_prev = std::chrono::steady_clock::now();
+
+  while (running) {
+    auto t_now = std::chrono::steady_clock::now();
+    double frame_time = std::chrono::duration<double>(t_now - t_prev).count();
+    t_prev = t_now;
+
+    accumulator += frame_time * time_factor;
+
+    while (accumulator >= dt) {
+      auto step_start = std::chrono::steady_clock::now();
+
+      step_fixed(dt);
+      accumulator -= dt;
+
+      // what follows is only to check for exceeding the time
+      auto step_end = std::chrono::steady_clock::now();
+      double step_time =
+          std::chrono::duration<double>(step_end - step_start).count();
+      if (step_time > dt) {
+        SDL_Log("Hey! engine.update(%f) took %f. spiral of death!", dt,
+                step_time);
+      }
+    }
+    // After you’ve done zero or more physics steps,
+    // you can sleep a tiny bit (to release thread?)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+}
+
+void Simulation::step_fixed(double dt) {
+  std::lock_guard<std::mutex> phys_lock(*engine.get_frame_mutex());
+  engine.update(dt);
+  sim_seconds += dt;
+}
+
+void Simulation::run_max_speed(const SimulationCondition& cond) {
+  while (!cond.is_met(*this)) {
+    step_fixed(dt);
+  }
+}
+
+void Simulation::stop() { running = false; }
+
+const double Simulation::get_sim_seconds() const { return sim_seconds; }
+
+class TimeReached : public SimulationCondition {
+  double limit;
+
+public:
+  explicit TimeReached(double limit_seconds) : limit(limit_seconds) {}
+
+  bool is_met(const Simulation& sim) const override {
+    return sim.get_sim_seconds() >= limit;
+  }
+};
+
+class RiderFinished : public SimulationCondition {
+  int rider_index;
+
+public:
+  RiderFinished(int idx) : rider_index(idx) {}
+
+  bool is_met(const Simulation& sim) const override {
+    std::vector<Rider*> riders = sim.get_engine()->get_riders();
+    bool met = false;
+    for (Rider* r : riders) {
+      if (r->pos >= sim.get_engine()->get_course_length()) {
+        met = true;
+      }
+    }
+    return met;
+  }
+};
+
+const PhysicsEngine* Simulation::get_engine() const { return &engine; }
+PhysicsEngine* Simulation::get_engine() { return &engine; }
+```
+
+src/texturemanager.cpp
+```
+#include "texturemanager.h"
+#include "SDL3_ttf/SDL_ttf.h"
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
+#include <iostream>
+#include <string>
+#include <unordered_map>
+
+// You must give TextureManager a valid SDL_Renderer* at construction time.
+// It keeps that renderer internally so it can turn surfaces → textures.
+TextureManager::TextureManager(SDL_Renderer* renderer) : renderer(renderer) {}
+
+TextureManager::~TextureManager() {
+    // Destroy all SDL_Texture* that we have loaded.
+    for (auto& kv : texture_map) {
+        if (kv.second) {
+            SDL_DestroyTexture(kv.second);
+        }
+    }
+}
+
+// Try to load a texture from `filePath` and store it under the key `id`.
+// Returns true if successful (or if the key already existed).
+bool TextureManager::load_texture(const char* id, const char* file_path) {
+    // If we've already loaded “id”, do nothing.
+    if (texture_map.count(id)) {
+        return true;
+    }
+
+    SDL_Surface* surf = IMG_Load(file_path);
+    if (!surf) {
+        std::cerr << "IMG_Load Error (" << file_path << "): " << SDL_GetError() << "\n";
+        return false;
+    }
+
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+
+    if (!tex) {
+        std::cerr << "SDL_CreateTextureFromSurface Error (" << file_path
+                  << "): " << SDL_GetError() << "\n";
+        return false;
+    }
+
+    texture_map[id] = tex;
+    return true;
+}
+
+// Retrieve the texture pointer for a given id (returns nullptr if not found).
+TTF_Font* FontManager::get_font(const char* id) const {
+    auto it = font_map.find(id);
+    if (it == font_map.end())
+        return nullptr;
+    return it->second;
+}
+
+// (Optional) Query width/height of a loaded texture.
+bool TextureManager::query_texture(const char* id, float& outW, float& outH) const {
+    SDL_Texture* tex = get_texture(id);
+    if (!tex)
+        return false;
+    if (0 != SDL_GetTextureSize(tex, &outW, &outH)) {
+        std::cerr << "SDL_QueryTexture Error: " << SDL_GetError() << "\n";
+        return false;
+    }
+    return true;
+}
+
+// Retrieve the texture pointer for a given id (returns nullptr if not found).
+SDL_Texture* TextureManager::get_texture(const char* id) const {
+    auto it = texture_map.find(id);
+    if (it == texture_map.end())
+        return nullptr;
+    return it->second;
+}
+
+bool FontManager::load_font(const char* id, const char* file_path, int font_size) {
+    if (font_map.count(id)) {
+        return true;
+    }
+
+    char* font_path = NULL;
+    SDL_asprintf(&font_path, "%s/../%s", SDL_GetBasePath(), file_path);
+    TTF_Font* font = TTF_OpenFont(font_path, font_size);
+    if (!font) {
+        SDL_Log("Couldn't load font: %s", SDL_GetError());
+        return false;
+    }
+    SDL_free(font_path);
+
+    font_map[id] = font;
+    return true;
+}
+
+FontManager::~FontManager() {
+    // Destroy all SDL_Texture* that we have loaded.
+    for (auto& kv : font_map) {
+        if (kv.second) {
+            free(kv.second);
+        }
+    }
+}
+```
+
+src/widget.cpp
+```
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
+#include <cstdio>
+
+#include "widget.h"
+// for std::setprecision
+// #include <iomanip>
+
+char* format_time(double seconds) {
+    int len = 11;
+    char* buffer = (char*)malloc(len * sizeof(char));
+    if (!buffer)
+        return nullptr;
+
+    // Break down into components
+    int totalTenths = static_cast<int>(round(seconds * 10));
+    int tenths = totalTenths % 10;
+    int totalSeconds = totalTenths / 10;
+    int secs = totalSeconds % 60;
+    int totalMinutes = totalSeconds / 60;
+    int mins = totalMinutes % 60;
+    int hours = totalMinutes / 60;
+
+    // Format with leading zeros and fixed positions
+    snprintf(buffer, len, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
+
+    return buffer;
+}
+
+std::pair<int, int> Widget::get_texture_size() const { return {widget_w, widget_h}; }
+
+SDL_Texture* Stopwatch::render_time(SDL_Renderer* renderer, const char* s, int& out_w,
+                                    int& out_h) {
+    SDL_Surface* surf =
+        TTF_RenderText_LCD(font, s, 0, text_color, SDL_Color{0, 0, 0, 200});
+    if (!surf) {
+        SDL_Log("TTF_RenderText_LCD failed: %s", SDL_GetError());
+        return nullptr;
+    }
+    out_w = surf->w;
+    out_h = surf->h;
+
+    // Create a texture from that surface
+    SDL_Texture* new_texture = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+
+    if (!new_texture) {
+        SDL_Log("SDL_CreateTextureFromSurface failed: %s", SDL_GetError());
+        return nullptr;
+    }
+    return new_texture;
+}
+
+void Stopwatch::update_texture(const RenderContext* ctx) {
+    double sim_time = sim->get_sim_seconds(); // e.g. 12.3456
+    char* buffer = format_time(sim_time);
+    // Free old texture first:
+    free_texture();
+    texture = render_time(ctx->renderer, buffer, tex_w, tex_h);
+    free(buffer);
+    if (!texture) {
+        return; // failed to build; abort drawing this frame
+    }
+}
+
+void Stopwatch::render(const RenderContext* ctx) {
+    // 1) Check whether it's time to rebuild the texture:
+    if (base_texture == nullptr) {
+        base_texture = create_base(ctx->renderer);
+    }
+    Uint32 now_ticks = SDL_GetTicks();
+    if (texture == nullptr ||
+        (now_ticks - last_update_ticks) >= static_cast<Uint32>(update_interval_ms)) {
+        update_texture(ctx);
+        last_update_ticks = now_ticks;
+    }
+
+    // 2) Draw the texture at (screen_x, screen_y)
+    if (texture) {
+        SDL_FRect dst{static_cast<float>(screen_x), static_cast<float>(screen_y),
+                      static_cast<float>(widget_w), static_cast<float>(widget_h)};
+        SDL_RenderTexture(ctx->renderer, base_texture, nullptr, &dst);
+
+        dst = {static_cast<float>(screen_x + content_offset),
+               static_cast<float>(screen_y + content_offset), static_cast<float>(tex_w),
+               static_cast<float>(tex_h)};
+        SDL_RenderTexture(ctx->renderer, texture, nullptr, &dst);
+    }
+}
+
+SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
+    int w, h;
+    TTF_GetStringSize(font, "00:00:00.0", 0, &w, &h);
+    std::cout << w << " " << h << std::endl;
+    int padded_w = w + 2 * content_offset;
+    int padded_h = h + 2 * content_offset;
+    std::cout << padded_w << " " << padded_h << std::endl;
+
+    SDL_Surface* surf = SDL_CreateSurface(padded_w, padded_h, SDL_PIXELFORMAT_XRGB8888);
+    if (!surf) {
+        SDL_Log("SDL_CreateRGBSurfaceWithFormat failed: %s", SDL_GetError());
+        return nullptr;
+    }
+    widget_w = surf->w;
+    widget_h = surf->h;
+
+    const SDL_PixelFormatDetails* fmt_details = SDL_GetPixelFormatDetails(surf->format);
+    Uint32 transparent = SDL_MapRGBA(fmt_details, NULL, 0, 0, 0, 0);
+    Uint32 hlPix = SDL_MapRGBA(fmt_details, NULL, 177, 177, 177, 255);
+    Uint32 shPix = SDL_MapRGBA(fmt_details, NULL, 77, 77, 77, 255);
+    const SDL_Rect* r = new SDL_Rect{0, 0, padded_w, padded_h};
+    SDL_FillSurfaceRect(surf, r, transparent);
+
+    SDL_Rect topEdge = {0, 0, padded_w, edge_thickness};
+    SDL_FillSurfaceRect(surf, &topEdge, hlPix);
+
+    SDL_Rect leftEdge = {0, 0, edge_thickness, padded_h};
+    SDL_FillSurfaceRect(surf, &leftEdge, hlPix);
+
+    // 5) Draw the bottom & right edges with shadow
+    SDL_Rect bottomEdge = {0, padded_h - edge_thickness, padded_w, edge_thickness};
+    SDL_FillSurfaceRect(surf, &bottomEdge, shPix);
+
+    SDL_Rect rightEdge = {padded_w - edge_thickness, 0, edge_thickness, padded_h};
+    SDL_FillSurfaceRect(surf, &rightEdge, shPix);
+
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    if (!tex) {
+        SDL_Log("SDL_CreateTextureFromSurface failed: %s", SDL_GetError());
+        SDL_DestroySurface(surf);
+        return nullptr;
+    }
+
+    std::cout << tex->w << " " << tex->h << std::endl;
+
+    // 10) Clean up the surface; we only need the texture from now on
+    SDL_DestroySurface(surf);
+
+    return tex;
+}
+
+void ValueField::update_texture(SDL_Renderer* renderer, const RiderSnapshot* snapshot) {
+    free_texture();
+    std::string val = formatter(numeric_getter(*snapshot));
+    // std::string val = value_callback()
+
+    texture = render_text(renderer, val.c_str(), tex_w, tex_h);
+}
+
+void ValueField::render(const RenderContext* ctx) {
+    if (base_texture == nullptr) {
+        std::string placeholder(char_count, 'X'); // Placeholder to measure size
+        base_texture = create_base(ctx->renderer);
+    }
+
+    if (self_update) {
+        Uint32 now_ticks = SDL_GetTicks();
+        if ((now_ticks - last_update_ticks) >=
+            static_cast<Uint32>(update_interval_ms)) {
+            const RiderSnapshot* snapshot = ctx->get_snapshot(bound_id);
+            update_texture(ctx->renderer, snapshot);
+            last_update_ticks = now_ticks;
+        }
+    }
+
+    if (!texture)
+        return;
+
+    SDL_FRect dst{(float)screen_x, (float)screen_y, (float)widget_w, (float)widget_h};
+    SDL_RenderTexture(ctx->renderer, base_texture, nullptr, &dst);
+
+    int x;
+    if (right_align) {
+        x = screen_x + widget_w - tex_w - content_offset;
+    } else {
+        x = screen_x + content_offset;
+    }
+
+    dst = {(float)(x), (float)(screen_y + content_offset), (float)tex_w, (float)tex_h};
+    SDL_RenderTexture(ctx->renderer, texture, nullptr, &dst);
+}
+
+SDL_Texture* ValueField::render_text(SDL_Renderer* renderer, const char* s, int& out_w,
+                                     int& out_h) {
+    SDL_Surface* surf = TTF_RenderText_Blended(font, s, 0, text_color);
+    if (!surf) {
+        SDL_Log("TTF_RenderText_LCD failed: %s", SDL_GetError());
+        return nullptr;
+    }
+    out_w = surf->w;
+    out_h = surf->h;
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+    return tex;
+}
+
+SDL_Texture* ValueField::create_base(SDL_Renderer* renderer) {
+    int w, h;
+    TTF_GetStringSize(font, std::string(char_count, 'X').c_str(), 0, &w, &h);
+    int padded_w = w + 2 * content_offset;
+    int padded_h = h + 2 * content_offset;
+
+    SDL_Surface* surf = SDL_CreateSurface(padded_w, padded_h, SDL_PIXELFORMAT_XRGB8888);
+    if (!surf) {
+        SDL_Log("SDL_CreateSurface failed: %s", SDL_GetError());
+        return nullptr;
+    }
+    widget_w = padded_w;
+    widget_h = padded_h;
+
+    const SDL_PixelFormatDetails* fmt_details = SDL_GetPixelFormatDetails(surf->format);
+    Uint32 bg_color = SDL_MapRGBA(fmt_details, NULL, 0, 0, 0, 0);
+    Uint32 edge_color = SDL_MapRGBA(fmt_details, NULL, 177, 177, 177, 255);
+
+    SDL_Rect r = {0, 0, padded_w, padded_h};
+    SDL_FillSurfaceRect(surf, &r, edge_color);
+    r = SDL_Rect{edge_thickness, edge_thickness, padded_w - 2 * edge_thickness,
+                 padded_h - 2 * edge_thickness};
+    SDL_FillSurfaceRect(surf, &r, bg_color);
+
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+    return tex;
+}
+
+ValueFieldPanel::ValueFieldPanel(int x, int y, TTF_Font* font_, Rider* rider_)
+    : screen_x(x), screen_y(y), font(font_), rider(rider_), name(rider_->name) {
+    step_y = (int)TTF_GetFontSize(font) + spacing;
+    // add_field(0, rider_->get_id(), &RiderSnapshot::km_h);
+    // add_field(1, rider_->get_id(), &RiderSnapshot::pos);
+    // add_field(1, [this]() { return format_number(this->rider->km_h()); });
+    //
+    emplace_row("km", rider_->get_id(), &RiderSnapshot::km);
+    emplace_row("km/h", rider_->get_id(), &RiderSnapshot::km_h);
+}
+
+void ValueFieldPanel::update_texture(SDL_Renderer* renderer,
+                                     const RiderSnapshot* snapshot) {
+    for (auto& field : fields) {
+        field->update_texture(renderer, snapshot);
+    }
+    for (auto& row : rows) {
+        row->update_texture(renderer, snapshot);
+    }
+}
+
+template <typename T>
+void ValueFieldPanel::add_field(int row, const void* id,
+                                T RiderSnapshot::* member_ptr) {
+    int widget_y = screen_y + (row + 1) * step_y + padding;
+    fields.emplace_back(std::move(std::make_unique<ValueField>(
+        screen_x + padding, widget_y, 5, font, id, member_ptr)));
+}
+
+void ValueFieldPanel::add_row(std::unique_ptr<ValueFieldRow> row) {
+    rows.emplace_back(std::move(row));
+}
+
+// Emplace helper: build row + field together
+template <typename... FieldArgs>
+ValueFieldRow* ValueFieldPanel::emplace_row(std::string label, FieldArgs&&... vf_args) {
+    int row_nr = rows.size() + 1;
+    // TODO - rename x, y - there are member variables named same!
+    int x = screen_x + padding;
+    int y = screen_y + (row_nr * step_y);
+    auto vf = std::make_unique<ValueField>(x, y, 5, font,
+                                           std::forward<FieldArgs>(vf_args)...);
+    auto row = std::make_unique<ValueFieldRow>(x, y, label, font, std::move(vf));
+    ValueFieldRow* raw = row.get();
+    rows.emplace_back(std::move(row));
+    return raw;
+}
+
+SDL_Texture* ValueFieldPanel::create_base(SDL_Renderer* renderer) {
+    int padded_w = 120;
+    int padded_h = 120;
+    widget_w = padded_w;
+    widget_h = padded_h;
+
+    SDL_Surface* surf = SDL_CreateSurface(padded_w, padded_h, SDL_PIXELFORMAT_XRGB8888);
+    if (!surf) {
+        SDL_Log("SDL_CreateSurface failed: %s", SDL_GetError());
+        return nullptr;
+    }
+    const SDL_PixelFormatDetails* fmt_details = SDL_GetPixelFormatDetails(surf->format);
+    Uint32 bg_color = SDL_MapRGBA(fmt_details, NULL, 100, 100, 100, 255);
+    SDL_Rect r = {0, 0, padded_w, padded_h};
+    SDL_FillSurfaceRect(surf, &r, bg_color);
+
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+    return tex;
+}
+
+void ValueFieldPanel::render(const RenderContext* ctx) {
+    if (base_texture == nullptr) {
+        base_texture = create_base(ctx->renderer);
+    }
+
+    if (!name_texture) {
+        SDL_Surface* surf = TTF_RenderText_Blended(font, name.c_str(), 0, text_color);
+        name_texture = SDL_CreateTextureFromSurface(ctx->renderer, surf);
+        name_w = surf->w;
+        name_h = surf->h;
+        SDL_DestroySurface(surf);
+    }
+
+    Uint32 now_ticks = SDL_GetTicks();
+    if ((now_ticks - last_update_ticks) >= static_cast<Uint32>(update_interval_ms)) {
+        const RiderSnapshot* snapshot = ctx->get_snapshot(rider->get_id());
+        update_texture(ctx->renderer, snapshot);
+        last_update_ticks = now_ticks;
+    }
+
+    SDL_FRect dst{(float)screen_x, (float)screen_y, (float)widget_w, (float)widget_h};
+    SDL_RenderTexture(ctx->renderer, base_texture, nullptr, &dst);
+
+    dst = {(float)screen_x + padding, (float)screen_y + padding, (float)name_w,
+           (float)name_h};
+    SDL_RenderTexture(ctx->renderer, name_texture, nullptr, &dst);
+
+    for (auto& field : fields) {
+        field->render(ctx);
+    }
+    for (auto& row : rows) {
+        row->render(ctx);
+    }
+}
+```
+

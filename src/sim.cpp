@@ -1,15 +1,16 @@
 #include "sim.h"
 #include <thread>
 
-PhysicsEngine::PhysicsEngine(const Course *c) : course(c) {}
+PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
 
-void PhysicsEngine::add_rider(Rider *r) {
+void PhysicsEngine::add_rider(Rider* r) {
   std::lock_guard<std::mutex> lock(frame_mtx);
   riders.push_back(r);
+  r->set_course(course);
 }
 
 void PhysicsEngine::update(double dt) {
-  for (Rider *r : riders) {
+  for (Rider* r : riders) {
     r->update(dt);
     // std::cout << "pos: " << r->pos << "\tm\nspeed: " << 3.6 * r->speed <<
     // "\tkm/h\n" << std::endl;
@@ -19,25 +20,27 @@ void PhysicsEngine::update(double dt) {
 // Expose a way for the render thread to grab the same mutex.
 // We need this so that rendering can “lock frame_mtx” before reading any Rider
 // state.
-std::mutex *PhysicsEngine::get_frame_mutex() const { return &frame_mtx; }
+std::mutex* PhysicsEngine::get_frame_mutex() const { return &frame_mtx; }
 
-const std::vector<Rider *> PhysicsEngine::get_riders() const { return riders; }
+const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
 
-const Rider *PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
+// this is (now) only used to set camera to first rider... kinda useless if
+// fixed
+const Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
 
 PhysicsEngine::~PhysicsEngine() {
-  for (Rider *r : riders) {
+  for (Rider* r : riders) {
     delete r;
   }
 }
 
-Simulation::Simulation(const Course *c) : engine(c) {}
+Simulation::Simulation(const Course* c) : engine(c) {}
 
-void Simulation::start() {
+void Simulation::start_realtime() {
   running = true;
-  const float dt = 0.1; // 10 Hz physics
   double accumulator = 0.0;
   double sim_step;
+
   auto t_prev = std::chrono::steady_clock::now();
 
   while (running) {
@@ -45,16 +48,16 @@ void Simulation::start() {
     double frame_time = std::chrono::duration<double>(t_now - t_prev).count();
     t_prev = t_now;
 
-    sim_step = frame_time * time_factor;
-    accumulator += sim_step;
-    sim_seconds += sim_step;
+    accumulator += frame_time * time_factor;
+    if (accumulator > 0.25) {
+      SDL_Log("accumulator %f > 0.25 s. Setting to 0.25s.", accumulator);
+      accumulator = 0.25;
+    }
 
     while (accumulator >= dt) {
       auto step_start = std::chrono::steady_clock::now();
-      {
-        std::lock_guard<std::mutex> phys_lock(*engine.get_frame_mutex());
-        engine.update(dt);
-      }
+
+      step_fixed(dt);
       accumulator -= dt;
 
       // what follows is only to check for exceeding the time
@@ -62,7 +65,7 @@ void Simulation::start() {
       double step_time =
           std::chrono::duration<double>(step_end - step_start).count();
       if (step_time > dt) {
-        SDL_Log("Hey! engine.update(%f) took %f. spiral of death!", dt,
+        SDL_Log("Hey! engine.update(dt=%f) took %f. spiral of death!", dt,
                 step_time);
       }
     }
@@ -72,9 +75,50 @@ void Simulation::start() {
   }
 }
 
+void Simulation::step_fixed(double dt) {
+  std::lock_guard<std::mutex> phys_lock(*engine.get_frame_mutex());
+  engine.update(dt);
+  sim_seconds += dt;
+}
+
+void Simulation::run_max_speed(const SimulationCondition& cond) {
+  while (!cond.is_met(*this)) {
+    step_fixed(dt);
+  }
+}
+
 void Simulation::stop() { running = false; }
 
 const double Simulation::get_sim_seconds() const { return sim_seconds; }
 
-const PhysicsEngine *Simulation::get_engine() const { return &engine; }
-PhysicsEngine *Simulation::get_engine() { return &engine; }
+class TimeReached : public SimulationCondition {
+  double limit;
+
+public:
+  explicit TimeReached(double limit_seconds) : limit(limit_seconds) {}
+
+  bool is_met(const Simulation& sim) const override {
+    return sim.get_sim_seconds() >= limit;
+  }
+};
+
+class RiderFinished : public SimulationCondition {
+  int rider_index;
+
+public:
+  RiderFinished(int idx) : rider_index(idx) {}
+
+  bool is_met(const Simulation& sim) const override {
+    std::vector<Rider*> riders = sim.get_engine()->get_riders();
+    bool met = false;
+    for (Rider* r : riders) {
+      if (r->pos >= sim.get_engine()->get_course_length()) {
+        met = true;
+      }
+    }
+    return met;
+  }
+};
+
+const PhysicsEngine* Simulation::get_engine() const { return &engine; }
+PhysicsEngine* Simulation::get_engine() { return &engine; }
