@@ -7,66 +7,13 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
-std::string format_number(double value, int precision);
-
-// std::string format_number_fixed(double value, int max_digits,
-//                                 int precision = 2) {
-//   char buffer[32];
-//   std::snprintf(buffer, sizeof(buffer), "%.*f", precision, value);
-//
-//   int digit_count = 0;
-//   int end = 0;
-//   for (int i = 0; buffer[i] != '\0'; ++i) {
-//     if (std::isdigit(buffer[i])) {
-//       ++digit_count;
-//     }
-//     if (digit_count > max_digits)
-//       break;
-//     ++end;
-//   }
-//
-//   // Trim to the end index
-//   std::string result(buffer, end);
-//
-//   // Suppress trailing decimal point
-//   if (!result.empty() && result.back() == '.')
-//     result.pop_back();
-//
-//   return result;
-// }
+std::string format_number(double value, int precision = 1);
 
 class Widget : public Drawable {
 public:
-  ~Widget() {
-    free_texture();
-    if (base_texture)
-      SDL_DestroyTexture(base_texture);
-  }
   RenderLayer layer() const override { return RenderLayer::UI; }
-  virtual void
-  render(const RenderContext* ctx) override = 0; // Still pure virtual
-  std::pair<int, int> get_texture_size() const;
-
-protected:
-  int tex_w = 0, tex_h = 0;
-  int widget_w = 0, widget_h = 0;
-  const int padding = 4;
-  const int edge_thickness = 2;
-  const int content_offset = edge_thickness + padding;
-
-  bool self_update = true;
-  SDL_Texture* texture = nullptr;
-  SDL_Texture* base_texture = nullptr;
-
-  virtual void update_texture(const RenderContext* ctx) {};
-  virtual void free_texture() {
-    if (texture) {
-      SDL_DestroyTexture(texture);
-      texture = nullptr;
-    }
-  }
-  // makes sure deletion happens at concrete class
-  virtual SDL_Texture* create_base(SDL_Renderer* renderer) { return nullptr; };
+  virtual void render(const RenderContext* ctx) override = 0;
+  virtual ~Widget() = default;
 };
 
 class Stopwatch : public Widget {
@@ -75,7 +22,11 @@ private:
   TTF_Font* font;
   SDL_Color text_color = SDL_Color{80, 255, 40, 255};
   int screen_x, screen_y;
+  int width = 0, height = 0; // Texture dimensions
   int update_interval_ms;
+
+  SDL_Texture* texture = nullptr;
+  SDL_Texture* bg_texture = nullptr;
 
   int padding = 6;
   int edge_thickness = 3;
@@ -85,7 +36,7 @@ private:
 
   SDL_Texture* render_time(SDL_Renderer* renderer, const char* s, int& out_w,
                            int& out_h);
-  SDL_Texture* create_base(SDL_Renderer* renderer) override;
+  SDL_Texture* create_base(SDL_Renderer* renderer);
 
 public:
   Stopwatch(int x, int y, TTF_Font* font_, Simulation* sim_,
@@ -95,154 +46,103 @@ public:
     last_update_ticks = 0;
   }
 
-  // ~Stopwatch() { free_texture(); };
+  ~Stopwatch() {
+    if (texture)
+      SDL_DestroyTexture(texture);
+    if (bg_texture)
+      SDL_DestroyTexture(bg_texture);
+  }
 
-  void update_texture(const RenderContext* ctx) override;
+  void update_texture(const RenderContext* ctx);
   void render(const RenderContext* ctx) override;
 };
 
 class ValueField : public Widget {
+public:
+  using DataGetter = std::function<std::string(const RiderSnapshot&)>;
+
 private:
-  bool is_numeric;
-  int char_count;
   TTF_Font* font;
-  SDL_Color text_color = SDL_Color{200, 200, 200, 255};
-  int screen_x, screen_y;
-  int update_interval_ms = 500;
-  uint32_t last_update_ticks = 0;
-  bool right_align;
+  SDL_Color text_color = {255, 255, 255, 255};
+  int x, y, width, height;
 
-  bool self_update = true;
+  // Logic
+  size_t target_rider_id;
+  DataGetter getter;
 
-  using StringGetter = std::function<std::string(const RiderSnapshot&)>;
-  StringGetter text_getter;
-  size_t target_id;
+  // Caching
+  std::string current_text;
+  SDL_Texture* texture = nullptr;
+  SDL_Texture* bg_texture = nullptr;
+  uint32_t last_update = 0;
 
-  std::function<std::string()> value_callback;
-  // // takes snapshot, returns value to show
-  // std::function<double(const RiderSnapshot)> numeric_getter;
-  // void bind_object(const size_t id,
-  //                  std::function<double(const RiderSnapshot)> getter = 0) {
-  //   bound_id = id;
-  //   if (getter) {
-  //     numeric_getter = std::move(getter);
-  //   }
-  // }
-
-  std::string formatter(double val) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f", val);
-    return std::string(buf);
-  }
-
-  SDL_Texture* render_text(SDL_Renderer* renderer, const char* s, int& out_w,
-                           int& out_h);
-  SDL_Texture* create_base(SDL_Renderer* renderer) override;
+  void update_texture(SDL_Renderer* renderer, const RiderSnapshot& snap);
+  void create_bg(SDL_Renderer* renderer);
 
 public:
-  ValueField(int x_, int y_, int char_count_, TTF_Font* font_, size_t id,
-             StringGetter getter)
-      : screen_x(x_), screen_y(y_), char_count(char_count_), font(font_),
-        target_id(id), text_getter(getter) {}
+  ValueField(int x, int y, int w, int h, TTF_Font* font, size_t id,
+             DataGetter getter);
+  ~ValueField();
 
-  void update_texture(const RenderContext* ctx) override;
   void render(const RenderContext* ctx) override;
+
+  // Allow parents to move this widget
+  void set_position(int new_x, int new_y) {
+    x = new_x;
+    y = new_y;
+  }
+  int get_width() const { return width; }
 };
 
-class ValueFieldRow : public Widget {
+class MetricRow : public Widget {
 private:
-  std::string label_text;
+  std::string label_txt;
+  std::string unit_txt;
   TTF_Font* font;
-  SDL_Color label_color{200, 200, 200, 255};
-  SDL_Texture* label_texture = nullptr;
-  int label_w = 0, label_h = 0;
 
-  std::unique_ptr<ValueField> value_field;
+  // Components
+  std::unique_ptr<ValueField> field;
+  SDL_Texture* label_tex = nullptr;
+  SDL_Texture* unit_tex = nullptr;
 
-  int x, y;           // top-left anchor
-  int spacing_px = 2; // gap between label and value
+  int x, y;
+  int label_width = 80; // Fixed width so boxes align vertically
+  int padding = 10;
 
 public:
-  ValueFieldRow(int x_, int y_, const std::string& label, TTF_Font* font_,
-                std::unique_ptr<ValueField> vf, int spacing = 10)
-      : x(x_), y(y_), label_text(label), font(font_),
-        value_field(std::move(vf)), spacing_px(spacing) {}
+  MetricRow(int x, int y, TTF_Font* font, size_t id, std::string label,
+            std::string unit, ValueField::DataGetter getter);
 
-  ~ValueFieldRow() {
-    if (label_texture) {
-      SDL_DestroyTexture(label_texture);
-    }
-  }
+  ~MetricRow();
 
-  void update_texture(const RenderContext* ctx) override {
-    if (!label_texture) {
-      SDL_Surface* surf =
-          TTF_RenderText_Blended(font, label_text.c_str(), 0, label_color);
-      label_texture = SDL_CreateTextureFromSurface(ctx->renderer, surf);
-      label_w = surf->w;
-      label_h = surf->h;
-      SDL_DestroySurface(surf);
-    }
-    value_field->update_texture(ctx);
-  }
+  void render(const RenderContext* ctx) override;
 
-  void render(const RenderContext* ctx) override {
-    std::pair<int, int> size = value_field->get_texture_size();
-    float label_x = x + (float)size.first + spacing_px;
-    float label_y = y + ((float)size.second - label_texture->h) / 2;
-    SDL_FRect dst{label_x, label_y, (float)label_w, (float)label_h};
-    SDL_RenderTexture(ctx->renderer, label_texture, nullptr, &dst);
-
-    // Position value to the right
-    // value_field->set_position(x + label_w + spacing_px, y);
-    value_field->render(ctx);
-  }
-
-  void set_position(int x_, int y_) {
-    x = x_;
-    y = y_;
-  }
-
-  ValueField* get_value_field() { return value_field.get(); }
+  // Helper to calculate total height for the panel
+  int get_height() const { return 30; } // simplified
+  void set_position(int new_x, int new_y);
 };
 
-class ValueFieldPanel : public Widget {
-  // TODO - add a set_position() or something
-  // but make sure it also moves the children (ValueFieldRow)
+class RiderPanel : public Widget {
 private:
+  int x, y;
+  size_t rider_id;
   TTF_Font* font;
-  SDL_Color text_color = SDL_Color{200, 200, 200, 255};
-  int screen_x, screen_y;
-  Rider* rider = nullptr;
-  std::string name;
-  Simulation* sim;
 
-  int name_w;
-  int name_h;
+  std::string title;
+  SDL_Texture* title_tex = nullptr;
 
-  SDL_Texture* name_texture = nullptr;
-
-  int spacing = 20;
-  int step_y;
-
-  std::vector<std::unique_ptr<ValueField>> fields;
-  std::vector<std::unique_ptr<ValueFieldRow>> rows;
-
-  uint32_t last_update_ticks = 0;
-  int update_interval_ms = 100;
-
-  SDL_Texture* create_base(SDL_Renderer* renderer) override;
-  void update_texture(const RenderContext* ctx) override;
-
-  template <typename T>
-  void add_field(int row, const void* id, T RiderSnapshot::* member_ptr);
-
-  void add_row(std::unique_ptr<ValueFieldRow> row);
-  template <typename... FieldArgs>
-  ValueFieldRow* emplace_row(std::string label, FieldArgs&&... vf_args);
+  // All the rows
+  std::vector<std::unique_ptr<MetricRow>> rows;
 
 public:
-  ValueFieldPanel(int x, int y, TTF_Font* font_, Rider* rider_);
+  RiderPanel(int x, int y, const char* rider_name, size_t id, TTF_Font* font);
+  ~RiderPanel();
+
+  // The factory method you wanted!
+  // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
+  void add_row(std::string label, std::string unit,
+               ValueField::DataGetter getter);
+
   void render(const RenderContext* ctx) override;
 };
 

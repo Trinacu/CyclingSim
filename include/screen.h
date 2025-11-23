@@ -56,8 +56,7 @@ public:
   SimulationScreen(AppState* s);
   void update() override {}
 
-  // void handle_event(SDL_Event* e) override { state->display->handle_event(e);
-  // }
+  void handle_event(SDL_Event* e) { display->handle_event(e); }
 
   void render() override;
 

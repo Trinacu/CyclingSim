@@ -21,7 +21,7 @@ struct RiderSnapshot {
   const size_t uid;
   std::string name;
   double pos;
-  double km;
+  double slope;
   Vector2d pos2d;
   double power;
   double effort;

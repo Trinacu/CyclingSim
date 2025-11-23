@@ -166,7 +166,7 @@ RiderSnapshot Rider::snapshot() const {
       .uid = this->uid,
       .name = this->name,
       .pos = this->pos,
-      .km = this->pos / 1000.0,
+      .slope = this->slope,
       .pos2d = this->_pos2d,
       .power = this->power,
       .speed = this->speed,

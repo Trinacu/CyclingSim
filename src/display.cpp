@@ -145,6 +145,7 @@ void DisplayEngine::add_drawable(std::unique_ptr<Drawable> d) {
   drawables.emplace_back(std::move(d));
 }
 
+// TODO - is this to be removed?
 std::vector<RiderSnapshot> DisplayEngine::get_rider_snapshots() {
   std::vector<RiderSnapshot> result;
 

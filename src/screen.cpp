@@ -43,13 +43,43 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
       10, 10, resources->get_fontManager()->get_font("stopwatch"), state->sim));
 
   display->add_drawable(std::make_unique<ValueField>(
-      300, 360, 5, resources->get_fontManager()->get_font("default"), 0,
+      300, 360, 200, 40, resources->get_fontManager()->get_font("default"), 0,
       [](const RiderSnapshot& s) -> std::string {
         return format_number(s.km_h, 1);
       }));
-  display->add_drawable(std::make_unique<ValueField>(
-      300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
-      [](const RiderSnapshot& s) -> std::string { return s.name; }));
+
+  // 2. Create the Panel
+  auto panel = std::make_unique<RiderPanel>(
+      20, 200, "Live Data", 0,
+      resources->get_fontManager()->get_font("default"));
+
+  // 3. Add Rows (Using Lambdas for custom logic)
+
+  // SPEED
+  panel->add_row("Speed", "km/h",
+                 [](const RiderSnapshot& s) { return format_number(s.km_h); });
+
+  // POWER
+  panel->add_row("Power", "W", [](const RiderSnapshot& s) {
+    return format_number(s.power, 0); // Precision 0 for watts
+  });
+
+  // DISTANCE
+  panel->add_row("Dist", "km", [](const RiderSnapshot& s) {
+    return format_number(s.pos / 1000.0);
+  });
+
+  // GRADIENT (Custom logic inside lambda!)
+  panel->add_row("Grad", "%", [](const RiderSnapshot& s) {
+    // Assuming you add 'slope' to RiderSnapshot
+    // return format_number(s.slope * 100.0);
+    return format_number(s.slope * 100.0);
+  });
+  display->add_drawable(std::move(panel));
+
+  // display->add_drawable(std::make_unique<ValueField>(
+  //     300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
+  //     [](const RiderSnapshot& s) -> std::string { return s.name; }));
   // state->display->add_drawable(std::make_unique<ValueFieldPanel>(
   //     300, 400, state->resources->get_fontManager()->get_font("default"),
   //     r));
