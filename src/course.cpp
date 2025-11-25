@@ -1,4 +1,5 @@
 #include "course.h"
+#include "SDL3/SDL_log.h"
 #include "pch.hpp"
 #include <stdexcept>
 
@@ -21,7 +22,7 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
     visual_points.push_back(Vector2d(x, y));
   }
   total_length = x;
-  printf("%f", total_length);
+  SDL_Log("%f", total_length);
 }
 
 Course
@@ -91,6 +92,12 @@ MatrixX2d Course::get_points(double x_min, double x_max) const {
 }
 
 int Course::find_segment(double x) const {
+  if (x > total_length) {
+    SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
+            "Course::find segment()",
+            x, total_length);
+    return segments.size() - 1;
+  }
   int lo = 0, hi = segments.size() - 1;
   while (lo <= hi) {
     int mid = (lo + hi) / 2;

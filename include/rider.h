@@ -12,7 +12,7 @@ struct SDL_Texture;
 class Team {
 private:
 public:
-  const char* name;
+  std::string name;
   const SDL_Texture* rider_img;
   Team(const char* name_);
 };

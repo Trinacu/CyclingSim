@@ -45,7 +45,7 @@ MatrixX2d Camera::world_to_screen(MatrixX2d world_pts) const {
 
 MatrixX2d Camera::get_visible_points() const {
   double half_w = (double)world_width * 0.5;
-  MatrixX2d pts = course->get_points(pos[0] + half_w, pos[0] - half_w);
+  MatrixX2d pts = course->get_points(pos[0] - half_w, pos[0] + half_w);
   return world_to_screen(pts);
 }
 
@@ -83,9 +83,6 @@ void CourseDrawable::render(const RenderContext* ctx) {
   // SDL_RenderLines(ctx->renderer, points, pts.rows());
   // delete[] points;
   SDL_RenderLines(ctx->renderer, screen_points.data(), screen_points.size());
-  // SDL_SetRenderDrawColor(ctx->renderer, 200, 0, 0, 10);
-  // SDL_FRect r{center_x - 2.0f, center_y - 2.0f, 5.0f, 5.0f};
-  // SDL_RenderFillRect(ctx->renderer, &r);
 };
 
 void RiderDrawable::render(const RenderContext* ctx) {
@@ -99,6 +96,7 @@ void RiderDrawable::render(const RenderContext* ctx) {
   // pos
   for (const auto& [id, rider_snapshot] : *ctx->rider_snapshots) {
     Vector2d screen_pos = ctx->camera->world_to_screen(rider_snapshot.pos2d);
+    // SDL_Log("%.1f %.1f", rider_snapshot.pos2d.x(), rider_snapshot.pos2d.y());
     float w = 128;
     float h = 128;
     float x = static_cast<float>(screen_pos.x()) - w;

@@ -41,7 +41,7 @@ private:
   double time_factor = 1.0;
   double sim_seconds = 0.0;
 
-  const float dt = 0.01; // 100 Hz physics
+  const float dt = 0.1; // 100 Hz physics
 
   void step_fixed(double dt);
 

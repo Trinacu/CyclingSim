@@ -91,7 +91,7 @@ void Stopwatch::render(const RenderContext* ctx) {
   if (bg_texture) {
     // Note: The background includes padding, so it is larger than the text
     SDL_FRect dst{static_cast<float>(screen_x), static_cast<float>(screen_y),
-                  static_cast<float>(width), static_cast<float>(height)};
+                  static_cast<float>(bg_width), static_cast<float>(bg_height)};
     SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &dst);
   }
 
@@ -130,6 +130,8 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
 
   int padded_w = w + 2 * content_offset;
   int padded_h = h + 2 * content_offset;
+  bg_width = padded_w;
+  bg_height = padded_h;
 
   SDL_Surface* surf =
       SDL_CreateSurface(padded_w, padded_h, SDL_PIXELFORMAT_XRGB8888);
@@ -144,9 +146,9 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
 
   const SDL_PixelFormatDetails* fmt_details =
       SDL_GetPixelFormatDetails(surf->format);
-  Uint32 transparent = SDL_MapRGBA(fmt_details, NULL, 0, 0, 0, 0);
-  Uint32 hlPix = SDL_MapRGBA(fmt_details, NULL, 177, 177, 177, 255);
-  Uint32 shPix = SDL_MapRGBA(fmt_details, NULL, 77, 77, 77, 255);
+  Uint32 transparent = SDL_MapRGBA(fmt_details, nullptr, 0, 0, 0, 0);
+  Uint32 hlPix = SDL_MapRGBA(fmt_details, nullptr, 177, 177, 177, 255);
+  Uint32 shPix = SDL_MapRGBA(fmt_details, nullptr, 77, 77, 77, 255);
 
   SDL_Rect r{0, 0, padded_w, padded_h};
   SDL_FillSurfaceRect(surf, &r, transparent);
@@ -307,7 +309,7 @@ void MetricRow::render(const RenderContext* ctx) {
 }
 
 // ======================= RIDER PANEL =======================
-
+// WARNING - this assumes the font isnt deallocated
 RiderPanel::RiderPanel(int x_, int y_, const char* name, size_t id, TTF_Font* f)
     : x(x_), y(y_), rider_id(id), font(f), title(name) {}
 

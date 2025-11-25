@@ -1,4 +1,5 @@
 #include "sim.h"
+#include <chrono>
 #include <thread>
 
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
@@ -29,6 +30,8 @@ const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
 const Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
 
 PhysicsEngine::~PhysicsEngine() {
+  // WARNING - if riders have textures or other dependencies
+  // we need to be careful here
   for (Rider* r : riders) {
     delete r;
   }
@@ -82,8 +85,22 @@ void Simulation::step_fixed(double dt) {
 }
 
 void Simulation::run_max_speed(const SimulationCondition& cond) {
+  using namespace std::chrono;
+
+  const int secs = 180;
+  const auto timeout = seconds(secs);
+  const auto start_time = steady_clock::now();
+  int iteration = 1;
+
   while (!cond.is_met(*this)) {
     step_fixed(dt);
+
+    if (++iteration % 100 == 0) {
+      if (steady_clock::now() - start_time > timeout) {
+        SDL_Log("Timeout %d seconds after %d iterations", secs, iteration);
+        break;
+      }
+    }
   }
 }
 

@@ -23,6 +23,7 @@ private:
   SDL_Color text_color = SDL_Color{80, 255, 40, 255};
   int screen_x, screen_y;
   int width = 0, height = 0; // Texture dimensions
+  int bg_width = 0, bg_height = 0;
   int update_interval_ms;
 
   SDL_Texture* texture = nullptr;

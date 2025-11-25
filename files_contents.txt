@@ -287,7 +287,7 @@ struct SDL_Texture;
 class Team {
 private:
 public:
-  const char* name;
+  std::string name;
   const SDL_Texture* rider_img;
   Team(const char* name_);
 };
@@ -522,7 +522,7 @@ private:
   double time_factor = 1.0;
   double sim_seconds = 0.0;
 
-  const float dt = 0.01; // 100 Hz physics
+  const float dt = 0.1; // 100 Hz physics
 
   void step_fixed(double dt);
 
@@ -663,6 +663,7 @@ private:
   SDL_Color text_color = SDL_Color{80, 255, 40, 255};
   int screen_x, screen_y;
   int width = 0, height = 0; // Texture dimensions
+  int bg_width = 0, bg_height = 0;
   int update_interval_ms;
 
   SDL_Texture* texture = nullptr;
@@ -815,6 +816,7 @@ void AppState::switch_screen(ScreenType type) {
 src/course.cpp
 ```
 #include "course.h"
+#include "SDL3/SDL_log.h"
 #include "pch.hpp"
 #include <stdexcept>
 
@@ -837,7 +839,7 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
     visual_points.push_back(Vector2d(x, y));
   }
   total_length = x;
-  printf("%f", total_length);
+  SDL_Log("%f", total_length);
 }
 
 Course
@@ -907,6 +909,12 @@ MatrixX2d Course::get_points(double x_min, double x_max) const {
 }
 
 int Course::find_segment(double x) const {
+  if (x > total_length) {
+    SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
+            "Course::find segment()",
+            x, total_length);
+    return segments.size() - 1;
+  }
   int lo = 0, hi = segments.size() - 1;
   while (lo <= hi) {
     int mid = (lo + hi) / 2;
@@ -984,7 +992,7 @@ MatrixX2d Camera::world_to_screen(MatrixX2d world_pts) const {
 
 MatrixX2d Camera::get_visible_points() const {
   double half_w = (double)world_width * 0.5;
-  MatrixX2d pts = course->get_points(pos[0] + half_w, pos[0] - half_w);
+  MatrixX2d pts = course->get_points(pos[0] - half_w, pos[0] + half_w);
   return world_to_screen(pts);
 }
 
@@ -1022,9 +1030,6 @@ void CourseDrawable::render(const RenderContext* ctx) {
   // SDL_RenderLines(ctx->renderer, points, pts.rows());
   // delete[] points;
   SDL_RenderLines(ctx->renderer, screen_points.data(), screen_points.size());
-  // SDL_SetRenderDrawColor(ctx->renderer, 200, 0, 0, 10);
-  // SDL_FRect r{center_x - 2.0f, center_y - 2.0f, 5.0f, 5.0f};
-  // SDL_RenderFillRect(ctx->renderer, &r);
 };
 
 void RiderDrawable::render(const RenderContext* ctx) {
@@ -1038,6 +1043,7 @@ void RiderDrawable::render(const RenderContext* ctx) {
   // pos
   for (const auto& [id, rider_snapshot] : *ctx->rider_snapshots) {
     Vector2d screen_pos = ctx->camera->world_to_screen(rider_snapshot.pos2d);
+    // SDL_Log("%.1f %.1f", rider_snapshot.pos2d.x(), rider_snapshot.pos2d.y());
     float w = 128;
     float h = 128;
     float x = static_cast<float>(screen_pos.x()) - w;
@@ -1084,6 +1090,7 @@ void DisplayEngine::add_drawable(std::unique_ptr<Drawable> d) {
   drawables.emplace_back(std::move(d));
 }
 
+// TODO - is this to be removed?
 std::vector<RiderSnapshot> DisplayEngine::get_rider_snapshots() {
   std::vector<RiderSnapshot> result;
 
@@ -1318,7 +1325,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
   Rider* r = Rider::create_generic(team);
   state->sim->get_engine()->add_rider(r);
 
-  Rider* r2 = new Rider("Pedro", 200, 80, 0.3, Bike::create_generic(), team);
+  Rider* r2 = new Rider("Pedro", 270, 80, 0.3, Bike::create_generic(), team);
   r2->pos = 20;
   state->sim->get_engine()->add_rider(r2);
 
@@ -1719,6 +1726,7 @@ void SimulationScreen::render() { display->render_frame(); }
 src/sim.cpp
 ```
 #include "sim.h"
+#include <chrono>
 #include <thread>
 
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
@@ -1749,6 +1757,8 @@ const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
 const Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
 
 PhysicsEngine::~PhysicsEngine() {
+  // WARNING - if riders have textures or other dependencies
+  // we need to be careful here
   for (Rider* r : riders) {
     delete r;
   }
@@ -1802,8 +1812,22 @@ void Simulation::step_fixed(double dt) {
 }
 
 void Simulation::run_max_speed(const SimulationCondition& cond) {
+  using namespace std::chrono;
+
+  const int secs = 180;
+  const auto timeout = seconds(secs);
+  const auto start_time = steady_clock::now();
+  int iteration = 1;
+
   while (!cond.is_met(*this)) {
     step_fixed(dt);
+
+    if (++iteration % 100 == 0) {
+      if (steady_clock::now() - start_time > timeout) {
+        SDL_Log("Timeout %d seconds after %d iterations", secs, iteration);
+        break;
+      }
+    }
   }
 }
 
@@ -1851,7 +1875,6 @@ src/texturemanager.cpp
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 #include <iostream>
-#include <string>
 #include <unordered_map>
 
 // You must give TextureManager a valid SDL_Renderer* at construction time.
@@ -1859,94 +1882,98 @@ src/texturemanager.cpp
 TextureManager::TextureManager(SDL_Renderer* renderer) : renderer(renderer) {}
 
 TextureManager::~TextureManager() {
-    // Destroy all SDL_Texture* that we have loaded.
-    for (auto& kv : texture_map) {
-        if (kv.second) {
-            SDL_DestroyTexture(kv.second);
-        }
+  // Destroy all SDL_Texture* that we have loaded.
+  for (auto& kv : texture_map) {
+    if (kv.second) {
+      SDL_DestroyTexture(kv.second);
     }
+  }
 }
 
 // Try to load a texture from `filePath` and store it under the key `id`.
 // Returns true if successful (or if the key already existed).
 bool TextureManager::load_texture(const char* id, const char* file_path) {
-    // If we've already loaded “id”, do nothing.
-    if (texture_map.count(id)) {
-        return true;
-    }
-
-    SDL_Surface* surf = IMG_Load(file_path);
-    if (!surf) {
-        std::cerr << "IMG_Load Error (" << file_path << "): " << SDL_GetError() << "\n";
-        return false;
-    }
-
-    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-
-    if (!tex) {
-        std::cerr << "SDL_CreateTextureFromSurface Error (" << file_path
-                  << "): " << SDL_GetError() << "\n";
-        return false;
-    }
-
-    texture_map[id] = tex;
+  // If we've already loaded “id”, do nothing.
+  if (texture_map.count(id)) {
     return true;
+  }
+
+  SDL_Surface* surf = IMG_Load(file_path);
+  if (!surf) {
+    std::cerr << "IMG_Load Error (" << file_path << "): " << SDL_GetError()
+              << "\n";
+    return false;
+  }
+
+  SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+  SDL_DestroySurface(surf);
+
+  if (!tex) {
+    std::cerr << "SDL_CreateTextureFromSurface Error (" << file_path
+              << "): " << SDL_GetError() << "\n";
+    return false;
+  }
+
+  texture_map[id] = tex;
+  return true;
 }
 
 // Retrieve the texture pointer for a given id (returns nullptr if not found).
 TTF_Font* FontManager::get_font(const char* id) const {
-    auto it = font_map.find(id);
-    if (it == font_map.end())
-        return nullptr;
-    return it->second;
+  auto it = font_map.find(id);
+  if (it == font_map.end())
+    return nullptr;
+  return it->second;
 }
 
 // (Optional) Query width/height of a loaded texture.
-bool TextureManager::query_texture(const char* id, float& outW, float& outH) const {
-    SDL_Texture* tex = get_texture(id);
-    if (!tex)
-        return false;
-    if (0 != SDL_GetTextureSize(tex, &outW, &outH)) {
-        std::cerr << "SDL_QueryTexture Error: " << SDL_GetError() << "\n";
-        return false;
-    }
-    return true;
+bool TextureManager::query_texture(const char* id, float& outW,
+                                   float& outH) const {
+  SDL_Texture* tex = get_texture(id);
+  if (!tex)
+    return false;
+  if (0 != SDL_GetTextureSize(tex, &outW, &outH)) {
+    std::cerr << "SDL_QueryTexture Error: " << SDL_GetError() << "\n";
+    return false;
+  }
+  return true;
 }
 
 // Retrieve the texture pointer for a given id (returns nullptr if not found).
 SDL_Texture* TextureManager::get_texture(const char* id) const {
-    auto it = texture_map.find(id);
-    if (it == texture_map.end())
-        return nullptr;
-    return it->second;
+  auto it = texture_map.find(id);
+  if (it == texture_map.end())
+    return nullptr;
+  return it->second;
 }
 
-bool FontManager::load_font(const char* id, const char* file_path, int font_size) {
-    if (font_map.count(id)) {
-        return true;
-    }
-
-    char* font_path = NULL;
-    SDL_asprintf(&font_path, "%s/../%s", SDL_GetBasePath(), file_path);
-    TTF_Font* font = TTF_OpenFont(font_path, font_size);
-    if (!font) {
-        SDL_Log("Couldn't load font: %s", SDL_GetError());
-        return false;
-    }
-    SDL_free(font_path);
-
-    font_map[id] = font;
+bool FontManager::load_font(const char* id, const char* file_path,
+                            int font_size) {
+  if (font_map.count(id)) {
     return true;
+  }
+
+  char* font_path = NULL;
+  SDL_asprintf(&font_path, "%s/../%s", SDL_GetBasePath(), file_path);
+  TTF_Font* font = TTF_OpenFont(font_path, font_size);
+  if (!font) {
+    SDL_Log("Couldn't load font: %s", SDL_GetError());
+    return false;
+  }
+  SDL_free(font_path);
+
+  font_map[id] = font;
+  return true;
 }
 
 FontManager::~FontManager() {
-    // Destroy all SDL_Texture* that we have loaded.
-    for (auto& kv : font_map) {
-        if (kv.second) {
-            free(kv.second);
-        }
+  // Destroy all SDL_Texture* that we have loaded.
+  for (auto& kv : font_map) {
+    if (kv.second) {
+      // free(kv.second);
+      TTF_CloseFont(kv.second);
     }
+  }
 }
 ```
 
@@ -2045,7 +2072,7 @@ void Stopwatch::render(const RenderContext* ctx) {
   if (bg_texture) {
     // Note: The background includes padding, so it is larger than the text
     SDL_FRect dst{static_cast<float>(screen_x), static_cast<float>(screen_y),
-                  static_cast<float>(width), static_cast<float>(height)};
+                  static_cast<float>(bg_width), static_cast<float>(bg_height)};
     SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &dst);
   }
 
@@ -2084,6 +2111,8 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
 
   int padded_w = w + 2 * content_offset;
   int padded_h = h + 2 * content_offset;
+  bg_width = padded_w;
+  bg_height = padded_h;
 
   SDL_Surface* surf =
       SDL_CreateSurface(padded_w, padded_h, SDL_PIXELFORMAT_XRGB8888);
@@ -2098,9 +2127,9 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
 
   const SDL_PixelFormatDetails* fmt_details =
       SDL_GetPixelFormatDetails(surf->format);
-  Uint32 transparent = SDL_MapRGBA(fmt_details, NULL, 0, 0, 0, 0);
-  Uint32 hlPix = SDL_MapRGBA(fmt_details, NULL, 177, 177, 177, 255);
-  Uint32 shPix = SDL_MapRGBA(fmt_details, NULL, 77, 77, 77, 255);
+  Uint32 transparent = SDL_MapRGBA(fmt_details, nullptr, 0, 0, 0, 0);
+  Uint32 hlPix = SDL_MapRGBA(fmt_details, nullptr, 177, 177, 177, 255);
+  Uint32 shPix = SDL_MapRGBA(fmt_details, nullptr, 77, 77, 77, 255);
 
   SDL_Rect r{0, 0, padded_w, padded_h};
   SDL_FillSurfaceRect(surf, &r, transparent);
@@ -2261,7 +2290,7 @@ void MetricRow::render(const RenderContext* ctx) {
 }
 
 // ======================= RIDER PANEL =======================
-
+// WARNING - this assumes the font isnt deallocated
 RiderPanel::RiderPanel(int x_, int y_, const char* name, size_t id, TTF_Font* f)
     : x(x_), y(y_), rider_id(id), font(f), title(name) {}
 
