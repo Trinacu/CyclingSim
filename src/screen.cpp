@@ -29,29 +29,23 @@ void ResultsScreen::render() {
 
 SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   Vector2d screensize(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
-  camera = new Camera(state->course, WORLD_WIDTH, screensize);
+  camera = new Camera(state->sim->get_engine()->get_course(), WORLD_WIDTH,
+                      screensize);
   // maybe this could take screensize rather than 2 ints?
-  display =
-      new DisplayEngine(state->sim, s->SCREEN_WIDTH, s->SCREEN_HEIGHT, camera);
+  display = new DisplayEngine(state, camera);
 
-  resources = new GameResources(display->get_renderer());
-  display->set_resources(resources);
+  SDL_Log("after displayengine");
 
-  display->add_drawable(std::make_unique<CourseDrawable>(state->course));
+  display->add_drawable(
+      std::make_unique<CourseDrawable>(state->sim->get_engine()->get_course()));
   display->add_drawable(std::make_unique<RiderDrawable>());
   display->add_drawable(std::make_unique<Stopwatch>(
-      10, 10, resources->get_fontManager()->get_font("stopwatch"), state->sim));
-
-  display->add_drawable(std::make_unique<ValueField>(
-      300, 360, 200, 40, resources->get_fontManager()->get_font("default"), 0,
-      [](const RiderSnapshot& s) -> std::string {
-        return format_number(s.km_h, 1);
-      }));
+      10, 10, state->resources->get_fontManager()->get_font("stopwatch"),
+      state->sim));
 
   // 2. Create the Panel
   auto panel = std::make_unique<RiderPanel>(
-      20, 200, "Live Data", 0,
-      resources->get_fontManager()->get_font("default"));
+      20, 200, state->resources->get_fontManager()->get_font("default"));
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
@@ -80,7 +74,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // display->add_drawable(std::make_unique<ValueField>(
   //     300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
   //     [](const RiderSnapshot& s) -> std::string { return s.name; }));
-  // state->display->add_drawable(std::make_unique<ValueFieldPanel>(
+  // display->add_drawable(std::make_unique<ValueFieldPanel>(
   //     300, 400, state->resources->get_fontManager()->get_font("default"),
   //     r));
 

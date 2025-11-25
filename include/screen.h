@@ -15,7 +15,7 @@ public:
   virtual void render() = 0;
 
   // virtual void handle_event(SDL_Event* e) = 0;
-  void handle_event(SDL_Event* e) {
+  virtual void handle_event(SDL_Event* e) {
     if (e->type == SDL_EVENT_KEY_DOWN) {
       if (e->key.key == SDLK_RETURN) {
         // start simulation
@@ -50,19 +50,17 @@ public:
   AppState* state;
   Camera* camera = nullptr;
   DisplayEngine* display = nullptr;
-  ResourceProvider* resources = nullptr;
   int WORLD_WIDTH = 200;
 
   SimulationScreen(AppState* s);
   void update() override {}
 
-  void handle_event(SDL_Event* e) { display->handle_event(e); }
+  void handle_event(SDL_Event* e) override { display->handle_event(e); }
 
   void render() override;
 
   ~SimulationScreen() {
     delete display;
-    delete resources;
     delete camera;
   }
 };

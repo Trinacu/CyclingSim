@@ -2,9 +2,9 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
+#include "appstate.h"
 #include "course.h"
 #include "rider.h"
-#include "sim.h"
 #include "texturemanager.h"
 #include <memory>
 
@@ -41,12 +41,15 @@ public:
   MatrixX2d get_visible_points() const;
 };
 
+class DisplayEngine;
+
 struct RenderContext {
   SDL_Renderer* renderer;
   Camera* camera;
-  // const std::vector<RiderSnapshot>* rider_snapshots;
   const SnapshotMap* rider_snapshots;
   ResourceProvider* resources;
+
+  DisplayEngine* engine;
 
   const RiderSnapshot* get_snapshot(const size_t id) const {
     auto it = rider_snapshots->find(id);
@@ -88,48 +91,34 @@ public:
 
 class DisplayEngine {
 private:
-  SDL_Window* window = nullptr;
-  SDL_Renderer* renderer = nullptr;
-  ResourceProvider* resources = nullptr;
-  int width, height;
+  AppState* app; // Reference to the app state (renderer, resources)
   Camera* camera;
-  const Simulation* sim; // holds the physics engine
+
+  // Drawables specific to this "scene"
   std::vector<std::unique_ptr<Drawable>> drawables;
 
   size_t camera_target_id = 0;
-
-  // snapshots positions so we can let go of frame_lock for PhysicsEngine
-  std::vector<Vector2d> rider_positions;
-
   std::chrono::steady_clock::time_point last_frame_time;
   const double target_fps = 60.0;
+
+  std::vector<Vector2d> rider_positions;
   const std::chrono::duration<double> target_frame_duration =
       std::chrono::duration<double>(1.0 / target_fps);
   std::vector<RiderSnapshot> get_rider_snapshots();
   SnapshotMap get_rider_snapshot_map();
 
 public:
-  DisplayEngine(Simulation* s, int w, int h, Camera* camera_);
-  SDL_Texture* img1;
-  SDL_Texture* img2;
-
-  bool load_image(const char* id, const char* filename);
-
-  ~DisplayEngine() {
-    if (renderer)
-      SDL_DestroyRenderer(renderer);
-    if (window)
-      SDL_DestroyWindow(window);
-    SDL_Quit();
-  }
-
-  void set_resources(ResourceProvider* resources);
-  ResourceProvider* get_resources() const;
-
-  bool handle_event(const SDL_Event* event);
+  DisplayEngine(AppState* app_, Camera* camera_);
+  ~DisplayEngine(); // No longer destroys SDL
   void add_drawable(std::unique_ptr<Drawable> d);
   void render_frame();
-  SDL_Renderer* get_renderer();
-  Camera* get_camera();
+  bool handle_event(const SDL_Event* event);
+
+  void set_target_id(size_t id) { camera_target_id = id; }
+  size_t get_target_id() const { return camera_target_id; }
+
+  void handle_click(double screen_x, double screen_y);
+
+  Camera* get_camera() { return camera; }
 };
 #endif

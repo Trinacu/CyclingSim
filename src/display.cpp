@@ -43,6 +43,19 @@ MatrixX2d Camera::world_to_screen(MatrixX2d world_pts) const {
   return world_pts;
 }
 
+Vector2d Camera::screen_to_world(Vector2d screen_pos) const {
+  // 1. Center offset
+  Vector2d centered = screen_pos - (screensize * 0.5);
+
+  // 2. Scale inversion (remember y is inverted by -vert_scale)
+  Vector2d scaled;
+  scaled.x() = centered.x() / scale;
+  scaled.y() = centered.y() / (-vert_scale); // vert_scale is usually 1.0
+
+  // 3. Camera Position offset
+  return scaled + pos;
+}
+
 MatrixX2d Camera::get_visible_points() const {
   double half_w = (double)world_width * 0.5;
   MatrixX2d pts = course->get_points(pos[0] - half_w, pos[0] + half_w);
@@ -116,67 +129,46 @@ void RiderDrawable::render(const RenderContext* ctx) {
   }
 }
 
-DisplayEngine::DisplayEngine(Simulation* s, int w, int h, Camera* camera_)
-    : sim(s), width(w), height(h), camera(camera_) {
-  if (!SDL_Init(SDL_INIT_VIDEO)) {
-    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
-  }
-  if (!TTF_Init()) {
-    SDL_Log("Couldn't initialize TTF: %s", SDL_GetError());
-  }
-  SDL_CreateWindowAndRenderer("Physics Sim", width, height, 0, &window,
-                              &renderer);
+DisplayEngine::DisplayEngine(AppState* app_, Camera* camera_)
+    : app(app_), camera(camera_) {}
+
+// void DisplayEngine::set_resources(ResourceProvider* resources_) {
+//   resources = resources_;
+// }
+
+DisplayEngine::~DisplayEngine() {
+  // We only clean up our own drawables (handled by unique_ptr).
 }
 
-void DisplayEngine::set_resources(ResourceProvider* resources_) {
-  resources = resources_;
-}
-
-ResourceProvider* DisplayEngine::get_resources() const {
-  if (!resources) {
-    SDL_Log("get_resources() called but resources == nullptr!");
-  }
-  return resources;
-}
+// ResourceProvider* DisplayEngine::get_resources() const {
+//   if (!resources) {
+//     SDL_Log("get_resources() called but resources == nullptr!");
+//   }
+//   return resources;
+// }
 
 void DisplayEngine::add_drawable(std::unique_ptr<Drawable> d) {
   drawables.emplace_back(std::move(d));
 }
 
-// TODO - is this to be removed?
-std::vector<RiderSnapshot> DisplayEngine::get_rider_snapshots() {
-  std::vector<RiderSnapshot> result;
-
-  std::lock_guard<std::mutex> lock(*sim->get_engine()->get_frame_mutex());
-  const std::vector<Rider*>& riders =
-      sim->get_engine()->get_riders(); // assuming a getter
-
-  result.reserve(riders.size());
-  for (const Rider* rider_ptr : riders) {
-    result.push_back(rider_ptr->snapshot()); // copy out minimal state
-  }
-  return result; // rendering can now proceed without holding any locks
-}
-
 SnapshotMap DisplayEngine::get_rider_snapshot_map() {
   SnapshotMap result;
 
-  // Lock is essential!
-  std::lock_guard<std::mutex> lock(*sim->get_engine()->get_frame_mutex());
+  if (!app || !app->sim || !app->sim->get_engine()) {
+    SDL_Log("oops, no app, app->sim, or app->sim->get_engine");
+    return result; // Safety check
+  }
 
-  const std::vector<Rider*>& riders = sim->get_engine()->get_riders();
+  // Lock is essential!
+  std::lock_guard<std::mutex> lock(*app->sim->get_engine()->get_frame_mutex());
+
+  const std::vector<Rider*>& riders = app->sim->get_engine()->get_riders();
 
   result.reserve(riders.size());
-
   for (const Rider* rider_ptr : riders) {
-    // key = id; value = snapshot
     result.emplace(rider_ptr->get_id(), rider_ptr->snapshot());
   }
   return result;
-}
-
-bool DisplayEngine::load_image(const char* id, const char* filename) {
-  return resources->get_textureManager()->load_texture(id, filename);
 }
 
 void DisplayEngine::render_frame() {
@@ -188,11 +180,11 @@ void DisplayEngine::render_frame() {
     camera->_set_center(snapshots.at(camera_target_id).pos2d);
   }
 
-  SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
-  SDL_RenderClear(renderer);
+  SDL_SetRenderDrawColor(app->renderer, 30, 30, 30, 255);
+  SDL_RenderClear(app->renderer);
 
   // Build a RenderContext that hands each Drawable a pointer to our snapshot
-  RenderContext ctx{renderer, camera, &snapshots, resources};
+  RenderContext ctx{app->renderer, camera, &snapshots, app->resources, this};
 
   // Render each Drawable in order (CourseDrawable, RiderDrawable, etc.)
   for (auto& d : drawables) {
@@ -200,7 +192,7 @@ void DisplayEngine::render_frame() {
   }
 
   // Finally present the composed frame
-  SDL_RenderPresent(renderer);
+  SDL_RenderPresent(app->renderer);
 
   auto end = std::chrono::steady_clock::now();
   std::chrono::duration<double> elapsed = end - start;
@@ -211,15 +203,56 @@ void DisplayEngine::render_frame() {
   last_frame_time = std::chrono::steady_clock::now();
 }
 
+void DisplayEngine::handle_click(double screen_x, double screen_y) {
+  Vector2d world_pos = camera->screen_to_world(Vector2d(screen_x, screen_y));
+
+  // need access to snapshots. since we're in the main thread (event loop)
+  // and physics is in another, we should use the thread-safe getter
+  // or cache the last frame's snapshots
+  // let's reuse the snapshot map logic or fetch fresh:
+
+  SnapshotMap snaps = get_rider_snapshot_map();
+
+  double min_dist = 2.0;
+  bool found = false;
+  size_t found_id = 0;
+  SDL_Log("%f, %f", world_pos.x(), world_pos.y());
+
+  for (auto& [id, snap] : snaps) {
+    double dx = snap.pos2d.x() - world_pos.x();
+    double dy = snap.pos2d.y() - world_pos.y();
+    double dist = std::sqrt(dx * dx + dy * dy);
+    SDL_Log("%s: %f", snap.name.c_str(), dist);
+
+    // you might wanna weight X more strictly if they are packed tight
+    if (dist < min_dist) {
+      min_dist = dist;
+      found_id = id;
+      found = true;
+    }
+  }
+
+  if (found) {
+    camera_target_id = found_id;
+    SDL_Log("Selected rider ID: %lu", (unsigned long)found_id);
+  }
+}
+
 // what does this do?
 bool DisplayEngine::handle_event(const SDL_Event* e) {
+  // let drawables handle clicks first
   for (auto it = drawables.rbegin(); it != drawables.rend(); ++it) {
     if ((*it)->handle_event(e)) {
       return true; // Event was consumed
     }
+
+    // handle world clicks
+    if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+      if (e->button.button == SDL_BUTTON_LEFT) {
+        handle_click(e->button.x, e->button.y);
+        return true;
+      }
+    }
   }
   return false;
 }
-
-SDL_Renderer* DisplayEngine::get_renderer() { return renderer; }
-Camera* DisplayEngine::get_camera() { return camera; }

@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <string>
 
+#include "SDL3/SDL_render.h"
+#include "SDL3/SDL_surface.h"
 #include "display.h"
 #include "rider.h"
 #include "widget.h"
@@ -244,6 +246,30 @@ void ValueField::render(const RenderContext* ctx) {
   }
 }
 
+void ValueField::render_with_snapshot(const RenderContext* ctx,
+                                      const RiderSnapshot* snap) {
+  if (!snap)
+    return;
+
+  if (!bg_texture)
+    create_bg(ctx->renderer);
+  update_texture(ctx->renderer, *snap);
+  // 3. Draw Background
+  SDL_FRect bg_rect = {(float)x, (float)y, (float)width, (float)height};
+  SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &bg_rect);
+
+  // 4. Draw Text (Centered or Right Aligned)
+  if (texture) {
+    float tex_w, tex_h;
+    SDL_GetTextureSize(texture, &tex_w, &tex_h);
+    // Align right inside the box with padding
+    float txt_x = x + width - tex_w - 5;
+    float txt_y = y + (height - tex_h) / 2;
+    SDL_FRect txt_rect = {txt_x, txt_y, tex_w, tex_h};
+    SDL_RenderTexture(ctx->renderer, texture, nullptr, &txt_rect);
+  }
+}
+
 // ======================= METRIC ROW =======================
 
 MetricRow::MetricRow(int x_, int y_, TTF_Font* f, size_t id, std::string label,
@@ -308,10 +334,47 @@ void MetricRow::render(const RenderContext* ctx) {
   }
 }
 
+void MetricRow::render_for_rider(const RenderContext* ctx,
+                                 const RiderSnapshot* snap) {
+  // 1. Render static labels once
+  if (!label_tex) {
+    SDL_Surface* s = TTF_RenderText_Blended(font, label_txt.c_str(), 0,
+                                            {200, 200, 200, 255});
+    label_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
+    SDL_DestroySurface(s);
+  }
+  if (!unit_tex && !unit_txt.empty()) {
+    SDL_Surface* s =
+        TTF_RenderText_Blended(font, unit_txt.c_str(), 0, {150, 150, 150, 255});
+    unit_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
+    SDL_DestroySurface(s);
+  }
+
+  // 2. Draw Label (Left)
+  if (label_tex) {
+    float w, h;
+    SDL_GetTextureSize(label_tex, &w, &h);
+    // Vertically center label relative to the row height (approx 24)
+    SDL_FRect r = {(float)x, (float)y + (24 - h) / 2, w, h};
+    SDL_RenderTexture(ctx->renderer, label_tex, nullptr, &r);
+  }
+
+  // Call the specific render on the field
+  field->render_with_snapshot(ctx, snap);
+
+  if (unit_tex) {
+    float w, h;
+    SDL_GetTextureSize(unit_tex, &w, &h);
+    // Position: X + label + field_width + padding
+    SDL_FRect r = {(float)(x + label_width + field->get_width() + 5),
+                   (float)y + (24 - h) / 2, w, h};
+    SDL_RenderTexture(ctx->renderer, unit_tex, nullptr, &r);
+  }
+}
+
 // ======================= RIDER PANEL =======================
 // WARNING - this assumes the font isnt deallocated
-RiderPanel::RiderPanel(int x_, int y_, const char* name, size_t id, TTF_Font* f)
-    : x(x_), y(y_), rider_id(id), font(f), title(name) {}
+RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
 
 RiderPanel::~RiderPanel() {
   if (title_tex)
@@ -323,12 +386,36 @@ void RiderPanel::add_row(std::string label, std::string unit,
   int row_height = 30;                                // height + spacing
   int current_offset = rows.size() * row_height + 30; // +30 for title space
 
-  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, rider_id,
-                                         label, unit, getter);
+  // pass 0 as dummy, we overrider it
+  // Ideally, MetricRow should also be refactored, but here is a
+  // quick inheritance trick:
+
+  // Better yet, let's make MetricRow dynamic too.
+  // But to save refactoring EVERYTHING, let's use a "Dynamic ID" constant?
+  // No, cleaner to just pass the ID in render.
+  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, 0, label,
+                                         unit, getter);
   rows.push_back(std::move(row));
 }
 
 void RiderPanel::render(const RenderContext* ctx) {
+  size_t current_id = ctx->engine->get_target_id();
+
+  const RiderSnapshot* snap = ctx->get_snapshot(current_id);
+  if (!snap)
+    return;
+
+  std::string title_text = snap->name;
+
+  if (title != title_text) {
+    title = title_text;
+    if (title_tex)
+      SDL_DestroyTexture(title_tex);
+    SDL_Surface* s =
+        TTF_RenderText_Blended(font, title.c_str(), 0, {255, 255, 255});
+    title_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
+    SDL_DestroySurface(s);
+  }
   // Draw Title
   if (!title_tex) {
     SDL_Surface* s = TTF_RenderText_Blended(font, title.c_str(), 0,
@@ -342,6 +429,9 @@ void RiderPanel::render(const RenderContext* ctx) {
   SDL_FRect r = {(float)x, (float)y, w, h};
   SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
 
+  // HACK for now: Iterate rows, find their internal fields, and update their
+  // ID? Proper way: Refactor ValueField::render to take a snapshot, not look it
+  // up itself.
   // Draw all rows
   for (auto& row : rows) {
     row->render(ctx);

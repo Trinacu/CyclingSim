@@ -42,9 +42,10 @@ private:
 public:
   Stopwatch(int x, int y, TTF_Font* font_, Simulation* sim_,
             int update_ms = 100)
-      : sim(sim_), font(font_), screen_x(x), screen_y(y),
+      : screen_x(x), screen_y(y), font(font_), sim(sim_),
         update_interval_ms(update_ms) {
     last_update_ticks = 0;
+    SDL_Log("test");
   }
 
   ~Stopwatch() {
@@ -86,6 +87,8 @@ public:
   ~ValueField();
 
   void render(const RenderContext* ctx) override;
+  void render_with_snapshot(const RenderContext* ctx,
+                            const RiderSnapshot* snap);
 
   // Allow parents to move this widget
   void set_position(int new_x, int new_y) {
@@ -117,6 +120,7 @@ public:
   ~MetricRow();
 
   void render(const RenderContext* ctx) override;
+  void render_for_rider(const RenderContext* ctx, const RiderSnapshot* snap);
 
   // Helper to calculate total height for the panel
   int get_height() const { return 30; } // simplified
@@ -126,7 +130,7 @@ public:
 class RiderPanel : public Widget {
 private:
   int x, y;
-  size_t rider_id;
+  // size_t rider_id;
   TTF_Font* font;
 
   std::string title;
@@ -136,7 +140,7 @@ private:
   std::vector<std::unique_ptr<MetricRow>> rows;
 
 public:
-  RiderPanel(int x, int y, const char* rider_name, size_t id, TTF_Font* font);
+  RiderPanel(int x, int y, TTF_Font* font);
   ~RiderPanel();
 
   // The factory method you wanted!

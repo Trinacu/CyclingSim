@@ -24,57 +24,5 @@
     "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
     "file": "/home/aleks/Documents/cpp/CyclingSim/src/display.cpp",
     "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/display.cpp.o"
-  },
-  {
-    "arguments": [
-      "/usr/bin/c++",
-      "-I/home/aleks/opt/SDL3/include",
-      "-I/home/aleks/opt/SDL3_ttf/include",
-      "-I/usr/include/freetype2",
-      "-I/usr/include/libpng16",
-      "-I/usr/include/harfbuzz",
-      "-I/usr/include/glib-2.0",
-      "-I/usr/lib64/glib-2.0/include",
-      "-I/usr/include/sysprof-6",
-      "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/CyclingSim/include",
-      "-g",
-      "-std=gnu++17",
-      "-DWITH_GZFILEOP",
-      "-pthread",
-      "-c",
-      "-o",
-      "CMakeFiles/game_lib.dir/src/sim.cpp.o",
-      "/home/aleks/Documents/cpp/CyclingSim/src/sim.cpp"
-    ],
-    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
-    "file": "/home/aleks/Documents/cpp/CyclingSim/src/sim.cpp",
-    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/sim.cpp.o"
-  },
-  {
-    "arguments": [
-      "/usr/bin/c++",
-      "-I/home/aleks/opt/SDL3/include",
-      "-I/home/aleks/opt/SDL3_ttf/include",
-      "-I/usr/include/freetype2",
-      "-I/usr/include/libpng16",
-      "-I/usr/include/harfbuzz",
-      "-I/usr/include/glib-2.0",
-      "-I/usr/lib64/glib-2.0/include",
-      "-I/usr/include/sysprof-6",
-      "-I/home/aleks/opt/SDL3_image/include",
-      "-I/home/aleks/Documents/cpp/CyclingSim/include",
-      "-g",
-      "-std=gnu++17",
-      "-DWITH_GZFILEOP",
-      "-pthread",
-      "-c",
-      "-o",
-      "CMakeFiles/game_lib.dir/src/widget.cpp.o",
-      "/home/aleks/Documents/cpp/CyclingSim/src/widget.cpp"
-    ],
-    "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
-    "file": "/home/aleks/Documents/cpp/CyclingSim/src/widget.cpp",
-    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/widget.cpp.o"
   }
 ]
