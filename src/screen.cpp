@@ -50,8 +50,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // 3. Add Rows (Using Lambdas for custom logic)
 
   // SPEED
-  panel->add_row("Speed", "km/h",
-                 [](const RiderSnapshot& s) { return format_number(s.km_h); });
+  panel->add_row("Speed", "km/h", [](const RiderSnapshot& s) {
+    return format_number(s.km_h, 2);
+  });
 
   // POWER
   panel->add_row("Power", "W", [](const RiderSnapshot& s) {

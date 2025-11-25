@@ -1,33 +1,49 @@
 include/appstate.h
 ```
-// appstate.h
+// include/appstate.h
 #ifndef APPSTATE_H
 #define APPSTATE_H
 
-#include "SDL3/SDL_video.h"
 #include "sim.h"
+#include "texturemanager.h" // For GameResources
 #include <SDL3/SDL.h>
 #include <thread>
 
+// Forward declarations
+class IScreen;
 enum class ScreenType;
 
-struct AppState {
-  int SCREEN_WIDTH = 1000;
-  int SCREEN_HEIGHT = 640;
+class AppState {
+public:
+  // Constants
+  const int SCREEN_WIDTH = 1000;
+  const int SCREEN_HEIGHT = 640;
 
+  // Core Hardware/SDL Resources (Owned by AppState)
   SDL_Window* window = nullptr;
   SDL_Renderer* renderer = nullptr;
 
-  // model layer
+  // Logic & Assets (Owned by AppState)
+  GameResources* resources = nullptr;
   Course* course = nullptr;
   Simulation* sim = nullptr;
   std::thread* physics_thread = nullptr;
 
-  // view layer
-  class IScreen* screen = nullptr;
-  ScreenType current_screen;
+  // View State
+  IScreen* current_screen_ptr = nullptr; // Renamed to avoid confusion
+  ScreenType current_type;
+
+  AppState();
+  ~AppState();
 
   void switch_screen(ScreenType type);
+
+  bool load_image(const char* id, const char* filename);
+
+  // Helper to get window size dynamically if needed
+  Vector2d get_window_size() const {
+    return Vector2d(SCREEN_WIDTH, SCREEN_HEIGHT);
+  }
 };
 
 #endif
@@ -103,9 +119,9 @@ include/display.h
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
+#include "appstate.h"
 #include "course.h"
 #include "rider.h"
-#include "sim.h"
 #include "texturemanager.h"
 #include <memory>
 
@@ -142,12 +158,15 @@ public:
   MatrixX2d get_visible_points() const;
 };
 
+class DisplayEngine;
+
 struct RenderContext {
   SDL_Renderer* renderer;
   Camera* camera;
-  // const std::vector<RiderSnapshot>* rider_snapshots;
   const SnapshotMap* rider_snapshots;
   ResourceProvider* resources;
+
+  DisplayEngine* engine;
 
   const RiderSnapshot* get_snapshot(const size_t id) const {
     auto it = rider_snapshots->find(id);
@@ -189,49 +208,35 @@ public:
 
 class DisplayEngine {
 private:
-  SDL_Window* window = nullptr;
-  SDL_Renderer* renderer = nullptr;
-  ResourceProvider* resources = nullptr;
-  int width, height;
+  AppState* app; // Reference to the app state (renderer, resources)
   Camera* camera;
-  const Simulation* sim; // holds the physics engine
+
+  // Drawables specific to this "scene"
   std::vector<std::unique_ptr<Drawable>> drawables;
 
   size_t camera_target_id = 0;
-
-  // snapshots positions so we can let go of frame_lock for PhysicsEngine
-  std::vector<Vector2d> rider_positions;
-
   std::chrono::steady_clock::time_point last_frame_time;
   const double target_fps = 60.0;
+
+  std::vector<Vector2d> rider_positions;
   const std::chrono::duration<double> target_frame_duration =
       std::chrono::duration<double>(1.0 / target_fps);
   std::vector<RiderSnapshot> get_rider_snapshots();
   SnapshotMap get_rider_snapshot_map();
 
 public:
-  DisplayEngine(Simulation* s, int w, int h, Camera* camera_);
-  SDL_Texture* img1;
-  SDL_Texture* img2;
-
-  bool load_image(const char* id, const char* filename);
-
-  ~DisplayEngine() {
-    if (renderer)
-      SDL_DestroyRenderer(renderer);
-    if (window)
-      SDL_DestroyWindow(window);
-    SDL_Quit();
-  }
-
-  void set_resources(ResourceProvider* resources);
-  ResourceProvider* get_resources() const;
-
-  bool handle_event(const SDL_Event* event);
+  DisplayEngine(AppState* app_, Camera* camera_);
+  ~DisplayEngine(); // No longer destroys SDL
   void add_drawable(std::unique_ptr<Drawable> d);
   void render_frame();
-  SDL_Renderer* get_renderer();
-  Camera* get_camera();
+  bool handle_event(const SDL_Event* event);
+
+  void set_target_id(size_t id) { camera_target_id = id; }
+  size_t get_target_id() const { return camera_target_id; }
+
+  void handle_click(double screen_x, double screen_y);
+
+  Camera* get_camera() { return camera; }
 };
 #endif
 ```
@@ -422,7 +427,7 @@ public:
   virtual void render() = 0;
 
   // virtual void handle_event(SDL_Event* e) = 0;
-  void handle_event(SDL_Event* e) {
+  virtual void handle_event(SDL_Event* e) {
     if (e->type == SDL_EVENT_KEY_DOWN) {
       if (e->key.key == SDLK_RETURN) {
         // start simulation
@@ -457,19 +462,17 @@ public:
   AppState* state;
   Camera* camera = nullptr;
   DisplayEngine* display = nullptr;
-  ResourceProvider* resources = nullptr;
   int WORLD_WIDTH = 200;
 
   SimulationScreen(AppState* s);
   void update() override {}
 
-  void handle_event(SDL_Event* e) { display->handle_event(e); }
+  void handle_event(SDL_Event* e) override { display->handle_event(e); }
 
   void render() override;
 
   ~SimulationScreen() {
     delete display;
-    delete resources;
     delete camera;
   }
 };
@@ -557,6 +560,7 @@ include/texturemanager.h
 #ifndef TEXTUREMANAGER_H
 #define TEXTUREMANAGER_H
 
+#include "SDL3/SDL_log.h"
 #include <string>
 #include <unordered_map>
 
@@ -565,72 +569,79 @@ struct SDL_Texture;
 struct TTF_Font;
 
 class TextureManager {
-  public:
-    // You must give TextureManager a valid SDL_Renderer* at construction time.
-    // It keeps that renderer internally so it can turn surfaces → textures.
-    TextureManager(SDL_Renderer* renderer_);
+public:
+  // You must give TextureManager a valid SDL_Renderer* at construction time.
+  // It keeps that renderer internally so it can turn surfaces → textures.
+  TextureManager(SDL_Renderer* renderer_);
 
-    ~TextureManager();
+  ~TextureManager();
 
-    // Non‐copyable / non‐movable for simplicity
-    TextureManager(const TextureManager&) = delete;
-    TextureManager& operator=(const TextureManager&) = delete;
+  // Non‐copyable / non‐movable for simplicity
+  TextureManager(const TextureManager&) = delete;
+  TextureManager& operator=(const TextureManager&) = delete;
 
-    bool load_texture(const char* id, const char* file_path);
-    SDL_Texture* get_texture(const char* id) const;
+  bool load_texture(const char* id, const char* file_path);
+  SDL_Texture* get_texture(const char* id) const;
 
-    // (Optional) Query width/height of a loaded texture.
-    bool query_texture(const char* id, float& outW, float& outH) const;
+  // (Optional) Query width/height of a loaded texture.
+  bool query_texture(const char* id, float& outW, float& outH) const;
 
-  private:
-    SDL_Renderer* renderer;
-    std::unordered_map<std::string, SDL_Texture*> texture_map;
+private:
+  SDL_Renderer* renderer;
+  std::unordered_map<std::string, SDL_Texture*> texture_map;
 };
 
 class FontManager {
-  public:
-    FontManager() {};
+public:
+  FontManager() {};
 
-    ~FontManager();
+  ~FontManager();
 
-    // Non‐copyable / non‐movable for simplicity
-    FontManager(const FontManager&) = delete;
-    FontManager& operator=(const FontManager&) = delete;
+  // Non‐copyable / non‐movable for simplicity
+  FontManager(const FontManager&) = delete;
+  FontManager& operator=(const FontManager&) = delete;
 
-    bool load_font(const char* id, const char* file_path, int font_size);
-    TTF_Font* get_font(const char* id) const;
+  bool load_font(const char* id, const char* file_path, int font_size);
+  TTF_Font* get_font(const char* id) const;
 
-  private:
-    std::unordered_map<std::string, TTF_Font*> font_map;
+private:
+  std::unordered_map<std::string, TTF_Font*> font_map;
 };
 
 class ResourceProvider {
-  public:
-    virtual TextureManager* get_textureManager() = 0;
-    virtual FontManager* get_fontManager() = 0;
-    virtual ~ResourceProvider() = default;
+public:
+  virtual TextureManager* get_textureManager() = 0;
+  virtual FontManager* get_fontManager() = 0;
+  virtual ~ResourceProvider() = default;
 };
 
 class GameResources : public ResourceProvider {
-  public:
-    GameResources(SDL_Renderer* renderer_)
-        : renderer(renderer_), textureManager(renderer_) {
-        load_common_resources();
+public:
+  GameResources(SDL_Renderer* renderer_)
+      : renderer(renderer_), textureManager(renderer_) {
+    load_common_resources();
+  }
+
+  TextureManager* get_textureManager() override { return &textureManager; }
+  FontManager* get_fontManager() override { return &fontManager; }
+
+  void load_common_resources() {
+    if (!textureManager.load_texture("player", "resources/collated_grid.png")) {
+      SDL_Log("Failed to load 'player' texture");
     }
-
-    TextureManager* get_textureManager() override { return &textureManager; }
-    FontManager* get_fontManager() override { return &fontManager; }
-
-    void load_common_resources() {
-        textureManager.load_texture("player", "resources/collated_grid.png");
-        fontManager.load_font("default", "resources/Roboto-Regular.ttf", 16);
-        fontManager.load_font("stopwatch", "resources/DSEG7Classic-Regular.ttf", 32);
+    if (!fontManager.load_font("default", "resources/Roboto-Regular.ttf", 16)) {
+      SDL_Log("Failed to load 'default' font");
     }
+    if (!fontManager.load_font("stopwatch",
+                               "resources/DSEG7Classic-Regular.ttf", 32)) {
+      SDL_Log("Failed to load 'stopwatch' font");
+    }
+  }
 
-  private:
-    SDL_Renderer* renderer;
-    TextureManager textureManager;
-    FontManager fontManager;
+private:
+  SDL_Renderer* renderer;
+  TextureManager textureManager;
+  FontManager fontManager;
 };
 
 #endif
@@ -682,9 +693,10 @@ private:
 public:
   Stopwatch(int x, int y, TTF_Font* font_, Simulation* sim_,
             int update_ms = 100)
-      : sim(sim_), font(font_), screen_x(x), screen_y(y),
+      : screen_x(x), screen_y(y), font(font_), sim(sim_),
         update_interval_ms(update_ms) {
     last_update_ticks = 0;
+    SDL_Log("test");
   }
 
   ~Stopwatch() {
@@ -726,6 +738,8 @@ public:
   ~ValueField();
 
   void render(const RenderContext* ctx) override;
+  void render_with_snapshot(const RenderContext* ctx,
+                            const RiderSnapshot* snap);
 
   // Allow parents to move this widget
   void set_position(int new_x, int new_y) {
@@ -757,6 +771,7 @@ public:
   ~MetricRow();
 
   void render(const RenderContext* ctx) override;
+  void render_for_rider(const RenderContext* ctx, const RiderSnapshot* snap);
 
   // Helper to calculate total height for the panel
   int get_height() const { return 30; } // simplified
@@ -766,7 +781,7 @@ public:
 class RiderPanel : public Widget {
 private:
   int x, y;
-  size_t rider_id;
+  // size_t rider_id;
   TTF_Font* font;
 
   std::string title;
@@ -776,7 +791,7 @@ private:
   std::vector<std::unique_ptr<MetricRow>> rows;
 
 public:
-  RiderPanel(int x, int y, const char* rider_name, size_t id, TTF_Font* font);
+  RiderPanel(int x, int y, TTF_Font* font);
   ~RiderPanel();
 
   // The factory method you wanted!
@@ -792,22 +807,87 @@ public:
 
 src/appstate.cpp
 ```
+// src/appstate.cpp
 #include "appstate.h"
+#include "SDL3_ttf/SDL_ttf.h"
 #include "screen.h"
 
+AppState::AppState() {
+  // 1. Initialize SDL Core
+  if (!SDL_Init(SDL_INIT_VIDEO)) {
+    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
+    throw std::runtime_error("SDL Init Failed");
+  }
+  if (!TTF_Init()) {
+    SDL_Log("Couldn't initialize TTF: %s", SDL_GetError());
+    throw std::runtime_error("TTF Init Failed");
+  }
+
+  // 2. Create Window and Renderer ONCE
+  if (!SDL_CreateWindowAndRenderer("Cycle Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0,
+                                   &window, &renderer)) {
+    SDL_Log("CreateWindowAndRenderer failed: %s", SDL_GetError());
+    throw std::runtime_error("Window Creation Failed");
+  }
+
+  // 3. Initialize Shared Resources
+  resources = new GameResources(renderer);
+
+  // 4. Initialize Simulation
+  course = new Course(Course::create_endulating());
+  sim = new Simulation(course); // Sim now owns the course
+  sim->set_time_factor(5.0);
+
+  // (Optional) Setup default riders here or in Main
+}
+
+AppState::~AppState() {
+  // Cleanup in reverse order of creation
+  if (physics_thread) {
+    sim->stop();
+    physics_thread->join();
+    delete physics_thread;
+  }
+
+  if (current_screen_ptr)
+    delete current_screen_ptr;
+  if (sim)
+    delete sim;
+  if (course)
+    delete course;
+  if (resources)
+    delete resources;
+
+  if (renderer)
+    SDL_DestroyRenderer(renderer);
+  if (window)
+    SDL_DestroyWindow(window);
+
+  TTF_Quit();
+  SDL_Quit();
+}
+
+bool AppState::load_image(const char* id, const char* filename) {
+  return resources->get_textureManager()->load_texture(id, filename);
+}
+
 void AppState::switch_screen(ScreenType type) {
-  delete screen;
-  current_screen = type;
+  if (current_screen_ptr) {
+    delete current_screen_ptr;
+    current_screen_ptr = nullptr;
+  }
+
+  current_type = type;
 
   switch (type) {
   case ScreenType::Menu:
-    screen = new MenuScreen(this);
+    current_screen_ptr = new MenuScreen(this);
     break;
   case ScreenType::Simulation:
-    screen = new SimulationScreen(this);
+    current_screen_ptr = new SimulationScreen(this);
     break;
   case ScreenType::Result:
-    screen = new ResultsScreen(this);
+    current_screen_ptr = new ResultsScreen(this);
     break;
   }
 }
@@ -990,6 +1070,19 @@ MatrixX2d Camera::world_to_screen(MatrixX2d world_pts) const {
   return world_pts;
 }
 
+Vector2d Camera::screen_to_world(Vector2d screen_pos) const {
+  // 1. Center offset
+  Vector2d centered = screen_pos - (screensize * 0.5);
+
+  // 2. Scale inversion (remember y is inverted by -vert_scale)
+  Vector2d scaled;
+  scaled.x() = centered.x() / scale;
+  scaled.y() = centered.y() / (-vert_scale); // vert_scale is usually 1.0
+
+  // 3. Camera Position offset
+  return scaled + pos;
+}
+
 MatrixX2d Camera::get_visible_points() const {
   double half_w = (double)world_width * 0.5;
   MatrixX2d pts = course->get_points(pos[0] - half_w, pos[0] + half_w);
@@ -1063,67 +1156,46 @@ void RiderDrawable::render(const RenderContext* ctx) {
   }
 }
 
-DisplayEngine::DisplayEngine(Simulation* s, int w, int h, Camera* camera_)
-    : sim(s), width(w), height(h), camera(camera_) {
-  if (!SDL_Init(SDL_INIT_VIDEO)) {
-    SDL_Log("Couldn't initialize SDL: %s", SDL_GetError());
-  }
-  if (!TTF_Init()) {
-    SDL_Log("Couldn't initialize TTF: %s", SDL_GetError());
-  }
-  SDL_CreateWindowAndRenderer("Physics Sim", width, height, 0, &window,
-                              &renderer);
+DisplayEngine::DisplayEngine(AppState* app_, Camera* camera_)
+    : app(app_), camera(camera_) {}
+
+// void DisplayEngine::set_resources(ResourceProvider* resources_) {
+//   resources = resources_;
+// }
+
+DisplayEngine::~DisplayEngine() {
+  // We only clean up our own drawables (handled by unique_ptr).
 }
 
-void DisplayEngine::set_resources(ResourceProvider* resources_) {
-  resources = resources_;
-}
-
-ResourceProvider* DisplayEngine::get_resources() const {
-  if (!resources) {
-    SDL_Log("get_resources() called but resources == nullptr!");
-  }
-  return resources;
-}
+// ResourceProvider* DisplayEngine::get_resources() const {
+//   if (!resources) {
+//     SDL_Log("get_resources() called but resources == nullptr!");
+//   }
+//   return resources;
+// }
 
 void DisplayEngine::add_drawable(std::unique_ptr<Drawable> d) {
   drawables.emplace_back(std::move(d));
 }
 
-// TODO - is this to be removed?
-std::vector<RiderSnapshot> DisplayEngine::get_rider_snapshots() {
-  std::vector<RiderSnapshot> result;
-
-  std::lock_guard<std::mutex> lock(*sim->get_engine()->get_frame_mutex());
-  const std::vector<Rider*>& riders =
-      sim->get_engine()->get_riders(); // assuming a getter
-
-  result.reserve(riders.size());
-  for (const Rider* rider_ptr : riders) {
-    result.push_back(rider_ptr->snapshot()); // copy out minimal state
-  }
-  return result; // rendering can now proceed without holding any locks
-}
-
 SnapshotMap DisplayEngine::get_rider_snapshot_map() {
   SnapshotMap result;
 
-  // Lock is essential!
-  std::lock_guard<std::mutex> lock(*sim->get_engine()->get_frame_mutex());
+  if (!app || !app->sim || !app->sim->get_engine()) {
+    SDL_Log("oops, no app, app->sim, or app->sim->get_engine");
+    return result; // Safety check
+  }
 
-  const std::vector<Rider*>& riders = sim->get_engine()->get_riders();
+  // Lock is essential!
+  std::lock_guard<std::mutex> lock(*app->sim->get_engine()->get_frame_mutex());
+
+  const std::vector<Rider*>& riders = app->sim->get_engine()->get_riders();
 
   result.reserve(riders.size());
-
   for (const Rider* rider_ptr : riders) {
-    // key = id; value = snapshot
     result.emplace(rider_ptr->get_id(), rider_ptr->snapshot());
   }
   return result;
-}
-
-bool DisplayEngine::load_image(const char* id, const char* filename) {
-  return resources->get_textureManager()->load_texture(id, filename);
 }
 
 void DisplayEngine::render_frame() {
@@ -1135,11 +1207,11 @@ void DisplayEngine::render_frame() {
     camera->_set_center(snapshots.at(camera_target_id).pos2d);
   }
 
-  SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
-  SDL_RenderClear(renderer);
+  SDL_SetRenderDrawColor(app->renderer, 30, 30, 30, 255);
+  SDL_RenderClear(app->renderer);
 
   // Build a RenderContext that hands each Drawable a pointer to our snapshot
-  RenderContext ctx{renderer, camera, &snapshots, resources};
+  RenderContext ctx{app->renderer, camera, &snapshots, app->resources, this};
 
   // Render each Drawable in order (CourseDrawable, RiderDrawable, etc.)
   for (auto& d : drawables) {
@@ -1147,7 +1219,7 @@ void DisplayEngine::render_frame() {
   }
 
   // Finally present the composed frame
-  SDL_RenderPresent(renderer);
+  SDL_RenderPresent(app->renderer);
 
   auto end = std::chrono::steady_clock::now();
   std::chrono::duration<double> elapsed = end - start;
@@ -1158,18 +1230,59 @@ void DisplayEngine::render_frame() {
   last_frame_time = std::chrono::steady_clock::now();
 }
 
+void DisplayEngine::handle_click(double screen_x, double screen_y) {
+  Vector2d world_pos = camera->screen_to_world(Vector2d(screen_x, screen_y));
+
+  // need access to snapshots. since we're in the main thread (event loop)
+  // and physics is in another, we should use the thread-safe getter
+  // or cache the last frame's snapshots
+  // let's reuse the snapshot map logic or fetch fresh:
+
+  SnapshotMap snaps = get_rider_snapshot_map();
+
+  double min_dist = 20.0;
+  bool found = false;
+  size_t found_id = 0;
+  SDL_Log("%f, %f", world_pos.x(), world_pos.y());
+
+  for (auto& [id, snap] : snaps) {
+    double dx = snap.pos2d.x() - world_pos.x();
+    double dy = snap.pos2d.y() - world_pos.y();
+    double dist = std::sqrt(dx * dx + dy * dy);
+    SDL_Log("%s: %f", snap.name.c_str(), dist);
+
+    // you might wanna weight X more strictly if they are packed tight
+    if (dist < min_dist) {
+      min_dist = dist;
+      found_id = id;
+      found = true;
+    }
+  }
+
+  if (found) {
+    camera_target_id = found_id;
+    SDL_Log("Selected rider ID: %lu", (unsigned long)found_id);
+  }
+}
+
 // what does this do?
 bool DisplayEngine::handle_event(const SDL_Event* e) {
+  // let drawables handle clicks first
   for (auto it = drawables.rbegin(); it != drawables.rend(); ++it) {
     if ((*it)->handle_event(e)) {
       return true; // Event was consumed
     }
+
+    // handle world clicks
+    if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+      if (e->button.button == SDL_BUTTON_LEFT) {
+        handle_click(e->button.x, e->button.y);
+        return true;
+      }
+    }
   }
   return false;
 }
-
-SDL_Renderer* DisplayEngine::get_renderer() { return renderer; }
-Camera* DisplayEngine::get_camera() { return camera; }
 ```
 
 src/haha.cpp
@@ -1300,10 +1413,11 @@ const SDL_Texture* load_from_file(SDL_Renderer* renderer, const char* filename) 
 src/main.cpp
 ```
 #include "SDL3/SDL_events.h"
+#include "SDL3/SDL_init.h"
 #include "appstate.h"
 #include "sim.h"
+#include <exception>
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
-#include "course.h"
 #include "screen.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -1313,33 +1427,32 @@ int SCREEN_HEIGHT = 640;
 int WORLD_WIDTH = 400;
 
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
-  auto* state = new AppState();
+  try {
+    auto* state = new AppState();
 
-  SDL_CreateWindowAndRenderer("Cycle sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0,
-                              &state->window, &state->renderer);
+    Team team("Team1");
+    Rider* r = Rider::create_generic(team);
+    state->sim->get_engine()->add_rider(r);
 
-  state->course = new Course(Course::create_endulating());
-  state->sim = new Simulation(state->course);
-  state->sim->set_time_factor(5.0);
-  Team team("Team1");
-  Rider* r = Rider::create_generic(team);
-  state->sim->get_engine()->add_rider(r);
+    Rider* r2 = new Rider("Pedro", 300, 80, 0.3, Bike::create_generic(), team);
+    r2->pos = 20;
+    state->sim->get_engine()->add_rider(r2);
 
-  Rider* r2 = new Rider("Pedro", 270, 80, 0.3, Bike::create_generic(), team);
-  r2->pos = 20;
-  state->sim->get_engine()->add_rider(r2);
+    state->physics_thread =
+        new std::thread([sim = state->sim]() { sim->start_realtime(); });
 
-  state->physics_thread =
-      new std::thread([sim = state->sim]() { sim->start_realtime(); });
+    // state->window =
+    //     SDL_CreateWindow("Cycling Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
+    // state->renderer = SDL_CreateRenderer(state->window, nullptr);
 
-  // state->window =
-  //     SDL_CreateWindow("Cycling Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
-  // state->renderer = SDL_CreateRenderer(state->window, nullptr);
+    state->switch_screen(ScreenType::Simulation);
 
-  state->switch_screen(ScreenType::Simulation);
-
-  *appstate = state;
-  return SDL_APP_CONTINUE;
+    *appstate = state;
+    return SDL_APP_CONTINUE;
+  } catch (const std::exception& e) {
+    SDL_Log("Application init failed: %s", e.what());
+    return SDL_APP_FAILURE;
+  }
 }
 
 /* This function runs when a new event (mouse input, keypresses, etc) occurs. */
@@ -1349,18 +1462,21 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
     return SDL_APP_SUCCESS; /* end the program, reporting success */
   }
 
-  else {
-    state->screen->handle_event(event);
+  // Pass event to current screen
+  if (state->current_screen_ptr) {
+    state->current_screen_ptr->handle_event(event);
   }
+
   return SDL_APP_CONTINUE; /* carry on with the program! */
 }
 
 /* This function runs once per frame, and is the heart of the program. */
 SDL_AppResult SDL_AppIterate(void* appstate) {
   auto* state = static_cast<AppState*>(appstate);
-  // state->display->render_frame();
-  state->screen->update();
-  state->screen->render();
+  if (state->current_screen_ptr) {
+    state->current_screen_ptr->update();
+    state->current_screen_ptr->render();
+  }
 
   return SDL_APP_CONTINUE; /* carry on with the program! */
 }
@@ -1368,19 +1484,6 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
 /* This function runs once at shutdown. */
 void SDL_AppQuit(void* appstate, SDL_AppResult result) {
   auto* state = static_cast<AppState*>(appstate);
-
-  if (state->sim) {
-    state->sim->stop();
-  }
-
-  if (state->physics_thread) {
-    state->physics_thread->join();
-    delete state->physics_thread;
-  }
-
-  delete state->screen;
-  delete state->sim;
-  delete state->course;
 
   delete state;
 }
@@ -1442,7 +1545,7 @@ Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  return new Rider("Joe Moe", 250, 70, 0.3, bike, team_);
+  return new Rider("Joe Moe", 250, 65, 0.3, bike, team_);
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
@@ -1662,35 +1765,30 @@ void ResultsScreen::render() {
 
 SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   Vector2d screensize(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
-  camera = new Camera(state->course, WORLD_WIDTH, screensize);
+  camera = new Camera(state->sim->get_engine()->get_course(), WORLD_WIDTH,
+                      screensize);
   // maybe this could take screensize rather than 2 ints?
-  display =
-      new DisplayEngine(state->sim, s->SCREEN_WIDTH, s->SCREEN_HEIGHT, camera);
+  display = new DisplayEngine(state, camera);
 
-  resources = new GameResources(display->get_renderer());
-  display->set_resources(resources);
+  SDL_Log("after displayengine");
 
-  display->add_drawable(std::make_unique<CourseDrawable>(state->course));
+  display->add_drawable(
+      std::make_unique<CourseDrawable>(state->sim->get_engine()->get_course()));
   display->add_drawable(std::make_unique<RiderDrawable>());
   display->add_drawable(std::make_unique<Stopwatch>(
-      10, 10, resources->get_fontManager()->get_font("stopwatch"), state->sim));
-
-  display->add_drawable(std::make_unique<ValueField>(
-      300, 360, 200, 40, resources->get_fontManager()->get_font("default"), 0,
-      [](const RiderSnapshot& s) -> std::string {
-        return format_number(s.km_h, 1);
-      }));
+      10, 10, state->resources->get_fontManager()->get_font("stopwatch"),
+      state->sim));
 
   // 2. Create the Panel
   auto panel = std::make_unique<RiderPanel>(
-      20, 200, "Live Data", 0,
-      resources->get_fontManager()->get_font("default"));
+      20, 200, state->resources->get_fontManager()->get_font("default"));
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
   // SPEED
-  panel->add_row("Speed", "km/h",
-                 [](const RiderSnapshot& s) { return format_number(s.km_h); });
+  panel->add_row("Speed", "km/h", [](const RiderSnapshot& s) {
+    return format_number(s.km_h, 2);
+  });
 
   // POWER
   panel->add_row("Power", "W", [](const RiderSnapshot& s) {
@@ -1713,7 +1811,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // display->add_drawable(std::make_unique<ValueField>(
   //     300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
   //     [](const RiderSnapshot& s) -> std::string { return s.name; }));
-  // state->display->add_drawable(std::make_unique<ValueFieldPanel>(
+  // display->add_drawable(std::make_unique<ValueFieldPanel>(
   //     300, 400, state->resources->get_fontManager()->get_font("default"),
   //     r));
 
@@ -1984,6 +2082,8 @@ src/widget.cpp
 #include <cstdio>
 #include <string>
 
+#include "SDL3/SDL_render.h"
+#include "SDL3/SDL_surface.h"
 #include "display.h"
 #include "rider.h"
 #include "widget.h"
@@ -2225,6 +2325,30 @@ void ValueField::render(const RenderContext* ctx) {
   }
 }
 
+void ValueField::render_with_snapshot(const RenderContext* ctx,
+                                      const RiderSnapshot* snap) {
+  if (!snap)
+    return;
+
+  if (!bg_texture)
+    create_bg(ctx->renderer);
+  update_texture(ctx->renderer, *snap);
+  // 3. Draw Background
+  SDL_FRect bg_rect = {(float)x, (float)y, (float)width, (float)height};
+  SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &bg_rect);
+
+  // 4. Draw Text (Centered or Right Aligned)
+  if (texture) {
+    float tex_w, tex_h;
+    SDL_GetTextureSize(texture, &tex_w, &tex_h);
+    // Align right inside the box with padding
+    float txt_x = x + width - tex_w - 5;
+    float txt_y = y + (height - tex_h) / 2;
+    SDL_FRect txt_rect = {txt_x, txt_y, tex_w, tex_h};
+    SDL_RenderTexture(ctx->renderer, texture, nullptr, &txt_rect);
+  }
+}
+
 // ======================= METRIC ROW =======================
 
 MetricRow::MetricRow(int x_, int y_, TTF_Font* f, size_t id, std::string label,
@@ -2289,10 +2413,47 @@ void MetricRow::render(const RenderContext* ctx) {
   }
 }
 
+void MetricRow::render_for_rider(const RenderContext* ctx,
+                                 const RiderSnapshot* snap) {
+  // 1. Render static labels once
+  if (!label_tex) {
+    SDL_Surface* s = TTF_RenderText_Blended(font, label_txt.c_str(), 0,
+                                            {200, 200, 200, 255});
+    label_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
+    SDL_DestroySurface(s);
+  }
+  if (!unit_tex && !unit_txt.empty()) {
+    SDL_Surface* s =
+        TTF_RenderText_Blended(font, unit_txt.c_str(), 0, {150, 150, 150, 255});
+    unit_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
+    SDL_DestroySurface(s);
+  }
+
+  // 2. Draw Label (Left)
+  if (label_tex) {
+    float w, h;
+    SDL_GetTextureSize(label_tex, &w, &h);
+    // Vertically center label relative to the row height (approx 24)
+    SDL_FRect r = {(float)x, (float)y + (24 - h) / 2, w, h};
+    SDL_RenderTexture(ctx->renderer, label_tex, nullptr, &r);
+  }
+
+  // Call the specific render on the field
+  field->render_with_snapshot(ctx, snap);
+
+  if (unit_tex) {
+    float w, h;
+    SDL_GetTextureSize(unit_tex, &w, &h);
+    // Position: X + label + field_width + padding
+    SDL_FRect r = {(float)(x + label_width + field->get_width() + 5),
+                   (float)y + (24 - h) / 2, w, h};
+    SDL_RenderTexture(ctx->renderer, unit_tex, nullptr, &r);
+  }
+}
+
 // ======================= RIDER PANEL =======================
 // WARNING - this assumes the font isnt deallocated
-RiderPanel::RiderPanel(int x_, int y_, const char* name, size_t id, TTF_Font* f)
-    : x(x_), y(y_), rider_id(id), font(f), title(name) {}
+RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
 
 RiderPanel::~RiderPanel() {
   if (title_tex)
@@ -2304,12 +2465,36 @@ void RiderPanel::add_row(std::string label, std::string unit,
   int row_height = 30;                                // height + spacing
   int current_offset = rows.size() * row_height + 30; // +30 for title space
 
-  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, rider_id,
-                                         label, unit, getter);
+  // pass 0 as dummy, we overrider it
+  // Ideally, MetricRow should also be refactored, but here is a
+  // quick inheritance trick:
+
+  // Better yet, let's make MetricRow dynamic too.
+  // But to save refactoring EVERYTHING, let's use a "Dynamic ID" constant?
+  // No, cleaner to just pass the ID in render.
+  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, 0, label,
+                                         unit, getter);
   rows.push_back(std::move(row));
 }
 
 void RiderPanel::render(const RenderContext* ctx) {
+  size_t current_id = ctx->engine->get_target_id();
+
+  const RiderSnapshot* snap = ctx->get_snapshot(current_id);
+  if (!snap)
+    return;
+
+  std::string title_text = snap->name;
+
+  if (title != title_text) {
+    title = title_text;
+    if (title_tex)
+      SDL_DestroyTexture(title_tex);
+    SDL_Surface* s =
+        TTF_RenderText_Blended(font, title.c_str(), 0, {255, 255, 255});
+    title_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
+    SDL_DestroySurface(s);
+  }
   // Draw Title
   if (!title_tex) {
     SDL_Surface* s = TTF_RenderText_Blended(font, title.c_str(), 0,
@@ -2323,9 +2508,12 @@ void RiderPanel::render(const RenderContext* ctx) {
   SDL_FRect r = {(float)x, (float)y, w, h};
   SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
 
+  // HACK for now: Iterate rows, find their internal fields, and update their
+  // ID? Proper way: Refactor ValueField::render to take a snapshot, not look it
+  // up itself.
   // Draw all rows
   for (auto& row : rows) {
-    row->render(ctx);
+    row->render_for_rider(ctx, snap);
   }
 }
 ```

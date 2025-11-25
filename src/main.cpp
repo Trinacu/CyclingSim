@@ -20,7 +20,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     Rider* r = Rider::create_generic(team);
     state->sim->get_engine()->add_rider(r);
 
-    Rider* r2 = new Rider("Pedro", 270, 80, 0.3, Bike::create_generic(), team);
+    Rider* r2 = new Rider("Pedro", 300, 80, 0.3, Bike::create_generic(), team);
     r2->pos = 20;
     state->sim->get_engine()->add_rider(r2);
 

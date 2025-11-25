@@ -213,7 +213,7 @@ void DisplayEngine::handle_click(double screen_x, double screen_y) {
 
   SnapshotMap snaps = get_rider_snapshot_map();
 
-  double min_dist = 2.0;
+  double min_dist = 20.0;
   bool found = false;
   size_t found_id = 0;
   SDL_Log("%f, %f", world_pos.x(), world_pos.y());

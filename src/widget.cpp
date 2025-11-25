@@ -434,6 +434,6 @@ void RiderPanel::render(const RenderContext* ctx) {
   // up itself.
   // Draw all rows
   for (auto& row : rows) {
-    row->render(ctx);
+    row->render_for_rider(ctx, snap);
   }
 }

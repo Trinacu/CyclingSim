@@ -52,7 +52,7 @@ Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  return new Rider("Joe Moe", 250, 70, 0.3, bike, team_);
+  return new Rider("Joe Moe", 250, 65, 0.3, bike, team_);
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
