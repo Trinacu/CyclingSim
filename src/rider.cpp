@@ -30,14 +30,14 @@ Bike::Bike(double mass_, double wheel_i_, double wheel_r_,
 
 Bike Bike::create_generic() { return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02); }
 
-Team::Team(const char* name_) : name(name_) {}
+Team::Team(const char* name_) : name(name_) { id = 0; }
 
 Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
              Bike bike_, Team team_)
     : uid(global_id_counter++), name(name_), ftp_base(ftp_base_), mass(mass_),
       cda(cda_), bike(bike_), team(team_) {
   cda_factor = 1.0;
-  target_effort = 0.5;
+  target_effort = 0.8;
   pos = 0;
   speed = 0;
   slope = 0;
@@ -161,21 +161,6 @@ double Rider::pow_speed_double_prime(double new_speed) {
          (1 - bike.dt_loss);
 }
 
-RiderSnapshot Rider::snapshot() const {
-  return RiderSnapshot{
-      .uid = this->uid,
-      .name = this->name,
-      .pos = this->pos,
-      .slope = this->slope,
-      .pos2d = this->_pos2d,
-      .power = this->power,
-      .speed = this->speed,
-      .km_h = this->km_h(),
-      .heading = this->heading,
-      .team = this->team,
-  };
-}
-
 double Rider::newton(double power, double speed_guess, int max_iterations) {
   double x = speed_guess;
   double x_next;
@@ -236,4 +221,19 @@ double Rider::householder(double power, double speed_guess,
 
   throw std::runtime_error("Did not converge. Reached max iterations: " +
                            std::to_string(max_iterations));
+}
+
+RiderSnapshot Rider::snapshot() const {
+  return RiderSnapshot{
+      .uid = this->uid,
+      .name = this->name,
+      .pos = this->pos,
+      .slope = this->slope,
+      .pos2d = this->_pos2d,
+      .power = this->power,
+      .speed = this->speed,
+      .km_h = this->km_h(),
+      .heading = this->heading,
+      .team_id = this->team.id,
+  };
 }

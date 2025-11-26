@@ -3,7 +3,6 @@
 #define WIDGET_H
 
 #include "display.h"
-#include "rider.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
@@ -59,7 +58,7 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
-class ValueField : public Widget {
+class ValueField {
 public:
   using DataGetter = std::function<std::string(const RiderSnapshot&)>;
 
@@ -86,7 +85,7 @@ public:
              DataGetter getter);
   ~ValueField();
 
-  void render(const RenderContext* ctx) override;
+  // void render(const RenderContext* ctx) override;
   void render_with_snapshot(const RenderContext* ctx,
                             const RiderSnapshot* snap);
 
@@ -98,7 +97,7 @@ public:
   int get_width() const { return width; }
 };
 
-class MetricRow : public Widget {
+class MetricRow {
 private:
   std::string label_txt;
   std::string unit_txt;
@@ -119,7 +118,7 @@ public:
 
   ~MetricRow();
 
-  void render(const RenderContext* ctx) override;
+  // void render(const RenderContext* ctx) override;
   void render_for_rider(const RenderContext* ctx, const RiderSnapshot* snap);
 
   // Helper to calculate total height for the panel
@@ -130,7 +129,7 @@ public:
 class RiderPanel : public Widget {
 private:
   int x, y;
-  // size_t rider_id;
+  int rider_id = 0;
   TTF_Font* font;
 
   std::string title;

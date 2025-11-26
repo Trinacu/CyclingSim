@@ -5,6 +5,7 @@
 #include "sim.h"
 #include "texturemanager.h" // For GameResources
 #include <SDL3/SDL.h>
+#include <chrono>
 #include <thread>
 
 // Forward declarations
@@ -17,9 +18,13 @@ public:
   const int SCREEN_WIDTH = 1000;
   const int SCREEN_HEIGHT = 640;
 
+  const int FPS = 60;
+
   // Core Hardware/SDL Resources (Owned by AppState)
   SDL_Window* window = nullptr;
   SDL_Renderer* renderer = nullptr;
+
+  std::chrono::steady_clock::time_point last_frame_time;
 
   // Logic & Assets (Owned by AppState)
   GameResources* resources = nullptr;

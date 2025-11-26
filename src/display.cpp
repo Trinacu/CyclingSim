@@ -5,62 +5,56 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <mutex>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
-Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
-    : course(course_), world_width(world_width_), screensize(screensize_) {
-  scale = screensize_[0] / (double)world_width_;
-  vert_scale = 1.0;
-  pos = {0.0, 0.0};
-}
-
-void Camera::follow_course(double x) { pos << x, course->get_altitude(x); }
-
-void Camera::update(double x) {
-  // if (target_rider) {
-  //   pos = target_rider->get_pos2d();
-  // } else {
-  //   follow_course(x);
-  // }
-}
-
-void Camera::_set_center(Vector2d new_pos) { this->pos = new_pos; }
-
-Vector2d Camera::world_to_screen(Vector2d world_pos) const {
-  // offset from camera pos, multiply by scale, invert y axis
-  // and offset (0, 0) to the center of the screen
-  return ((world_pos - pos) * scale).cwiseProduct(Vector2d(1, -vert_scale)) +
-         Vector2d(screensize[0] / 2, screensize[1] / 2);
-}
-
-MatrixX2d Camera::world_to_screen(MatrixX2d world_pts) const {
-  world_pts.rowwise() -= pos;
-  world_pts *= scale;
-  world_pts.col(1) *= -vert_scale;
-  world_pts.rowwise() += screensize * 0.5;
-  return world_pts;
-}
-
-Vector2d Camera::screen_to_world(Vector2d screen_pos) const {
-  // 1. Center offset
-  Vector2d centered = screen_pos - (screensize * 0.5);
-
-  // 2. Scale inversion (remember y is inverted by -vert_scale)
-  Vector2d scaled;
-  scaled.x() = centered.x() / scale;
-  scaled.y() = centered.y() / (-vert_scale); // vert_scale is usually 1.0
-
-  // 3. Camera Position offset
-  return scaled + pos;
-}
-
-MatrixX2d Camera::get_visible_points() const {
-  double half_w = (double)world_width * 0.5;
-  MatrixX2d pts = course->get_points(pos[0] - half_w, pos[0] + half_w);
-  return world_to_screen(pts);
-}
+// Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
+//     : course(course_), world_width(world_width_), screensize(screensize_) {
+//   scale = screensize_[0] / (double)world_width_;
+//   vert_scale = 1.0;
+//   pos = {0.0, 0.0};
+// }
+//
+// void Camera::follow_course(double x) { pos << x, course->get_altitude(x); }
+//
+// void Camera::update(double x) {}
+//
+// void Camera::_set_center(Vector2d new_pos) { this->pos = new_pos; }
+//
+// Vector2d Camera::world_to_screen(Vector2d world_pos) const {
+//   // offset from camera pos, multiply by scale, invert y axis
+//   // and offset (0, 0) to the center of the screen
+//   return ((world_pos - pos) * scale).cwiseProduct(Vector2d(1, -vert_scale)) +
+//          Vector2d(screensize[0] / 2, screensize[1] / 2);
+// }
+//
+// MatrixX2d Camera::world_to_screen(MatrixX2d world_pos) const {
+//   MatrixX2d result = world_pos;
+//   result.rowwise() -= pos;
+//   result *= scale;
+//   result.col(1) *= -vert_scale;
+//   result.rowwise() += screensize * 0.5;
+//   return result;
+// }
+//
+// Vector2d Camera::screen_to_world(Vector2d screen_pos) const {
+//   // 1. Center offset
+//   Vector2d centered = screen_pos - (screensize * 0.5);
+//
+//   // 2. Scale inversion (remember y is inverted by -vert_scale)
+//   Vector2d scaled;
+//   scaled.x() = centered.x() / scale;
+//   scaled.y() = centered.y() / (-vert_scale); // vert_scale is usually 1.0
+//
+//   // 3. Camera Position offset
+//   return scaled + pos;
+// }
+//
+// MatrixX2d Camera::get_visible_points() const {
+//   double half_w = (double)world_width * 0.5;
+//   MatrixX2d pts = course->get_points(pos[0] - half_w, pos[0] + half_w);
+//   return world_to_screen(pts);
+// }
 
 CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
 
@@ -74,11 +68,16 @@ void CourseDrawable::render(const RenderContext* ctx) {
   screen_points.reserve(world_pts.size());
 
   // this loop can be optimized but apparently for <10k points, its instant
+  auto camera = ctx->camera_weak.lock();
+  if (!camera) {
+    SDL_Log("failed to lock camera weak_ptr");
+    return;
+  }
   for (const auto& wp : world_pts) {
-    if (abs(wp.x() - ctx->camera->get_pos().x()) > 2000)
+    if (abs(wp.x() - camera->get_pos().x()) > 2000)
       continue;
 
-    Vector2d sp = ctx->camera->world_to_screen(wp);
+    Vector2d sp = camera->world_to_screen(wp);
     screen_points.push_back(SDL_FPoint{(float)sp.x(), (float)sp.y()});
   }
   // MatrixX2d pts = ctx->camera->get_visible_points();
@@ -108,7 +107,12 @@ void RiderDrawable::render(const RenderContext* ctx) {
   // Draw each rider as a small 6×6 filled rect, centered on its screen‐space
   // pos
   for (const auto& [id, rider_snapshot] : *ctx->rider_snapshots) {
-    Vector2d screen_pos = ctx->camera->world_to_screen(rider_snapshot.pos2d);
+    auto cam = ctx->camera_weak.lock();
+    if (!cam) {
+      SDL_Log("failed to lock camera weak_ptr");
+      return;
+    }
+    Vector2d screen_pos = cam->world_to_screen(rider_snapshot.pos2d);
     // SDL_Log("%.1f %.1f", rider_snapshot.pos2d.x(), rider_snapshot.pos2d.y());
     float w = 128;
     float h = 128;
@@ -129,8 +133,12 @@ void RiderDrawable::render(const RenderContext* ctx) {
   }
 }
 
-DisplayEngine::DisplayEngine(AppState* app_, Camera* camera_)
-    : app(app_), camera(camera_) {}
+DisplayEngine::DisplayEngine(AppState* app_, Vector2d screensize,
+                             int world_width)
+    : app(app_) {
+  camera =
+      new Camera(app->sim->get_engine()->get_course(), world_width, screensize);
+}
 
 // void DisplayEngine::set_resources(ResourceProvider* resources_) {
 //   resources = resources_;
@@ -172,35 +180,25 @@ SnapshotMap DisplayEngine::get_rider_snapshot_map() {
 }
 
 void DisplayEngine::render_frame() {
-  auto start = std::chrono::steady_clock::now();
-
   SnapshotMap snapshots = get_rider_snapshot_map();
 
   if (snapshots.count(camera_target_id)) {
-    camera->_set_center(snapshots.at(camera_target_id).pos2d);
+    camera->set_center(snapshots.at(camera_target_id).pos2d);
   }
 
   SDL_SetRenderDrawColor(app->renderer, 30, 30, 30, 255);
   SDL_RenderClear(app->renderer);
 
   // Build a RenderContext that hands each Drawable a pointer to our snapshot
-  RenderContext ctx{app->renderer, camera, &snapshots, app->resources, this};
-
-  // Render each Drawable in order (CourseDrawable, RiderDrawable, etc.)
-  for (auto& d : drawables) {
-    d->render(&ctx);
-  }
-
-  // Finally present the composed frame
-  SDL_RenderPresent(app->renderer);
-
-  auto end = std::chrono::steady_clock::now();
-  std::chrono::duration<double> elapsed = end - start;
-  if (elapsed < target_frame_duration) {
-    std::this_thread::sleep_for(target_frame_duration - elapsed);
-  }
-
-  last_frame_time = std::chrono::steady_clock::now();
+  // RenderContext ctx{app->renderer, camera, &snapshots, app->resources, this};
+  //
+  // // Render each Drawable in order (CourseDrawable, RiderDrawable, etc.)
+  // for (auto& d : drawables) {
+  //   d->render(&ctx);
+  // }
+  //
+  // // Finally present the composed frame
+  // SDL_RenderPresent(app->renderer);
 }
 
 void DisplayEngine::handle_click(double screen_x, double screen_y) {

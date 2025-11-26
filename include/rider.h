@@ -3,6 +3,7 @@
 #define RIDER_H
 
 #include "course.h"
+#include "snapshot.h"
 #include "texturemanager.h"
 #include <SDL3/SDL.h>
 #include <iostream>
@@ -15,22 +16,24 @@ public:
   std::string name;
   const SDL_Texture* rider_img;
   Team(const char* name_);
+
+  int id;
 };
 
-struct RiderSnapshot {
-  const size_t uid;
-  std::string name;
-  double pos;
-  double slope;
-  Vector2d pos2d;
-  double power;
-  double effort;
-  double speed;
-  double km_h;
-  double heading;
-  Team team;
-};
-
+// struct RiderSnapshot {
+//   const size_t uid;
+//   std::string name;
+//   double pos;
+//   double slope;
+//   Vector2d pos2d;
+//   double power;
+//   double effort;
+//   double speed;
+//   double km_h;
+//   double heading;
+//   Team team;
+// };
+//
 class Bike {
 public:
   double mass;

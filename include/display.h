@@ -3,53 +3,53 @@
 #define DISPLAY_H
 
 #include "appstate.h"
+#include "camera.h"
 #include "course.h"
-#include "rider.h"
+#include "pch.hpp"
 #include "texturemanager.h"
 #include <memory>
 
 #include <SDL3/SDL.h>
-#include <unordered_map>
 
-using SnapshotMap = std::unordered_map<size_t, RiderSnapshot>;
-
-class Camera {
-private:
-  const Course* course;
-  int world_width;
-  double scale;
-  double vert_scale;
-  Vector2d pos;
-
-public:
-  // screensize could be private?
-  Vector2d screensize;
-  Camera(const Course* course_, int world_width_, Vector2d screensize_);
-
-  void follow_course(double x);
-  void update(double x);
-  void _set_center(Vector2d new_pos);
-
-  Vector2d get_pos() { return pos; }
-
-  Vector2d world_to_screen(Vector2d world_pos) const;
-  MatrixX2d world_to_screen(MatrixX2d world_pos_list) const;
-
-  Vector2d screen_to_world(Vector2d world_pos) const;
-  MatrixX2d screen_to_world(MatrixX2d world_pos_list) const;
-
-  MatrixX2d get_visible_points() const;
-};
+// class Camera {
+// private:
+//   const Course* course;
+//   int world_width;
+//   double scale;
+//   double vert_scale;
+//   Vector2d pos;
+//
+//   size_t target_rider_uid;
+//
+// public:
+//   // screensize could be private?
+//   Vector2d screensize;
+//   Camera(const Course* course_, int world_width_, Vector2d screensize_);
+//
+//   void follow_course(double x);
+//   void update(double x);
+//   void _set_center(Vector2d new_pos);
+//
+//   Vector2d get_pos() { return pos; }
+//
+//   Vector2d world_to_screen(Vector2d world_pos) const;
+//   MatrixX2d world_to_screen(MatrixX2d world_pos_list) const;
+//
+//   Vector2d screen_to_world(Vector2d world_pos) const;
+//   MatrixX2d screen_to_world(MatrixX2d world_pos_list) const;
+//
+//   MatrixX2d get_visible_points() const;
+// };
 
 class DisplayEngine;
 
 struct RenderContext {
   SDL_Renderer* renderer;
-  Camera* camera;
+  std::weak_ptr<Camera> camera_weak;
   const SnapshotMap* rider_snapshots;
   ResourceProvider* resources;
 
-  DisplayEngine* engine;
+  // DisplayEngine* engine;
 
   const RiderSnapshot* get_snapshot(const size_t id) const {
     auto it = rider_snapshots->find(id);
@@ -98,7 +98,6 @@ private:
   std::vector<std::unique_ptr<Drawable>> drawables;
 
   size_t camera_target_id = 0;
-  std::chrono::steady_clock::time_point last_frame_time;
   const double target_fps = 60.0;
 
   std::vector<Vector2d> rider_positions;
@@ -108,7 +107,7 @@ private:
   SnapshotMap get_rider_snapshot_map();
 
 public:
-  DisplayEngine(AppState* app_, Camera* camera_);
+  DisplayEngine(AppState* app_, Vector2d screensize, int WORLD_WIDTH);
   ~DisplayEngine(); // No longer destroys SDL
   void add_drawable(std::unique_ptr<Drawable> d);
   void render_frame();

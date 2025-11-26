@@ -37,7 +37,7 @@ Course Course::create_flat() {
 
 Course Course::create_endulating() {
   std::vector<std::array<double, 3>> v = {
-      {100, 0, 0}, {200, 0.1, 0}, {200, 0.15, 0}, {500, 0, 0}};
+      {100, 0, 0}, {200, 0.1, 0}, {200, 0, 0}, {500, 0.05, 0}};
   return Course(v);
 }
 

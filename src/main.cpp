@@ -2,6 +2,7 @@
 #include "SDL3/SDL_init.h"
 #include "appstate.h"
 #include "sim.h"
+#include <chrono>
 #include <exception>
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
 #include "screen.h"
@@ -20,7 +21,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     Rider* r = Rider::create_generic(team);
     state->sim->get_engine()->add_rider(r);
 
-    Rider* r2 = new Rider("Pedro", 300, 80, 0.3, Bike::create_generic(), team);
+    Rider* r2 = new Rider("Pedro", 320, 90, 0.3, Bike::create_generic(), team);
     r2->pos = 20;
     state->sim->get_engine()->add_rider(r2);
 
@@ -59,9 +60,17 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
 /* This function runs once per frame, and is the heart of the program. */
 SDL_AppResult SDL_AppIterate(void* appstate) {
   auto* state = static_cast<AppState*>(appstate);
-  if (state->current_screen_ptr) {
+
+  auto now = std::chrono::steady_clock::now();
+  std::chrono::duration<double> dt = now - state->last_frame_time;
+
+  if (dt.count() >= 1.0 / state->FPS) {
     state->current_screen_ptr->update();
     state->current_screen_ptr->render();
+    state->last_frame_time = now;
+  } else {
+    double remaining = (1.0 / state->FPS) - dt.count();
+    std::this_thread::sleep_for(std::chrono::duration<double>(remaining));
   }
 
   return SDL_APP_CONTINUE; /* carry on with the program! */

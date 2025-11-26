@@ -1,0 +1,47 @@
+❗ 4. RiderDrawable’s texture render uses hardcoded sprite positions
+
+This part:
+
+float w = 128;
+float h = 128;
+float x = screen_pos.x() - w;
+float y = screen_pos.y() - h;
+SDL_FRect dst{x, y, w, h};
+SDL_FRect src{0, 0, 256, 256};
+
+
+Problems:
+
+🟥 You always show the first sprite frame
+
+You have a 12-frame pedaling sprite sheet (from earlier chat), but you are not animating it.
+
+🟥 Hardcoded 128×128 scaling ignores DPI and camera scaling
+🟥 Hardcoded 256×256 source size assumes a specific layout
+
+All this is fine temporarily, but it deserves improvement once you add animations.
+
+ALSO NEED TO MAKE CLICK SELECT IN DisplayEngine.handle_click ADJUST BY HALF OF TEXTURE SIZE
+SO WE ARE CLICKING CENTER OF THE RIDER
+
+
+❗ 5. RiderSnapshot contains a Team — but Team contains an SDL_Texture*
+
+This:
+struct RiderSnapshot {
+  …
+  Team team;
+};
+and team contains:
+const SDL_Texture* rider_img;
+Snapshots are copied per frame, so every frame you copy a struct containing a raw SDL_Texture pointer.
+This is safe if:
+The texture NEVER gets destroyed
+You never take a snapshot mid-destruction
+Which is “probably” true but also fragile.
+✔ Recommendation:
+Make Team immutable and store textures via:
+a texture ID
+or a TextureHandle struct
+or std::string texture_name
+RiderSnapshot should not carry raw pointers.
