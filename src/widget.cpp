@@ -376,6 +376,8 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 // WARNING - this assumes the font isnt deallocated
 RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
 
+void RiderPanel::set_rider_id(int uid) { rider_uid = uid; }
+
 RiderPanel::~RiderPanel() {
   if (title_tex)
     SDL_DestroyTexture(title_tex);
@@ -400,7 +402,7 @@ void RiderPanel::add_row(std::string label, std::string unit,
 
 void RiderPanel::render(const RenderContext* ctx) {
 
-  const RiderSnapshot* snap = ctx->get_snapshot(rider_id);
+  const RiderSnapshot* snap = ctx->get_snapshot(rider_uid);
   if (!snap)
     return;
 

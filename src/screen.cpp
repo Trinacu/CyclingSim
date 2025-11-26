@@ -73,6 +73,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
     // return format_number(s.slope * 100.0);
     return format_number(s.slope * 100.0);
   });
+
+  this->rider_panel = panel.get();
+
   sim_renderer->add_drawable(std::move(panel));
 
   // display->add_drawable(std::make_unique<ValueField>(
@@ -98,7 +101,8 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
       if (uid != -1) {
         selected_rider_uid = uid;
         // sim_renderer->get_camera()->set_target(uid);
-        sim_renderer->set_target(uid);
+        sim_renderer->get_camera()->set_target(uid);
+        rider_panel->set_rider_id(uid);
         return true;
       }
     }

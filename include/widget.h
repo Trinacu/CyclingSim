@@ -130,7 +130,7 @@ public:
 class RiderPanel : public Widget {
 private:
   int x, y;
-  int rider_id = 0;
+  int rider_uid = 0;
   TTF_Font* font;
 
   std::string title;
@@ -143,7 +143,7 @@ public:
   RiderPanel(int x, int y, TTF_Font* font);
   ~RiderPanel();
 
-  // The factory method you wanted!
+  void set_rider_id(int uid);
   // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
   void add_row(std::string label, std::string unit,
                ValueField::DataGetter getter);

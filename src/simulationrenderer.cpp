@@ -81,7 +81,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   double min_dist = 20.0;
   bool found = false;
   size_t found_id = 0;
-  SDL_Log("%f, %f", world_pos.x(), world_pos.y());
+  SDL_Log("\n%f, %f", world_pos.x(), world_pos.y());
 
   for (auto& [id, snap] : snapshotMap) {
     double dx = snap.pos2d.x() - world_pos.x();

@@ -5,6 +5,7 @@
 #include "SDL3/SDL_events.h"
 #include "appstate.h"
 #include "simulationrenderer.h"
+#include "widget.h"
 
 enum class ScreenType { Menu, Simulation, Result };
 
@@ -64,12 +65,14 @@ private:
   AppState* state;
   std::unique_ptr<SimulationRenderer> sim_renderer;
 
-  int selected_rider_uid = -1;
+  int selected_rider_uid = 0;
 
   // Camera interaction state
   bool dragging = false;
   int drag_start_x = 0;
   int drag_start_y = 0;
+
+  RiderPanel* rider_panel = nullptr;
 };
 
 #endif

@@ -4,7 +4,9 @@
 Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
     : course(course_), world_width(world_width_), screensize(screensize_),
       scale(screensize_.x() / (double)world_width_), vert_scale(1.0),
-      pos(0.0, 0.0) {}
+      pos(0.0, 0.0) {
+  target_uid = 0;
+}
 
 // ------------------------
 // FOLLOWING LOGIC
