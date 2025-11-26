@@ -3,6 +3,7 @@
 #define WIDGET_H
 
 #include "display.h"
+#include "sim.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
