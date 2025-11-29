@@ -73,7 +73,7 @@ public:
   Vector2d screen_to_world(Vector2d screen) const;
 
   // --- Follow logic ---
-  void set_target(int rider_uid);
+  void set_target_id(int rider_uid);
   void clear_target();
   bool has_target() const { return target_uid.has_value(); }
 
@@ -92,7 +92,7 @@ public:
 
 private:
   const Course* course;
-  int world_width;
+  const int world_width;
   Vector2d screensize;
 
   double scale;      // horizontal world→screen scale
@@ -322,7 +322,6 @@ class Team {
 private:
 public:
   std::string name;
-  const SDL_Texture* rider_img;
   Team(const char* name_);
 
   int id;
@@ -584,6 +583,9 @@ public:
   const double get_sim_seconds() const;
   const PhysicsEngine* get_engine() const;
   PhysicsEngine* get_engine();
+
+  std::atomic<bool> physics_error{false};
+  std::string physics_error_message;
 };
 
 class SimulationCondition {
@@ -603,6 +605,7 @@ include/simulationrenderer.h
 #include "corerenderer.h"
 #include "display.h"
 #include "sim.h"
+#include "widget.h"
 #include <memory>
 
 // This renderer extends CoreRenderer with:
@@ -621,11 +624,8 @@ public:
   void render_frame() override;
   void update();
 
-  void set_target(int uid);
-
-  // Snapshot handling
-  void build_snapshot_map();
-  const SnapshotMap& get_snapshot_map() const { return snapshotMap; }
+  RiderPanel* get_rider_panel() const { return rider_panel; }
+  void set_rider_panel(RiderPanel* p) { rider_panel = p; }
 
   // World drawables
   void add_world_drawable(std::unique_ptr<Drawable> d);
@@ -634,14 +634,20 @@ public:
 
   int pick_rider(double screen_x, double screen_y) const;
 
+  const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
+  void build_and_swap_snapshots();
+
 private:
   Simulation* sim;                // Not owned
   std::shared_ptr<Camera> camera; // Owned here
   std::vector<std::unique_ptr<Drawable>> world_drawables;
 
-  // A map rider_uid → RiderSnapshot created each frame
-  SnapshotMap snapshotMap;
-  int target_id;
+  RiderPanel* rider_panel = nullptr;
+
+  // Double buffers
+  SnapshotMap snapshot_front; // used by render + UI
+  SnapshotMap snapshot_back;  // temporary build buffer
+  mutable std::mutex snapshot_swap_mtx;
 };
 
 #endif
@@ -797,6 +803,7 @@ private:
   int width = 0, height = 0; // Texture dimensions
   int bg_width = 0, bg_height = 0;
   int update_interval_ms;
+  char text[16];
 
   SDL_Texture* texture = nullptr;
   SDL_Texture* bg_texture = nullptr;
@@ -1029,7 +1036,7 @@ Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
 // ------------------------
 // FOLLOWING LOGIC
 // ------------------------
-void Camera::set_target(int rider_uid) { target_uid = rider_uid; }
+void Camera::set_target_id(int rider_uid) { target_uid = rider_uid; }
 
 void Camera::clear_target() { target_uid.reset(); }
 
@@ -1161,7 +1168,7 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
   visual_points.push_back(Vector2d(x, y));
 
   for (auto [len, slope, heading] : segments_) {
-    segments.push_back({x, len, slope, x + len});
+    segments.push_back({x, len, slope, x + len, heading});
     altitudes.push_back(y);
 
     x += len;
@@ -1315,9 +1322,12 @@ void CourseDrawable::render(const RenderContext* ctx) {
 };
 
 void RiderDrawable::render(const RenderContext* ctx) {
-  if (ctx->rider_snapshots->size() == 0) {
-    throw std::runtime_error(
-        "rider snapshots are empty (RiderDrawable::render)");
+  // if (ctx->rider_snapshots->size() == 0) {
+  //   throw std::runtime_error(
+  //       "rider snapshots are empty (RiderDrawable::render)");
+  // }
+  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty()) {
+    return;
   }
 
   SDL_SetRenderDrawColor(ctx->renderer, 0, 255, 0, 255);
@@ -1553,6 +1563,14 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     std::this_thread::sleep_for(std::chrono::duration<double>(remaining));
   }
 
+  if (state->sim->physics_error) {
+    SDL_Log("Physics thread exception: %s",
+            state->sim->physics_error_message.c_str());
+
+    state->sim->stop();
+    // switch to error screen, pause sim, etc.
+  }
+
   return SDL_APP_CONTINUE; /* carry on with the program! */
 }
 
@@ -1569,6 +1587,7 @@ src/rider.cpp
 #include "rider.h"
 #include "course.h"
 #include <cmath>
+#include <exception>
 #include <iostream>
 // for std::setprecision
 #include <iomanip>
@@ -1694,8 +1713,11 @@ void Rider::update(double dt) {
   double effort_limit = 1;
   power = std::min(target_effort, effort_limit) * ftp;
   // energy_model.update(power, timestep);
-
-  speed = newton(power, speed);
+  try {
+    speed = newton(power, speed);
+  } catch (std::exception e) {
+    // TODO -  what here?
+  }
   pos += timestep * speed;
   altitude = course->get_altitude(pos);
   set_pos2d(Vector2d{pos, altitude});
@@ -1885,8 +1907,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
     return format_number(s.slope * 100.0);
   });
 
-  this->rider_panel = panel.get();
+  RiderPanel* p = panel.get();
 
+  sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
   // display->add_drawable(std::make_unique<ValueField>(
@@ -1912,8 +1935,8 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
       if (uid != -1) {
         selected_rider_uid = uid;
         // sim_renderer->get_camera()->set_target(uid);
-        sim_renderer->get_camera()->set_target(uid);
-        rider_panel->set_rider_id(uid);
+        sim_renderer->get_camera()->set_target_id(uid);
+        sim_renderer->get_rider_panel()->set_rider_id(uid);
         return true;
       }
     }
@@ -2012,7 +2035,13 @@ void Simulation::start_realtime() {
     while (accumulator >= dt) {
       auto step_start = std::chrono::steady_clock::now();
 
-      step_fixed(dt);
+      try {
+        step_fixed(dt);
+      } catch (const std::exception& e) {
+        physics_error = true;
+        physics_error_message = e.what();
+        running = false;
+      }
       accumulator -= dt;
 
       // what follows is only to check for exceeding the time
@@ -2045,7 +2074,13 @@ void Simulation::run_max_speed(const SimulationCondition& cond) {
   int iteration = 1;
 
   while (!cond.is_met(*this)) {
-    step_fixed(dt);
+    try {
+      step_fixed(dt);
+    } catch (const std::exception& e) {
+      physics_error = true;
+      physics_error_message = e.what();
+      break;
+    }
 
     if (++iteration % 100 == 0) {
       if (steady_clock::now() - start_time > timeout) {
@@ -2096,16 +2131,18 @@ PhysicsEngine* Simulation::get_engine() { return &engine; }
 src/simulationrenderer.cpp
 ```
 #include "simulationrenderer.h"
+#include "sim.h"
 #include <memory>
+#include <mutex>
 
 SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
                                        GameResources* resources,
                                        Simulation* sim_,
                                        std::shared_ptr<Camera> cam)
     : CoreRenderer(r, resources), sim(sim_), camera(std::move(cam)) {
-  build_snapshot_map();
-  if (snapshotMap.count(0)) {
-    camera->set_center(snapshotMap.at(0).pos2d);
+  build_and_swap_snapshots();
+  if (snapshot_front.count(0)) {
+    camera->set_center(snapshot_front.at(0).pos2d);
   }
 }
 
@@ -2113,33 +2150,37 @@ void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
   world_drawables.push_back(std::move(d));
 }
 
-// Build the snapshotMap once per frame
-void SimulationRenderer::build_snapshot_map() {
-  snapshotMap.clear();
+void SimulationRenderer::build_and_swap_snapshots() {
+  snapshot_back.clear();
+
   PhysicsEngine* engine = sim->get_engine();
 
-  std::lock_guard<std::mutex> lock(*engine->get_frame_mutex());
-  auto& riders = engine->get_riders();
+  {
+    // protects only reading rider data
+    std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
 
-  for (const Rider* r : riders) {
-    if (!r)
-      continue;
-    RiderSnapshot snap = r->snapshot();
-    // snapshotMap[snap.uid] = snap;
-    snapshotMap.emplace(snap.uid, snap);
+    const auto& riders = engine->get_riders();
+    for (const Rider* r : riders) {
+      if (!r)
+        continue;
+      snapshot_back.emplace(r->get_id(), r->snapshot());
+    }
+  }
+
+  {
+    // protects only swapping pointers to maps (instant)
+    std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
+    snapshot_front.swap(snapshot_back);
   }
 }
 
-void SimulationRenderer::update() { camera->update(snapshotMap); }
+void SimulationRenderer::update() {
+  // First gather snapshots
+  build_and_swap_snapshots();
+  camera->update(snapshot_front);
+}
 
 void SimulationRenderer::render_frame() {
-  // First gather snapshots
-  build_snapshot_map();
-
-  // if (snapshotMap.count(camera_target_id)) {
-  //   camera->_set_center(snapshotMap.at(camera_target_id).pos2d);
-  // }
-
   SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
   SDL_RenderClear(renderer);
 
@@ -2147,7 +2188,7 @@ void SimulationRenderer::render_frame() {
   ctx.renderer = renderer;
   ctx.resources = resources;
   ctx.camera_weak = camera;
-  ctx.rider_snapshots = &snapshotMap;
+  ctx.rider_snapshots = &snapshot_front;
 
   // 1. Draw world-space drawables
   int cnt = 0;
@@ -2164,27 +2205,25 @@ void SimulationRenderer::render_frame() {
   SDL_RenderPresent(renderer);
 }
 
+// TODO - make this safe - there is a suggestion in "Code review feedback" chat
+// in chatGPT from 26.11.2025
 int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   if (!camera)
     return -1;
 
   Vector2d world_pos = camera->screen_to_world(Vector2d(screen_x, screen_y));
 
-  // need access to snapshots. since we're in the main thread (event loop)
-  // and physics is in another, we should use the thread-safe getter
-  // or cache the last frame's snapshots
-  // let's reuse the snapshot map logic or fetch fresh:
-
   double min_dist = 20.0;
   bool found = false;
   size_t found_id = 0;
-  SDL_Log("\n%f, %f", world_pos.x(), world_pos.y());
+  SDL_Log("\n%.1f, %.1f", world_pos.x(), world_pos.y());
 
-  for (auto& [id, snap] : snapshotMap) {
+  std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
+  for (auto& [id, snap] : snapshot_front) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
-    SDL_Log("%s: %f", snap.name.c_str(), dist);
+    SDL_Log("%s: %.1f", snap.name.c_str(), dist);
 
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {
@@ -2199,11 +2238,6 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     return found_id;
   }
   return -1;
-}
-
-void SimulationRenderer::set_target(int uid) {
-  target_id = uid;
-  camera->set_target(uid);
 }
 ```
 
@@ -2336,12 +2370,7 @@ std::string format_number(double value, int precision) {
   return std ::string(buffer);
 }
 
-char* format_time(double seconds) {
-  int len = 11;
-  char* buffer = (char*)malloc(len * sizeof(char));
-  if (!buffer)
-    return nullptr;
-
+void format_time(double seconds, char* text) {
   // Break down into components
   int totalTenths = static_cast<int>(round(seconds * 10));
   int tenths = totalTenths % 10;
@@ -2352,9 +2381,7 @@ char* format_time(double seconds) {
   int hours = totalMinutes / 60;
 
   // Format with leading zeros and fixed positions
-  snprintf(buffer, len, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
-
-  return buffer;
+  snprintf(text, 11, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
 }
 
 // std::pair<int, int> Widget::get_texture_size() const {
@@ -2384,14 +2411,13 @@ SDL_Texture* Stopwatch::render_time(SDL_Renderer* renderer, const char* s,
 
 void Stopwatch::update_texture(const RenderContext* ctx) {
   double sim_time = sim->get_sim_seconds();
-  char* buffer = format_time(sim_time);
+  format_time(sim_time, text);
 
   if (texture) {
     SDL_DestroyTexture(texture);
     texture = nullptr;
   }
-  texture = render_time(ctx->renderer, buffer, width, height);
-  free(buffer);
+  texture = render_time(ctx->renderer, text, width, height);
 }
 
 void Stopwatch::render(const RenderContext* ctx) {
@@ -2537,34 +2563,6 @@ void ValueField::update_texture(SDL_Renderer* renderer,
   }
 }
 
-// void ValueField::render(const RenderContext* ctx) {
-//   // 1. Find Data (O(1) lookup via Map)
-//   const RiderSnapshot* snap = ctx->get_snapshot(target_rider_id);
-//   if (!snap)
-//     return; // Rider not found this frame
-//
-//   if (!bg_texture)
-//     create_bg(ctx->renderer);
-//
-//   // 2. Update Text Texture if needed
-//   update_texture(ctx->renderer, *snap);
-//
-//   // 3. Draw Background
-//   SDL_FRect bg_rect = {(float)x, (float)y, (float)width, (float)height};
-//   SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &bg_rect);
-//
-//   // 4. Draw Text (Centered or Right Aligned)
-//   if (texture) {
-//     float tex_w, tex_h;
-//     SDL_GetTextureSize(texture, &tex_w, &tex_h);
-//     // Align right inside the box with padding
-//     float txt_x = x + width - tex_w - 5;
-//     float txt_y = y + (height - tex_h) / 2;
-//     SDL_FRect txt_rect = {txt_x, txt_y, tex_w, tex_h};
-//     SDL_RenderTexture(ctx->renderer, texture, nullptr, &txt_rect);
-//   }
-// }
-
 void ValueField::render_with_snapshot(const RenderContext* ctx,
                                       const RiderSnapshot* snap) {
   if (!snap)
@@ -2614,45 +2612,6 @@ void MetricRow::set_position(int new_x, int new_y) {
   // Update child position
   field->set_position(x + label_width, y);
 }
-
-// void MetricRow::render(const RenderContext* ctx) {
-//   // 1. Render static labels once
-//   if (!label_tex) {
-//     SDL_Surface* s = TTF_RenderText_Blended(font, label_txt.c_str(), 0,
-//                                             {200, 200, 200, 255});
-//     label_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
-//     SDL_DestroySurface(s);
-//   }
-//   if (!unit_tex && !unit_txt.empty()) {
-//     SDL_Surface* s =
-//         TTF_RenderText_Blended(font, unit_txt.c_str(), 0, {150, 150, 150,
-//         255});
-//     unit_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
-//     SDL_DestroySurface(s);
-//   }
-//
-//   // 2. Draw Label (Left)
-//   if (label_tex) {
-//     float w, h;
-//     SDL_GetTextureSize(label_tex, &w, &h);
-//     // Vertically center label relative to the row height (approx 24)
-//     SDL_FRect r = {(float)x, (float)y + (24 - h) / 2, w, h};
-//     SDL_RenderTexture(ctx->renderer, label_tex, nullptr, &r);
-//   }
-//
-//   // 3. Draw Value Field (Center)
-//   field->render(ctx);
-//
-//   // 4. Draw Unit (Right)
-//   if (unit_tex) {
-//     float w, h;
-//     SDL_GetTextureSize(unit_tex, &w, &h);
-//     // Position: X + label + field_width + padding
-//     SDL_FRect r = {(float)(x + label_width + field->get_width() + 5),
-//                    (float)y + (24 - h) / 2, w, h};
-//     SDL_RenderTexture(ctx->renderer, unit_tex, nullptr, &r);
-//   }
-// }
 
 void MetricRow::render_for_rider(const RenderContext* ctx,
                                  const RiderSnapshot* snap) {

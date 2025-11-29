@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <string>
 
+#include "SDL3/SDL_log.h"
 #include "SDL3/SDL_render.h"
 #include "SDL3/SDL_surface.h"
 #include "display.h"
@@ -162,6 +163,150 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
   SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
   SDL_DestroySurface(surf);
   return tex;
+}
+
+void TimeFactorButton::render(const RenderContext* ctx) {
+  SDL_Renderer* r = ctx->renderer;
+  SDL_SetRenderDrawColor(r, 80, 80, 80, 255);
+  SDL_FRect box{(float)x, (float)y, (float)w, (float)h};
+  SDL_RenderFillRect(r, &box);
+
+  char buf[12];
+  // snprintf(buf, 12, "x%.0f", value);
+  snprintf(buf, 12, "%.1fx", value);
+
+  SDL_Surface* surf =
+      TTF_RenderText_Blended(font, buf, 0, SDL_Color{255, 255, 255, 255});
+
+  SDL_Texture* tex = SDL_CreateTextureFromSurface(r, surf);
+
+  SDL_FRect dst{(float)(x + 5), (float)(y + 2), (float)surf->w, (float)surf->h};
+  SDL_RenderTexture(r, tex, nullptr, &dst);
+
+  SDL_DestroyTexture(tex);
+  SDL_DestroySurface(surf);
+}
+
+bool TimeFactorButton::handle_event(const SDL_Event* e) {
+  if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+      e->button.button == SDL_BUTTON_LEFT) {
+    if (e->button.x >= x && e->button.x <= x + w && e->button.y >= y &&
+        e->button.y <= y + h) {
+      sim->set_time_factor(value);
+      return true;
+    }
+  }
+  return false;
+}
+
+double TimeFactorSlider::slider_to_factor(double t) {
+  if (t <= neutral_point) {
+    double s = t / neutral_point;
+    return 0.1 + s * (1.0 - 0.1);
+  } else {
+    double s = (t - neutral_point) / neutral_point;
+    return std::pow(10.0, s * 2.0); // 1 → 100
+  }
+}
+
+double TimeFactorSlider::factor_to_slider(double f) {
+  if (f <= 1.0) {
+    double s = (f - 0.1) / (1.0 - 0.1);
+    return s * neutral_point;
+  } else {
+    double s = std::log10(f) / 2.0;
+    return neutral_point + s * neutral_point;
+  }
+}
+
+void TimeFactorSlider::render(const RenderContext* ctx) {
+  SDL_Renderer* r = ctx->renderer;
+
+  // background bar
+  SDL_SetRenderDrawColor(r, 120, 120, 120, 255);
+  SDL_FRect bar{(float)x, (float)y + h * 0.4f, (float)w, h * 0.2f};
+  SDL_RenderFillRect(r, &bar);
+
+  // neutral point - factor = 1.0
+  float markerX = x + neutral_point * w - marker_width / 2.0;
+  SDL_SetRenderDrawColor(r, 120, 120, 120, 255);
+  SDL_FRect marker{markerX, (float)y, static_cast<float>(marker_width),
+                   (float)h};
+  SDL_RenderFillRect(r, &marker);
+
+  // knob
+  double t = factor_to_slider(sim->get_time_factor());
+  float knobX = x + t * w - h / 4.0;
+  SDL_SetRenderDrawColor(r, 240, 240, 240, 255);
+  SDL_FRect knob{knobX, static_cast<float>(y + h / 4.0), (float)h / 2,
+                 (float)h / 2};
+  SDL_RenderFillRect(r, &knob);
+}
+
+bool TimeFactorSlider::handle_event(const SDL_Event* e) {
+  switch (e->type) {
+  case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    if (e->button.x >= x && e->button.x <= x + w && e->button.y >= y &&
+        e->button.y <= y + h) {
+      dragging = true;
+      return true;
+    }
+    break;
+
+  case SDL_EVENT_MOUSE_BUTTON_UP:
+    dragging = false;
+    break;
+
+  case SDL_EVENT_MOUSE_MOTION:
+    if (dragging) {
+      double local = (e->motion.x - x) / (double)w;
+      local = std::clamp(local, 0.0, 1.0);
+      double f = slider_to_factor(local);
+      sim->set_time_factor(f);
+      return true;
+    }
+    break;
+  }
+  return false;
+}
+
+TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
+                                   Simulation* sim)
+    : x(x_), y(y_), h(h_) {
+  // Add slider
+  children.push_back(std::make_unique<TimeFactorSlider>(x + 0, y + h_ / 4,
+                                                        slider_w, h_ / 2, sim));
+
+  // Add time buttons
+  children.push_back(std::make_unique<TimeFactorButton>(
+      x + 210, y + h_ / 4, h_ / 2, 0.5, sim, font));
+
+  children.push_back(std::make_unique<TimeFactorButton>(
+      x + 255, y + h_ / 4, h_ / 2, 1.0, sim, font));
+
+  children.push_back(std::make_unique<TimeFactorButton>(
+      x + 300, y + h_ / 4, h_ / 2, 10.0, sim, font));
+}
+
+void TimeControlPanel::render(const RenderContext* ctx) {
+  SDL_Renderer* r = ctx->renderer;
+
+  // (Optional) panel background
+  SDL_SetRenderDrawColor(r, 40, 40, 40, 200);
+  SDL_FRect bg{(float)x, (float)y, 350.f, static_cast<float>(h)};
+  SDL_RenderFillRect(r, &bg);
+
+  // Children
+  for (auto& w : children)
+    w->render(ctx);
+}
+
+bool TimeControlPanel::handle_event(const SDL_Event* e) {
+  for (auto& w : children)
+    if (w->handle_event(e))
+      return true;
+
+  return false;
 }
 
 ValueField::ValueField(int x_, int y_, int w, int h, TTF_Font* f, size_t id,

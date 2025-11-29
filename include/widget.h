@@ -46,7 +46,6 @@ public:
       : screen_x(x), screen_y(y), font(font_), sim(sim_),
         update_interval_ms(update_ms) {
     last_update_ticks = 0;
-    SDL_Log("test");
   }
 
   ~Stopwatch() {
@@ -58,6 +57,57 @@ public:
 
   void update_texture(const RenderContext* ctx);
   void render(const RenderContext* ctx) override;
+};
+
+class TimeFactorButton : public Widget {
+private:
+  int x, y, w, h;
+  double value;
+  Simulation* sim;
+  TTF_Font* font;
+
+public:
+  TimeFactorButton(int x_, int y_, int h_, double val, Simulation* sim_,
+                   TTF_Font* f)
+      : x(x_), y(y_), w(50), h(h_), value(val), sim(sim_), font(f) {}
+
+  void render(const RenderContext* ctx) override;
+
+  bool handle_event(const SDL_Event* e) override;
+};
+
+class TimeFactorSlider : public Widget {
+private:
+  int x, y, w, h;
+  double neutral_point = 0.3; // where factor = 1.0
+  int marker_width = 4;
+  bool dragging = false;
+  double slider_pos = 0.5; // slider position 0..1
+  Simulation* sim;
+
+public:
+  TimeFactorSlider(int x_, int y_, int w_, int h_, Simulation* sim_)
+      : x(x_), y(y_), w(w_), h(h_), sim(sim_) {}
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
+
+private:
+  double slider_to_factor(double t);
+  double factor_to_slider(double f);
+};
+
+class TimeControlPanel : public Widget {
+private:
+  int x, y, h;
+  int slider_w = 200;
+  std::vector<std::unique_ptr<Widget>> children;
+
+public:
+  TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, Simulation* sim);
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
 };
 
 class ValueField {

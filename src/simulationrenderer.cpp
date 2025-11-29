@@ -107,3 +107,16 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   }
   return -1;
 }
+
+bool SimulationRenderer::handle_event(const SDL_Event* e) {
+  // UI above world
+  for (auto& d : drawables)
+    if (d->handle_event(e))
+      return true;
+
+  for (auto& d : world_drawables)
+    if (d->handle_event(e))
+      return true;
+
+  return false;
+}

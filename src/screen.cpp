@@ -37,18 +37,22 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer = std::make_unique<SimulationRenderer>(s->renderer, s->resources,
                                                       s->sim, cam);
 
-  SDL_Log("after displayengine");
+  TTF_Font* default_font =
+      state->resources->get_fontManager()->get_font("default");
 
   sim_renderer->add_world_drawable(
       std::make_unique<CourseDrawable>(state->sim->get_engine()->get_course()));
   sim_renderer->add_world_drawable(std::make_unique<RiderDrawable>());
+
   sim_renderer->add_drawable(std::make_unique<Stopwatch>(
-      10, 10, state->resources->get_fontManager()->get_font("stopwatch"),
+      20, 20, state->resources->get_fontManager()->get_font("stopwatch"),
       state->sim));
 
+  sim_renderer->add_drawable(std::make_unique<TimeControlPanel>(
+      400, 20, 40, default_font, state->sim));
+
   // 2. Create the Panel
-  auto panel = std::make_unique<RiderPanel>(
-      20, 200, state->resources->get_fontManager()->get_font("default"));
+  auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
@@ -94,6 +98,9 @@ void SimulationScreen::update() { sim_renderer->update(); }
 void SimulationScreen::render() { sim_renderer->render_frame(); }
 
 bool SimulationScreen::handle_event(const SDL_Event* e) {
+  if (sim_renderer->handle_event(e))
+    return true;
+
   switch (e->type) {
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
     if (e->button.button == SDL_BUTTON_LEFT) {

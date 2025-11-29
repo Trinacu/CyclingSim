@@ -54,6 +54,7 @@ public:
 
   void stop();
 
+  double get_time_factor() { return time_factor; }
   void set_time_factor(double f) { time_factor = f; }
 
   const double get_sim_seconds() const;

@@ -36,6 +36,8 @@ public:
   const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
   void build_and_swap_snapshots();
 
+  bool handle_event(const SDL_Event* e);
+
 private:
   Simulation* sim;                // Not owned
   std::shared_ptr<Camera> camera; // Owned here
