@@ -73,6 +73,14 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     std::this_thread::sleep_for(std::chrono::duration<double>(remaining));
   }
 
+  if (state->sim->physics_error) {
+    SDL_Log("Physics thread exception: %s",
+            state->sim->physics_error_message.c_str());
+
+    state->sim->stop();
+    // switch to error screen, pause sim, etc.
+  }
+
   return SDL_APP_CONTINUE; /* carry on with the program! */
 }
 

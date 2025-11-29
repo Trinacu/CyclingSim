@@ -11,7 +11,7 @@ Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
 // ------------------------
 // FOLLOWING LOGIC
 // ------------------------
-void Camera::set_target(int rider_uid) { target_uid = rider_uid; }
+void Camera::set_target_id(int rider_uid) { target_uid = rider_uid; }
 
 void Camera::clear_target() { target_uid.reset(); }
 

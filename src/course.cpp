@@ -14,7 +14,7 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
   visual_points.push_back(Vector2d(x, y));
 
   for (auto [len, slope, heading] : segments_) {
-    segments.push_back({x, len, slope, x + len});
+    segments.push_back({x, len, slope, x + len, heading});
     altitudes.push_back(y);
 
     x += len;

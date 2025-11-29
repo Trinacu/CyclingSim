@@ -16,12 +16,7 @@ std::string format_number(double value, int precision) {
   return std ::string(buffer);
 }
 
-char* format_time(double seconds) {
-  int len = 11;
-  char* buffer = (char*)malloc(len * sizeof(char));
-  if (!buffer)
-    return nullptr;
-
+void format_time(double seconds, char* text) {
   // Break down into components
   int totalTenths = static_cast<int>(round(seconds * 10));
   int tenths = totalTenths % 10;
@@ -32,9 +27,7 @@ char* format_time(double seconds) {
   int hours = totalMinutes / 60;
 
   // Format with leading zeros and fixed positions
-  snprintf(buffer, len, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
-
-  return buffer;
+  snprintf(text, 11, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
 }
 
 // std::pair<int, int> Widget::get_texture_size() const {
@@ -64,14 +57,13 @@ SDL_Texture* Stopwatch::render_time(SDL_Renderer* renderer, const char* s,
 
 void Stopwatch::update_texture(const RenderContext* ctx) {
   double sim_time = sim->get_sim_seconds();
-  char* buffer = format_time(sim_time);
+  format_time(sim_time, text);
 
   if (texture) {
     SDL_DestroyTexture(texture);
     texture = nullptr;
   }
-  texture = render_time(ctx->renderer, buffer, width, height);
-  free(buffer);
+  texture = render_time(ctx->renderer, text, width, height);
 }
 
 void Stopwatch::render(const RenderContext* ctx) {
@@ -217,34 +209,6 @@ void ValueField::update_texture(SDL_Renderer* renderer,
   }
 }
 
-// void ValueField::render(const RenderContext* ctx) {
-//   // 1. Find Data (O(1) lookup via Map)
-//   const RiderSnapshot* snap = ctx->get_snapshot(target_rider_id);
-//   if (!snap)
-//     return; // Rider not found this frame
-//
-//   if (!bg_texture)
-//     create_bg(ctx->renderer);
-//
-//   // 2. Update Text Texture if needed
-//   update_texture(ctx->renderer, *snap);
-//
-//   // 3. Draw Background
-//   SDL_FRect bg_rect = {(float)x, (float)y, (float)width, (float)height};
-//   SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &bg_rect);
-//
-//   // 4. Draw Text (Centered or Right Aligned)
-//   if (texture) {
-//     float tex_w, tex_h;
-//     SDL_GetTextureSize(texture, &tex_w, &tex_h);
-//     // Align right inside the box with padding
-//     float txt_x = x + width - tex_w - 5;
-//     float txt_y = y + (height - tex_h) / 2;
-//     SDL_FRect txt_rect = {txt_x, txt_y, tex_w, tex_h};
-//     SDL_RenderTexture(ctx->renderer, texture, nullptr, &txt_rect);
-//   }
-// }
-
 void ValueField::render_with_snapshot(const RenderContext* ctx,
                                       const RiderSnapshot* snap) {
   if (!snap)
@@ -294,45 +258,6 @@ void MetricRow::set_position(int new_x, int new_y) {
   // Update child position
   field->set_position(x + label_width, y);
 }
-
-// void MetricRow::render(const RenderContext* ctx) {
-//   // 1. Render static labels once
-//   if (!label_tex) {
-//     SDL_Surface* s = TTF_RenderText_Blended(font, label_txt.c_str(), 0,
-//                                             {200, 200, 200, 255});
-//     label_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
-//     SDL_DestroySurface(s);
-//   }
-//   if (!unit_tex && !unit_txt.empty()) {
-//     SDL_Surface* s =
-//         TTF_RenderText_Blended(font, unit_txt.c_str(), 0, {150, 150, 150,
-//         255});
-//     unit_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
-//     SDL_DestroySurface(s);
-//   }
-//
-//   // 2. Draw Label (Left)
-//   if (label_tex) {
-//     float w, h;
-//     SDL_GetTextureSize(label_tex, &w, &h);
-//     // Vertically center label relative to the row height (approx 24)
-//     SDL_FRect r = {(float)x, (float)y + (24 - h) / 2, w, h};
-//     SDL_RenderTexture(ctx->renderer, label_tex, nullptr, &r);
-//   }
-//
-//   // 3. Draw Value Field (Center)
-//   field->render(ctx);
-//
-//   // 4. Draw Unit (Right)
-//   if (unit_tex) {
-//     float w, h;
-//     SDL_GetTextureSize(unit_tex, &w, &h);
-//     // Position: X + label + field_width + padding
-//     SDL_FRect r = {(float)(x + label_width + field->get_width() + 5),
-//                    (float)y + (24 - h) / 2, w, h};
-//     SDL_RenderTexture(ctx->renderer, unit_tex, nullptr, &r);
-//   }
-// }
 
 void MetricRow::render_for_rider(const RenderContext* ctx,
                                  const RiderSnapshot* snap) {

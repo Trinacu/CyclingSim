@@ -14,7 +14,6 @@ class Team {
 private:
 public:
   std::string name;
-  const SDL_Texture* rider_img;
   Team(const char* name_);
 
   int id;

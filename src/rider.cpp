@@ -1,6 +1,7 @@
 #include "rider.h"
 #include "course.h"
 #include <cmath>
+#include <exception>
 #include <iostream>
 // for std::setprecision
 #include <iomanip>
@@ -126,8 +127,11 @@ void Rider::update(double dt) {
   double effort_limit = 1;
   power = std::min(target_effort, effort_limit) * ftp;
   // energy_model.update(power, timestep);
-
-  speed = newton(power, speed);
+  try {
+    speed = newton(power, speed);
+  } catch (std::exception e) {
+    // TODO -  what here?
+  }
   pos += timestep * speed;
   altitude = course->get_altitude(pos);
   set_pos2d(Vector2d{pos, altitude});

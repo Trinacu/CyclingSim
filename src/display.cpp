@@ -38,9 +38,12 @@ void CourseDrawable::render(const RenderContext* ctx) {
 };
 
 void RiderDrawable::render(const RenderContext* ctx) {
-  if (ctx->rider_snapshots->size() == 0) {
-    throw std::runtime_error(
-        "rider snapshots are empty (RiderDrawable::render)");
+  // if (ctx->rider_snapshots->size() == 0) {
+  //   throw std::runtime_error(
+  //       "rider snapshots are empty (RiderDrawable::render)");
+  // }
+  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty()) {
+    return;
   }
 
   SDL_SetRenderDrawColor(ctx->renderer, 0, 255, 0, 255);

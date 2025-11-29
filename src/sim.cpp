@@ -60,7 +60,13 @@ void Simulation::start_realtime() {
     while (accumulator >= dt) {
       auto step_start = std::chrono::steady_clock::now();
 
-      step_fixed(dt);
+      try {
+        step_fixed(dt);
+      } catch (const std::exception& e) {
+        physics_error = true;
+        physics_error_message = e.what();
+        running = false;
+      }
       accumulator -= dt;
 
       // what follows is only to check for exceeding the time
@@ -93,7 +99,13 @@ void Simulation::run_max_speed(const SimulationCondition& cond) {
   int iteration = 1;
 
   while (!cond.is_met(*this)) {
-    step_fixed(dt);
+    try {
+      step_fixed(dt);
+    } catch (const std::exception& e) {
+      physics_error = true;
+      physics_error_message = e.what();
+      break;
+    }
 
     if (++iteration % 100 == 0) {
       if (steady_clock::now() - start_time > timeout) {

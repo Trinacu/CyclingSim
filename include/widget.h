@@ -25,6 +25,7 @@ private:
   int width = 0, height = 0; // Texture dimensions
   int bg_width = 0, bg_height = 0;
   int update_interval_ms;
+  char text[16];
 
   SDL_Texture* texture = nullptr;
   SDL_Texture* bg_texture = nullptr;

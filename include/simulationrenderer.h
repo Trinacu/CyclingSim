@@ -4,6 +4,7 @@
 #include "corerenderer.h"
 #include "display.h"
 #include "sim.h"
+#include "widget.h"
 #include <memory>
 
 // This renderer extends CoreRenderer with:
@@ -22,11 +23,8 @@ public:
   void render_frame() override;
   void update();
 
-  void set_target(int uid);
-
-  // Snapshot handling
-  void build_snapshot_map();
-  const SnapshotMap& get_snapshot_map() const { return snapshotMap; }
+  RiderPanel* get_rider_panel() const { return rider_panel; }
+  void set_rider_panel(RiderPanel* p) { rider_panel = p; }
 
   // World drawables
   void add_world_drawable(std::unique_ptr<Drawable> d);
@@ -35,14 +33,20 @@ public:
 
   int pick_rider(double screen_x, double screen_y) const;
 
+  const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
+  void build_and_swap_snapshots();
+
 private:
   Simulation* sim;                // Not owned
   std::shared_ptr<Camera> camera; // Owned here
   std::vector<std::unique_ptr<Drawable>> world_drawables;
 
-  // A map rider_uid → RiderSnapshot created each frame
-  SnapshotMap snapshotMap;
-  int target_id;
+  RiderPanel* rider_panel = nullptr;
+
+  // Double buffers
+  SnapshotMap snapshot_front; // used by render + UI
+  SnapshotMap snapshot_back;  // temporary build buffer
+  mutable std::mutex snapshot_swap_mtx;
 };
 
 #endif

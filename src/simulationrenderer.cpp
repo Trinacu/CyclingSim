@@ -1,14 +1,16 @@
 #include "simulationrenderer.h"
+#include "sim.h"
 #include <memory>
+#include <mutex>
 
 SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
                                        GameResources* resources,
                                        Simulation* sim_,
                                        std::shared_ptr<Camera> cam)
     : CoreRenderer(r, resources), sim(sim_), camera(std::move(cam)) {
-  build_snapshot_map();
-  if (snapshotMap.count(0)) {
-    camera->set_center(snapshotMap.at(0).pos2d);
+  build_and_swap_snapshots();
+  if (snapshot_front.count(0)) {
+    camera->set_center(snapshot_front.at(0).pos2d);
   }
 }
 
@@ -16,33 +18,37 @@ void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
   world_drawables.push_back(std::move(d));
 }
 
-// Build the snapshotMap once per frame
-void SimulationRenderer::build_snapshot_map() {
-  snapshotMap.clear();
+void SimulationRenderer::build_and_swap_snapshots() {
+  snapshot_back.clear();
+
   PhysicsEngine* engine = sim->get_engine();
 
-  std::lock_guard<std::mutex> lock(*engine->get_frame_mutex());
-  auto& riders = engine->get_riders();
+  {
+    // protects only reading rider data
+    std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
 
-  for (const Rider* r : riders) {
-    if (!r)
-      continue;
-    RiderSnapshot snap = r->snapshot();
-    // snapshotMap[snap.uid] = snap;
-    snapshotMap.emplace(snap.uid, snap);
+    const auto& riders = engine->get_riders();
+    for (const Rider* r : riders) {
+      if (!r)
+        continue;
+      snapshot_back.emplace(r->get_id(), r->snapshot());
+    }
+  }
+
+  {
+    // protects only swapping pointers to maps (instant)
+    std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
+    snapshot_front.swap(snapshot_back);
   }
 }
 
-void SimulationRenderer::update() { camera->update(snapshotMap); }
+void SimulationRenderer::update() {
+  // First gather snapshots
+  build_and_swap_snapshots();
+  camera->update(snapshot_front);
+}
 
 void SimulationRenderer::render_frame() {
-  // First gather snapshots
-  build_snapshot_map();
-
-  // if (snapshotMap.count(camera_target_id)) {
-  //   camera->_set_center(snapshotMap.at(camera_target_id).pos2d);
-  // }
-
   SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
   SDL_RenderClear(renderer);
 
@@ -50,7 +56,7 @@ void SimulationRenderer::render_frame() {
   ctx.renderer = renderer;
   ctx.resources = resources;
   ctx.camera_weak = camera;
-  ctx.rider_snapshots = &snapshotMap;
+  ctx.rider_snapshots = &snapshot_front;
 
   // 1. Draw world-space drawables
   int cnt = 0;
@@ -67,27 +73,25 @@ void SimulationRenderer::render_frame() {
   SDL_RenderPresent(renderer);
 }
 
+// TODO - make this safe - there is a suggestion in "Code review feedback" chat
+// in chatGPT from 26.11.2025
 int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   if (!camera)
     return -1;
 
   Vector2d world_pos = camera->screen_to_world(Vector2d(screen_x, screen_y));
 
-  // need access to snapshots. since we're in the main thread (event loop)
-  // and physics is in another, we should use the thread-safe getter
-  // or cache the last frame's snapshots
-  // let's reuse the snapshot map logic or fetch fresh:
-
   double min_dist = 20.0;
   bool found = false;
   size_t found_id = 0;
-  SDL_Log("\n%f, %f", world_pos.x(), world_pos.y());
+  SDL_Log("\n%.1f, %.1f", world_pos.x(), world_pos.y());
 
-  for (auto& [id, snap] : snapshotMap) {
+  std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
+  for (auto& [id, snap] : snapshot_front) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
-    SDL_Log("%s: %f", snap.name.c_str(), dist);
+    SDL_Log("%s: %.1f", snap.name.c_str(), dist);
 
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {
@@ -102,9 +106,4 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     return found_id;
   }
   return -1;
-}
-
-void SimulationRenderer::set_target(int uid) {
-  target_id = uid;
-  camera->set_target(uid);
 }

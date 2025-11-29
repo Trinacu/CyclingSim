@@ -59,6 +59,9 @@ public:
   const double get_sim_seconds() const;
   const PhysicsEngine* get_engine() const;
   PhysicsEngine* get_engine();
+
+  std::atomic<bool> physics_error{false};
+  std::string physics_error_message;
 };
 
 class SimulationCondition {

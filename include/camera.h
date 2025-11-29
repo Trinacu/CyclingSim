@@ -15,7 +15,7 @@ public:
   Vector2d screen_to_world(Vector2d screen) const;
 
   // --- Follow logic ---
-  void set_target(int rider_uid);
+  void set_target_id(int rider_uid);
   void clear_target();
   bool has_target() const { return target_uid.has_value(); }
 
@@ -34,7 +34,7 @@ public:
 
 private:
   const Course* course;
-  int world_width;
+  const int world_width;
   Vector2d screensize;
 
   double scale;      // horizontal world→screen scale
