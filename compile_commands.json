@@ -18,11 +18,11 @@
       "-pthread",
       "-c",
       "-o",
-      "CMakeFiles/game_lib.dir/src/screen.cpp.o",
-      "/home/aleks/Documents/cpp/CyclingSim/src/screen.cpp"
+      "CMakeFiles/game_lib.dir/src/widget.cpp.o",
+      "/home/aleks/Documents/cpp/CyclingSim/src/widget.cpp"
     ],
     "directory": "/home/aleks/Documents/cpp/CyclingSim/build",
-    "file": "/home/aleks/Documents/cpp/CyclingSim/src/screen.cpp",
-    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/screen.cpp.o"
+    "file": "/home/aleks/Documents/cpp/CyclingSim/src/widget.cpp",
+    "output": "/home/aleks/Documents/cpp/CyclingSim/build/CMakeFiles/game_lib.dir/src/widget.cpp.o"
   }
 ]

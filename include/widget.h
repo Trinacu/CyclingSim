@@ -59,6 +59,26 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
+class Button : public Widget {
+public:
+  using Callback = std::function<void()>;
+
+private:
+  int x, y, w, h;
+  std::string label;
+  TTF_Font* font;
+  Callback on_click;
+  bool hovered = false;
+  bool pressed = false;
+
+public:
+  Button(int x, int y, int w, int h, std::string label, TTF_Font* font,
+         Callback cb);
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
+};
+
 class TimeFactorButton : public Widget {
 private:
   int x, y, w, h;
@@ -100,7 +120,10 @@ private:
 class TimeControlPanel : public Widget {
 private:
   int x, y, h;
-  int slider_w = 200;
+  int slider_w = 120;
+  int button_w = 50;
+  int gap_w = 5;
+  int next_x = x + gap_w;
   std::vector<std::unique_ptr<Widget>> children;
 
 public:

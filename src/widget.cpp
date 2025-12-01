@@ -165,6 +165,11 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
   return tex;
 }
 
+Button::Button(int x_, int y_, int w_, int h_, std::string label_,
+               TTF_Font* font_, Callback cb)
+    : x(x_), y(y_), w(w_), h(h_), label(std::move(label_)), font(font_),
+      on_click(std::move(cb)) {}
+
 void TimeFactorButton::render(const RenderContext* ctx) {
   SDL_Renderer* r = ctx->renderer;
   SDL_SetRenderDrawColor(r, 80, 80, 80, 255);
@@ -173,7 +178,7 @@ void TimeFactorButton::render(const RenderContext* ctx) {
 
   char buf[12];
   // snprintf(buf, 12, "x%.0f", value);
-  snprintf(buf, 12, "%.1fx", value);
+  snprintf(buf, 12, "%.1f×", value);
 
   SDL_Surface* surf =
       TTF_RenderText_Blended(font, buf, 0, SDL_Color{255, 255, 255, 255});
@@ -185,6 +190,74 @@ void TimeFactorButton::render(const RenderContext* ctx) {
 
   SDL_DestroyTexture(tex);
   SDL_DestroySurface(surf);
+}
+
+void Button::render(const RenderContext* ctx) {
+  SDL_Renderer* r = ctx->renderer;
+
+  // Colors
+  if (pressed)
+    SDL_SetRenderDrawColor(r, 60, 60, 60, 255);
+  else if (hovered)
+    SDL_SetRenderDrawColor(r, 90, 90, 90, 255);
+  else
+    SDL_SetRenderDrawColor(r, 70, 70, 70, 255);
+
+  SDL_FRect bg{(float)x, (float)y, (float)w, (float)h};
+  SDL_RenderFillRect(r, &bg);
+
+  // Render text
+  SDL_Surface* surf = TTF_RenderText_Blended(font, label.c_str(), 0,
+                                             SDL_Color{255, 255, 255, 255});
+  if (!surf)
+    return;
+
+  SDL_Texture* tex = SDL_CreateTextureFromSurface(r, surf);
+  if (!tex) {
+    SDL_DestroySurface(surf);
+    return;
+  }
+
+  float tx = x + (w - surf->w) * 0.5f;
+  float ty = y + (h - surf->h) * 0.5f;
+  SDL_FRect dst{tx, ty, (float)surf->w, (float)surf->h};
+  SDL_RenderTexture(r, tex, nullptr, &dst);
+
+  SDL_DestroyTexture(tex);
+  SDL_DestroySurface(surf);
+}
+
+bool Button::handle_event(const SDL_Event* e) {
+  int mx, my;
+
+  switch (e->type) {
+
+  case SDL_EVENT_MOUSE_MOTION:
+    mx = e->motion.x;
+    my = e->motion.y;
+    hovered = (mx >= x && mx <= x + w && my >= y && my <= y + h);
+    return hovered;
+
+  case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    if (e->button.button == SDL_BUTTON_LEFT && hovered) {
+      pressed = true;
+      return true;
+    }
+    break;
+
+  case SDL_EVENT_MOUSE_BUTTON_UP:
+    if (e->button.button == SDL_BUTTON_LEFT) {
+      if (pressed && hovered)
+        if (on_click)
+          on_click(); // <-- fire callback
+
+      pressed = false;
+      return hovered; // consumed if inside
+    }
+    break;
+  }
+
+  return false;
 }
 
 bool TimeFactorButton::handle_event(const SDL_Event* e) {
@@ -274,18 +347,25 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
                                    Simulation* sim)
     : x(x_), y(y_), h(h_) {
   // Add slider
-  children.push_back(std::make_unique<TimeFactorSlider>(x + 0, y + h_ / 4,
+  children.push_back(std::make_unique<TimeFactorSlider>(next_x, y + h_ / 4,
                                                         slider_w, h_ / 2, sim));
+  next_x += slider_w + gap_w;
 
-  // Add time buttons
-  children.push_back(std::make_unique<TimeFactorButton>(
-      x + 210, y + h_ / 4, h_ / 2, 0.5, sim, font));
+  auto make_factor_button = [&](double val) {
+    char buffer[50];
+    snprintf(buffer, sizeof(buffer), "%.1f", val);
+    std::string str = buffer; // "3.1"
+    children.push_back(std::make_unique<Button>(
+        next_x, y + h_ / 4, button_w, h_ / 2, str + " ×", font,
+        [sim, val]() { sim->set_time_factor(val); }));
+    next_x += gap_w + button_w;
+  };
 
-  children.push_back(std::make_unique<TimeFactorButton>(
-      x + 255, y + h_ / 4, h_ / 2, 1.0, sim, font));
+  make_factor_button(0.5);
+  make_factor_button(1.0);
+  make_factor_button(20.0);
 
-  children.push_back(std::make_unique<TimeFactorButton>(
-      x + 300, y + h_ / 4, h_ / 2, 10.0, sim, font));
+  next_x += gap_w + button_w;
 }
 
 void TimeControlPanel::render(const RenderContext* ctx) {
@@ -293,7 +373,9 @@ void TimeControlPanel::render(const RenderContext* ctx) {
 
   // (Optional) panel background
   SDL_SetRenderDrawColor(r, 40, 40, 40, 200);
-  SDL_FRect bg{(float)x, (float)y, 350.f, static_cast<float>(h)};
+  SDL_FRect bg{(float)x, (float)y,
+               static_cast<float>(slider_w + 5 * gap_w + 3 * button_w),
+               static_cast<float>(h)};
   SDL_RenderFillRect(r, &bg);
 
   // Children
@@ -501,9 +583,8 @@ void RiderPanel::render(const RenderContext* ctx) {
   SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
 
   // HACK for now: Iterate rows, find their internal fields, and update their
-  // ID? Proper way: Refactor ValueField::render to take a snapshot, not look it
-  // up itself.
-  // Draw all rows
+  // ID? Proper way: Refactor ValueField::render to take a snapshot, not look
+  // it up itself. Draw all rows
   for (auto& row : rows) {
     row->render_for_rider(ctx, snap);
   }

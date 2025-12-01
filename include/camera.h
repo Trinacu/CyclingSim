@@ -44,7 +44,7 @@ private:
   std::optional<int> target_uid;
 
   // smooth follow parameters
-  double follow_strength = 0.15; // 0=no follow, 1=teleport
+  double follow_strength = 0.4; // 0=no follow, 1=teleport
 };
 
 #endif
