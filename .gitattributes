@@ -1,0 +1,55 @@
+# ============================================================
+# Line endings
+# ============================================================
+
+# Normalize all text files to LF in repo, convert to native on checkout.
+* text=auto eol=lf
+
+# Keep Windows batch files with CRLF
+*.bat text eol=crlf
+
+# ============================================================
+# C/C++ diff optimization
+# ============================================================
+
+# Treat C and C++ code as programming languages for better diffs
+*.c     diff=cpp
+*.h     diff=cpp
+*.hpp   diff=cpp
+*.cpp   diff=cpp
+*.cc    diff=cpp
+*.cxx   diff=cpp
+
+# Prevent Git from trying to UTF8-diff binary assets
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.bmp   binary
+*.ico   binary
+*.ttf   binary
+*.otf   binary
+*.wav   binary
+*.mp3   binary
+
+# SDL_image formats
+*.png   binary
+*.webp  binary
+
+# Project resources (textures, fonts, etc.)
+resources/* binary
+
+# ============================================================
+# Vendor dependencies
+# ============================================================
+
+# If you DO track vendor/, mark everything as vendored but diffable
+# (Only active if vendor/ is committed)
+vendor/** linguist-vendored
+
+# ============================================================
+# GitHub linguist (optional, for GitHub language stats)
+# ============================================================
+
+# Ignore generated files (if you have any codegen in future)
+generated/** linguist-generated
+
