@@ -1,9 +1,11 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 #include "SDL3/SDL_log.h"
+#include "SDL3/SDL_pixels.h"
 #include "SDL3/SDL_render.h"
 #include "SDL3/SDL_surface.h"
 #include "display.h"
@@ -344,9 +346,14 @@ bool TimeFactorSlider::handle_event(const SDL_Event* e) {
 }
 
 TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
-                                   Simulation* sim)
-    : x(x_), y(y_), h(h_) {
-  // Add slider
+                                   Simulation* sim_)
+    : x(x_), y(y_), h(h_), sim(sim_) {
+  auto tf =
+      std::make_unique<ValueField>(next_x, y + 2, valfield_w, h - 4, font);
+  time_factor_field = tf.get();
+  children.push_back(std::move(tf));
+  next_x += valfield_w + gap_w;
+
   children.push_back(std::make_unique<TimeFactorSlider>(next_x, y + h_ / 4,
                                                         slider_w, h_ / 2, sim));
   next_x += slider_w + gap_w;
@@ -357,15 +364,13 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
     std::string str = buffer; // "3.1"
     children.push_back(std::make_unique<Button>(
         next_x, y + h_ / 4, button_w, h_ / 2, str + " ×", font,
-        [sim, val]() { sim->set_time_factor(val); }));
+        [sim_, val]() { sim_->set_time_factor(val); }));
     next_x += gap_w + button_w;
   };
 
   make_factor_button(0.5);
   make_factor_button(1.0);
   make_factor_button(20.0);
-
-  next_x += gap_w + button_w;
 }
 
 void TimeControlPanel::render(const RenderContext* ctx) {
@@ -373,10 +378,15 @@ void TimeControlPanel::render(const RenderContext* ctx) {
 
   // (Optional) panel background
   SDL_SetRenderDrawColor(r, 40, 40, 40, 200);
-  SDL_FRect bg{(float)x, (float)y,
-               static_cast<float>(slider_w + 5 * gap_w + 3 * button_w),
-               static_cast<float>(h)};
+  SDL_FRect bg{
+      (float)x, (float)y,
+      static_cast<float>(valfield_w + slider_w + 3 * button_w + 6 * gap_w),
+      static_cast<float>(h)};
   SDL_RenderFillRect(r, &bg);
+
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%.2f", sim->get_time_factor());
+  time_factor_field->set_text(buf);
 
   // Children
   for (auto& w : children)
@@ -391,10 +401,8 @@ bool TimeControlPanel::handle_event(const SDL_Event* e) {
   return false;
 }
 
-ValueField::ValueField(int x_, int y_, int w, int h, TTF_Font* f, size_t id,
-                       DataGetter g)
-    : x(x_), y(y_), width(w), height(h), font(f), target_rider_id(id),
-      getter(g) {}
+ValueField::ValueField(int x_, int y_, int w_, int h_, TTF_Font* font_)
+    : x(x_), y(y_), w(w_), h(h_), font(font_) {}
 
 ValueField::~ValueField() {
   if (texture)
@@ -403,73 +411,85 @@ ValueField::~ValueField() {
     SDL_DestroyTexture(bg_texture);
 }
 
+void ValueField::set_text(const std::string& text) {
+  if (text != current_text) {
+    current_text = text;
+    if (texture) {
+      SDL_DestroyTexture(texture);
+      texture = nullptr;
+    }
+  }
+}
+
 void ValueField::create_bg(SDL_Renderer* renderer) {
-  // Create a dark gray box background
-  SDL_Surface* surf =
-      SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA8888);
+  SDL_Surface* surf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
   SDL_FillSurfaceRect(surf, nullptr,
                       SDL_MapRGBA(SDL_GetPixelFormatDetails(surf->format),
-                                  nullptr, 50, 50, 50, 255));
+                                  nullptr, 100, 100, 100, 200));
   bg_texture = SDL_CreateTextureFromSurface(renderer, surf);
   SDL_DestroySurface(surf);
 }
 
-void ValueField::update_texture(SDL_Renderer* renderer,
-                                const RiderSnapshot& snap) {
-  // 1. Get string from lambda
-  std::string new_text = getter(snap);
-
-  // 2. Only re-render if text changed (Optimization)
-  if (new_text == current_text && texture)
+void ValueField::update_texture(SDL_Renderer* renderer) {
+  if (current_text.empty())
     return;
 
-  current_text = new_text;
-  if (texture)
-    SDL_DestroyTexture(texture);
-
-  // 3. Render Text
   SDL_Surface* surf =
       TTF_RenderText_Blended(font, current_text.c_str(), 0, text_color);
-  if (surf) {
-    texture = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-  }
+  if (!surf)
+    return;
+
+  texture = SDL_CreateTextureFromSurface(renderer, surf);
+  SDL_DestroySurface(surf);
 }
 
-void ValueField::render_with_snapshot(const RenderContext* ctx,
-                                      const RiderSnapshot* snap) {
+void ValueField::render(const RenderContext* ctx) {
+  SDL_Renderer* renderer = ctx->renderer;
+
+  if (!bg_texture)
+    create_bg(renderer);
+
+  if (!texture && !current_text.empty())
+    update_texture(renderer);
+
+  float tex_w, tex_h;
+  SDL_GetTextureSize(texture, &tex_w, &tex_h);
+
+  // SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
+  SDL_FRect rect{(float)x, (float)y, (float)tex_w, (float)tex_h};
+  SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+
+  if (texture)
+    SDL_RenderTexture(renderer, texture, nullptr, &rect);
+}
+
+RiderValueField::RiderValueField(int x, int y, int w, int h, TTF_Font* font,
+                                 size_t rider_id, DataGetter getter_)
+    : ValueField(x, y, w, h, font), target_rider_id(rider_id), getter(getter_) {
+}
+
+void RiderValueField::render_with_snapshot(const RenderContext* ctx,
+                                           const RiderSnapshot* snap) {
   if (!snap)
     return;
 
-  if (!bg_texture)
-    create_bg(ctx->renderer);
-  update_texture(ctx->renderer, *snap);
-  // 3. Draw Background
-  SDL_FRect bg_rect = {(float)x, (float)y, (float)width, (float)height};
-  SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &bg_rect);
+  std::string new_text = getter(*snap);
+  set_text(new_text);
 
-  // 4. Draw Text (Centered or Right Aligned)
-  if (texture) {
-    float tex_w, tex_h;
-    SDL_GetTextureSize(texture, &tex_w, &tex_h);
-    // Align right inside the box with padding
-    float txt_x = x + width - tex_w - 5;
-    float txt_y = y + (height - tex_h) / 2;
-    SDL_FRect txt_rect = {txt_x, txt_y, tex_w, tex_h};
-    SDL_RenderTexture(ctx->renderer, texture, nullptr, &txt_rect);
-  }
+  // Use base render method
+  render(ctx);
 }
 
 // ======================= METRIC ROW =======================
 
 MetricRow::MetricRow(int x_, int y_, TTF_Font* f, size_t id, std::string label,
-                     std::string unit, ValueField::DataGetter getter)
+                     std::string unit, RiderValueField::DataGetter getter)
     : x(x_), y(y_), font(f), label_txt(label), unit_txt(unit) {
 
   // Create the child ValueField (Width 80, Height 24)
   // We position it relative to our X + label_width
-  field = std::make_unique<ValueField>(x + label_width, y, 80, 24, font, id,
-                                       getter);
+  field = std::make_unique<RiderValueField>(x + label_width, y, 80, 24, font,
+                                            id, getter);
 }
 
 MetricRow::~MetricRow() {
@@ -536,7 +556,7 @@ RiderPanel::~RiderPanel() {
 }
 
 void RiderPanel::add_row(std::string label, std::string unit,
-                         ValueField::DataGetter getter) {
+                         RiderValueField::DataGetter getter) {
   int row_height = 30;                                // height + spacing
   int current_offset = rows.size() * row_height + 30; // +30 for title space
 

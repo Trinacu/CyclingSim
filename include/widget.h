@@ -117,59 +117,73 @@ private:
   double factor_to_slider(double f);
 };
 
+class ValueField : public Widget {
+protected:
+  int x, y, w, h;
+  TTF_Font* font;
+  SDL_Color text_color = {255, 255, 255, 255};
+
+  // Caching
+  std::string current_text;
+  SDL_Texture* texture = nullptr;
+  SDL_Texture* bg_texture = nullptr;
+
+  void update_texture(SDL_Renderer* renderer);
+  void create_bg(SDL_Renderer* renderer);
+
+public:
+  ValueField(int x, int y, int w, int h, TTF_Font* font);
+  virtual ~ValueField();
+
+  void set_text(const std::string& text);
+
+  // Standard Widget interface
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override { return false; }
+
+  void set_position(int new_x, int new_y) {
+    x = new_x;
+    y = new_y;
+  }
+  int get_width() const { return w; }
+};
+
+class RiderValueField : public ValueField {
+public:
+  using DataGetter = std::function<std::string(const RiderSnapshot&)>;
+
+private:
+  size_t target_rider_id;
+  DataGetter getter;
+
+public:
+  RiderValueField(int x, int y, int w, int h, TTF_Font* font, size_t rider_id,
+                  DataGetter getter);
+
+  void render_with_snapshot(const RenderContext* ctx,
+                            const RiderSnapshot* snap);
+};
+
 class TimeControlPanel : public Widget {
 private:
   int x, y, h;
+  int valfield_w = 50;
   int slider_w = 120;
   int button_w = 50;
   int gap_w = 5;
   int next_x = x + gap_w;
   std::vector<std::unique_ptr<Widget>> children;
 
+  ValueField* time_factor_field = nullptr;
+
+  // for reading current time_factor
+  Simulation* sim = nullptr;
+
 public:
   TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, Simulation* sim);
 
   void render(const RenderContext* ctx) override;
   bool handle_event(const SDL_Event* e) override;
-};
-
-class ValueField {
-public:
-  using DataGetter = std::function<std::string(const RiderSnapshot&)>;
-
-private:
-  TTF_Font* font;
-  SDL_Color text_color = {255, 255, 255, 255};
-  int x, y, width, height;
-
-  // Logic
-  size_t target_rider_id;
-  DataGetter getter;
-
-  // Caching
-  std::string current_text;
-  SDL_Texture* texture = nullptr;
-  SDL_Texture* bg_texture = nullptr;
-  uint32_t last_update = 0;
-
-  void update_texture(SDL_Renderer* renderer, const RiderSnapshot& snap);
-  void create_bg(SDL_Renderer* renderer);
-
-public:
-  ValueField(int x, int y, int w, int h, TTF_Font* font, size_t id,
-             DataGetter getter);
-  ~ValueField();
-
-  // void render(const RenderContext* ctx) override;
-  void render_with_snapshot(const RenderContext* ctx,
-                            const RiderSnapshot* snap);
-
-  // Allow parents to move this widget
-  void set_position(int new_x, int new_y) {
-    x = new_x;
-    y = new_y;
-  }
-  int get_width() const { return width; }
 };
 
 class MetricRow {
@@ -179,7 +193,7 @@ private:
   TTF_Font* font;
 
   // Components
-  std::unique_ptr<ValueField> field;
+  std::unique_ptr<RiderValueField> field;
   SDL_Texture* label_tex = nullptr;
   SDL_Texture* unit_tex = nullptr;
 
@@ -189,7 +203,7 @@ private:
 
 public:
   MetricRow(int x, int y, TTF_Font* font, size_t id, std::string label,
-            std::string unit, ValueField::DataGetter getter);
+            std::string unit, RiderValueField::DataGetter getter);
 
   ~MetricRow();
 
@@ -220,7 +234,7 @@ public:
   void set_rider_id(int uid);
   // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
   void add_row(std::string label, std::string unit,
-               ValueField::DataGetter getter);
+               RiderValueField::DataGetter getter);
 
   void render(const RenderContext* ctx) override;
 };
