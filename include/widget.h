@@ -14,6 +14,7 @@ public:
   RenderLayer layer() const override { return RenderLayer::UI; }
   virtual void render(const RenderContext* ctx) override = 0;
   virtual ~Widget() = default;
+  bool visible = true;
 };
 
 class Stopwatch : public Widget {
@@ -224,6 +225,8 @@ private:
   std::string title;
   SDL_Texture* title_tex = nullptr;
 
+  bool show_plot = false;
+
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
 
@@ -237,6 +240,9 @@ public:
                RiderValueField::DataGetter getter);
 
   void render(const RenderContext* ctx) override;
+  void render_imgui(const RenderContext* ctx) override;
+
+  void render_plot_overlay(const RenderContext* ctx);
 };
 
 #endif

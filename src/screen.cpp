@@ -166,17 +166,7 @@ void SimulationScreen::render() {
   ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 
-  // 1) Draw ImGui windows here
-  // --------------------------------
-  ImGui::Begin("Telemetry");
-  ImPlot::BeginPlot("Speed");
-  // plot data here
-  ImPlot::EndPlot();
-  ImGui::End();
-  // --------------------------------
-
-  // 2) Now draw the simulation world
-  sim_renderer->render_frame(); // <-- new method
+  sim_renderer->render_frame();
 
   // 3) Now have ImGui render its draw data
   ImGui::Render();
@@ -231,4 +221,49 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
     break;
   }
   return true;
+}
+
+void PlotScreen::render() {
+  SDL_SetRenderDrawColor(state->renderer, 20, 20, 20, 255);
+  SDL_RenderClear(state->renderer);
+
+  // You MUST start a frame before any ImGui
+  ImGui::NewFrame();
+
+  ImGui::Begin("My Plot");
+
+  if (ImPlot::BeginPlot("Example Plot")) {
+    static float xs[100], ys[100];
+    static bool initialized = false;
+
+    if (!initialized) {
+      for (int i = 0; i < 100; ++i) {
+        xs[i] = i * 0.1f;
+        ys[i] = sinf(xs[i]);
+      }
+      initialized = true;
+    }
+
+    ImPlot::PlotLine("sin(x)", xs, ys, 100);
+    ImPlot::EndPlot();
+  }
+
+  ImGui::End();
+
+  // Render ImGui
+  ImGui::Render();
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), state->renderer);
+
+  SDL_RenderPresent(state->renderer);
+}
+
+bool PlotScreen::handle_event(const SDL_Event* e) {
+  // feed events to imgui first
+  ImGui_ImplSDL3_ProcessEvent(e);
+
+  if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
+    state->switch_screen(ScreenType::Simulation);
+    return true;
+  }
+  return false;
 }

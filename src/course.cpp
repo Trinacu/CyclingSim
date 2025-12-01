@@ -50,7 +50,7 @@ double Course::get_slope(double pos) const {
   return segments[find_segment(pos)].slope;
 }
 
-Wind Course::get_wind(double pos) const { return Wind{1, 0}; }
+Wind Course::get_wind(double pos) const { return Wind{0, 1}; }
 
 MatrixX2d Course::get_points(double x_min, double x_max) const {
   if (x_min > x_max)

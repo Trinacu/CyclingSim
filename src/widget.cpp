@@ -9,6 +9,9 @@
 #include "SDL3/SDL_render.h"
 #include "SDL3/SDL_surface.h"
 #include "display.h"
+#include "imgui.h"
+#include "implot.h"
+#include "snapshot.h"
 #include "widget.h"
 // for std::setprecision
 // #include <iomanip>
@@ -608,4 +611,61 @@ void RiderPanel::render(const RenderContext* ctx) {
   for (auto& row : rows) {
     row->render_for_rider(ctx, snap);
   }
+}
+
+void RiderPanel::render_imgui(const RenderContext* ctx) {
+  if (!visible || rider_uid == -1)
+    return;
+
+  const RiderSnapshot* snap = ctx->get_snapshot(rider_uid);
+
+  // compute where the plot goes based on panel position
+  ImVec2 pos((float)x, (float)y + 140);
+  ImVec2 size(300, 300);
+
+  ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+  ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+
+  ImGuiWindowFlags win_flags =
+      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground;
+
+  static float data1[static_cast<size_t>(PowerTerm::COUNT)];
+  for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
+    data1[i] = static_cast<float>(snap->power_breakdown[i]);
+  }
+  static ImPlotPieChartFlags flags = 0;
+  bool open = ImGui::Begin("##riderplot", nullptr, win_flags);
+
+  // DragFloat controls
+  // ImGui::SetNextItemWidth(250);
+  // for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
+  //   char label[32];
+  //   snprintf(label, sizeof(label), POWER_LABELS[i], i);
+  //   ImGui::DragFloat(label, &data1[i], 0.01f, 0, 1);
+  // }
+
+  if (open) {
+    if (ImGui::Button(show_plot ? "Hide plot" : "Show plot")) {
+      show_plot = !show_plot;
+    }
+
+    if (show_plot) {
+      if (ImPlot::BeginPlot("##Pie1",
+                            ImVec2(ImGui::GetTextLineHeight() * 16,
+                                   ImGui::GetTextLineHeight() * 16),
+                            ImPlotFlags_Equal | ImPlotFlags_NoMouseText)) {
+        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations,
+                          ImPlotAxisFlags_NoDecorations);
+        ImPlot::SetupAxesLimits(0, 1, 0, 1);
+        ImPlot::PlotPieChart(POWER_LABELS, data1,
+                             static_cast<int>(PowerTerm::COUNT), 0.5, 0.5, 0.4,
+                             "%.2f", 90, flags);
+        ImPlot::EndPlot();
+      }
+    }
+  }
+
+  ImGui::End();
 }

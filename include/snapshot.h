@@ -5,6 +5,19 @@
 #include <string>
 #include <unordered_map>
 
+enum class PowerTerm : int {
+  Aerodynamic = 0,
+  Rolling,
+  Bearings,
+  Gravity,
+  Inertia,
+  Drivetrain,
+  COUNT
+};
+
+static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
+                                               "Grav", "Inert", "Drive"};
+
 struct RiderSnapshot {
   const size_t uid;
   std::string name;
@@ -17,6 +30,8 @@ struct RiderSnapshot {
   double km_h;
   double heading;
   int team_id;
+
+  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 };
 
 using SnapshotMap = std::unordered_map<int, RiderSnapshot>;

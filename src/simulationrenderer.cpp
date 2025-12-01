@@ -70,6 +70,9 @@ void SimulationRenderer::render_frame() {
     d->render(&ctx);
   }
 
+  for (auto& w : drawables)
+    w->render_imgui(&ctx);
+
   SDL_RenderPresent(renderer);
 }
 

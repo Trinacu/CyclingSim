@@ -5,8 +5,10 @@
 #include <iostream>
 // for std::setprecision
 #include <iomanip>
+#include <numeric>
 
 #include "helpers.h"
+#include "snapshot.h"
 
 size_t Rider::global_id_counter = 0;
 
@@ -78,9 +80,7 @@ void Rider::set_cda_factor(double cda_factor_) {
 void Rider::set_mass(double rider_mass) {
   mass = rider_mass;
   total_mass = rider_mass + bike.mass;
-  compute_roll();
-  compute_drag();
-  compute_inertia();
+  compute_coeff();
 }
 
 void Rider::compute_headwind() {
@@ -128,8 +128,11 @@ void Rider::update(double dt) {
   power = std::min(target_effort, effort_limit) * ftp;
   // energy_model.update(power, timestep);
   try {
+    double old_speed = speed;
     speed = newton(power, speed);
-  } catch (std::exception e) {
+    update_power_breakdown(old_speed);
+  } catch (std::exception& e) {
+    SDL_Log("oops! %s", e.what());
     // TODO -  what here?
   }
   pos += timestep * speed;
@@ -141,8 +144,41 @@ double Rider::km() const { return pos / 1000.0; }
 
 double Rider::km_h() const { return speed * 3.6; }
 
-double Rider::pow_speed(double new_speed) const {
-  double v_air = new_speed + v_hw;
+void Rider::update_power_breakdown(double old_speed) {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = speed + v_rel_wind;
+
+  power_breakdown[(int)PowerTerm::Aerodynamic] =
+      drag_coeff * pow(v_air, 2) * speed;
+  power_breakdown[(int)PowerTerm::Rolling] = roll_coeff * speed;
+  power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) * speed;
+  power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope)) * speed;
+  power_breakdown[(int)PowerTerm::Inertia] =
+      inertia_coeff * (pow(speed, 2) - pow(old_speed, 2)) / timestep;
+  // sum without Drivetrain loss
+  double sum_raw = std::accumulate(
+      power_breakdown.begin(),
+      power_breakdown.begin() + (int)PowerTerm::Drivetrain, 0.0);
+
+  power_breakdown[(int)PowerTerm::Drivetrain] = sum_raw * bike.dt_loss;
+
+  double total =
+      std::accumulate(power_breakdown.begin(), power_breakdown.end(), 0.0);
+  if (std::abs(total - power) > 0.2) {
+    SDL_Log("%.2f", total - power);
+    SDL_Log("%.2f", sum_raw);
+    SDL_Log("%.2f", total);
+  }
+}
+
+double Rider::pow_speed(double new_speed) {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = new_speed + v_rel_wind;
+
   return (drag_coeff * pow(v_air, 2) * new_speed + roll_coeff * new_speed +
           (0.091 + 0.0087 * new_speed) * new_speed +
           f_grav * sin(atan(slope)) * new_speed +
@@ -150,16 +186,22 @@ double Rider::pow_speed(double new_speed) const {
          (1 - bike.dt_loss);
 }
 
-double Rider::pow_speed_prime(double new_speed) {
-  double v_air = new_speed + v_hw;
+double Rider::pow_speed_prime(double new_speed) const {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = new_speed + v_rel_wind;
   return (drag_coeff * (2 * v_air * new_speed + pow(v_air, 2)) + roll_coeff +
           0.091 + 0.0174 * new_speed + f_grav * sin(atan(slope)) +
           inertia_coeff * 2 * new_speed / timestep) /
          (1 - bike.dt_loss);
 }
 
-double Rider::pow_speed_double_prime(double new_speed) {
-  double v_air = new_speed + v_hw;
+double Rider::pow_speed_double_prime(double new_speed) const {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = new_speed + v_rel_wind;
   return (drag_coeff * (2 * new_speed + 4 * v_air) + 0.0174 +
           inertia_coeff * 2 / timestep) /
          (1 - bike.dt_loss);
@@ -239,5 +281,6 @@ RiderSnapshot Rider::snapshot() const {
       .km_h = this->km_h(),
       .heading = this->heading,
       .team_id = this->team.id,
+      .power_breakdown = this->power_breakdown,
   };
 }

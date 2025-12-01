@@ -3,9 +3,6 @@
 #define PCH_HPP
 
 #include <Eigen/Core> // Minimal Eigen header
-#include <cmath>
-#include <iostream>
-#include <vector>
 // Add other common headers here
 //
 using Vector2d = Eigen::RowVector2d;

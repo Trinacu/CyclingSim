@@ -3,10 +3,11 @@
 #define COURSE_H
 
 #include "pch.hpp"
+#include <iostream>
 
 struct Wind {
-  double speed;
   double heading;
+  double speed;
 };
 
 struct Segment {

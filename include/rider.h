@@ -19,20 +19,6 @@ public:
   int id;
 };
 
-// struct RiderSnapshot {
-//   const size_t uid;
-//   std::string name;
-//   double pos;
-//   double slope;
-//   Vector2d pos2d;
-//   double power;
-//   double effort;
-//   double speed;
-//   double km_h;
-//   double heading;
-//   Team team;
-// };
-//
 class Bike {
 public:
   double mass;
@@ -81,6 +67,10 @@ private:
   void set_cda_factor(double cda_factor_);
   void set_mass(double total_mass_);
 
+  void update_power_breakdown(double old_speed);
+
+  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
+
 public:
   std::string name;
   double target_effort;
@@ -110,9 +100,9 @@ public:
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
 
-  double pow_speed(double new_speed) const;
-  double pow_speed_prime(double new_speed);
-  double pow_speed_double_prime(double new_speed);
+  double pow_speed(double new_speed);
+  double pow_speed_prime(double new_speed) const;
+  double pow_speed_double_prime(double new_speed) const;
 
   void compute_drag();
   void compute_roll();
@@ -120,7 +110,7 @@ public:
   void compute_coeff();
   void compute_headwind();
 
-  double newton(double power, double speed_guess, int max_iterations = 20);
+  double newton(double power, double speed_guess, int max_iterations = 1000);
   double householder(double power, double speed_guess, int max_iterations = 20);
 
   // friend allows aceesing private/protected members

@@ -7,7 +7,7 @@
 #include "simulationrenderer.h"
 #include "widget.h"
 
-enum class ScreenType { Menu, Simulation, Result };
+enum class ScreenType { Menu, Simulation, Result, Plot };
 
 class IScreen {
 public:
@@ -73,6 +73,21 @@ private:
   int drag_start_y = 0;
 
   RiderPanel* rider_panel = nullptr;
+};
+
+class PlotScreen : public IScreen {
+public:
+  AppState* state;
+
+  PlotScreen(AppState* s) : state(s) {}
+
+  void update() override {
+    // no logic needed for static plot
+  }
+
+  void render() override;
+
+  bool handle_event(const SDL_Event* e) override;
 };
 
 #endif

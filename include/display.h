@@ -32,6 +32,7 @@ public:
   virtual void render(const RenderContext* ctx) = 0;
   virtual bool handle_event(const SDL_Event* e) { return false; }
   virtual ~Drawable() = default;
+  virtual void render_imgui(const RenderContext* ctx) {} // NEW: default empty
 };
 
 class CourseDrawable : public Drawable {

@@ -100,5 +100,8 @@ void AppState::switch_screen(ScreenType type) {
   case ScreenType::Result:
     current_screen_ptr = new ResultsScreen(this);
     break;
+  case ScreenType::Plot:
+    current_screen_ptr = new PlotScreen(this);
+    break;
   }
 }

@@ -1,7 +1,7 @@
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_init.h"
 #include "appstate.h"
-#include "imgui_impl_sdl3.h"
+#include "backends/imgui_impl_sdl3.h"
 #include "sim.h"
 #include <chrono>
 #include <exception>
@@ -49,6 +49,22 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
   auto* state = static_cast<AppState*>(appstate);
   if (event->type == SDL_EVENT_QUIT) {
     return SDL_APP_SUCCESS; /* end the program, reporting success */
+  }
+
+  if (event->type == SDL_EVENT_KEY_DOWN) {
+    switch (event->key.key) {
+    case SDLK_ESCAPE:
+      state->switch_screen(ScreenType::Menu);
+      return SDL_APP_CONTINUE;
+
+    case SDLK_P:
+      state->switch_screen(ScreenType::Plot); // new plot screen
+      return SDL_APP_CONTINUE;
+
+    case SDLK_S:
+      state->switch_screen(ScreenType::Simulation);
+      return SDL_APP_CONTINUE;
+    }
   }
 
   // Pass event to current screen
