@@ -1,44 +1,79 @@
-# Prerequisites
-*.d
+# ======================================
+#  Build outputs
+# ======================================
+/build/
+/bin/
+/obj/
+/out/
+/dist/
+/CMakeFiles/
+/CMakeCache.txt
+Makefile
+cmake_install.cmake
+compile_commands.json
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
+# If you're using MSVC:
+*.pdb
+*.sln
+*.vcxproj*
+*.user
+*.filters
 *.obj
+*.lib
+*.dll
 
-# Precompiled Headers
+# If you're using Ninja:
+.ninja_deps
+.ninja_log
+
+# ======================================
+#  Project-specific
+# ======================================
+/vendor/        # ignore imgui, implot, stb, etc.
+/include/Eigen/
+!.gitkeep       # allow empty folders if you want
+
+# If you're generating a PCH bin file:
 *.gch
 *.pch
 
-# Linker files
-*.ilk
+# ======================================
+#  OS artifacts
+# ======================================
 
-# Debugger Files
-*.pdb
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# Windows
+Thumbs.db
+Desktop.ini
 
-# Fortran module files
-*.mod
-*.smod
+# Linux
+*.swp
+*.swo
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+# ======================================
+#  Editor/IDE configs
+# ======================================
 
-# Executables
-*.exe
-*.out
-*.app
+# VSCode
+.vscode/
+*.code-workspace
 
-# debug information files
-*.dwo
+# CLion / JetBrains
+.idea/
 
-/include/Eigen
-/build
+# Sublime
+*.sublime-project
+*.sublime-workspace
+
+# ======================================
+#  Logs and misc
+# ======================================
+*.log
+*.tmp
+*.bak
+*.old
+
