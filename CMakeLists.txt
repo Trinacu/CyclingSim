@@ -21,6 +21,10 @@ pkg_check_modules(SDL3 REQUIRED sdl3)
 pkg_check_modules(SDL3_TTF REQUIRED sdl3-ttf)
 pkg_check_modules(SDL3_IMAGE REQUIRED sdl3-image)
 
+set(VENDOR_DIR ${CMAKE_SOURCE_DIR}/vendor)
+set(IMGUI_DIR ${VENDOR_DIR}/imgui)
+set(IMPLOT_DIR ${VENDOR_DIR}/implot)
+
 
 # Common settings
 set(COMMON_INCLUDES
@@ -48,26 +52,34 @@ set(COMMON_LIBS
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 
-# --- IMGUI integration ---
-find_package(OpenGL REQUIRED)
-list(APPEND COMMON_LIBS OpenGL::GL)
 
-# IMGUI
-# set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/imgui)
+file(GLOB IMGUI_SRC
+     ${IMGUI_DIR}/*.cpp
+     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+     ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer3.cpp
+)
 
-# file(GLOB IMGUI_SRC
-#     ${IMGUI_DIR}/*.cpp
-#     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-#     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-# )
+add_library(imgui STATIC ${IMGUI_SRC})
+target_include_directories(imgui PUBLIC
+     ${IMGUI_DIR}
+     ${SDL3_INCLUDE_DIRS}
+)
+target_compile_options(imgui PUBLIC ${COMMON_COMPILE_OPTS})
 
-# add_library(imgui STATIC ${IMGUI_SRC})
-# target_include_directories(imgui PUBLIC
-#     ${IMGUI_DIR}
-#     ${IMGUI_DIR}/backends
-#     ${COMMON_INCLUDES}
-# )
-# target_compile_options(imgui PUBLIC ${COMMON_COMPILE_OPTS})
+
+# --- IMPLOT integration ---
+file(GLOB IMPLOT_SRC
+     ${IMPLOT_DIR}/implot.cpp
+     ${IMPLOT_DIR}/implot_items.cpp
+)
+
+add_library(implot STATIC ${IMPLOT_SRC})
+target_include_directories(implot PUBLIC 
+    ${IMPLOT_DIR}
+    ${IMGUI_DIR}
+)
+target_link_libraries(implot PRIVATE imgui)
+target_compile_options(implot PUBLIC ${COMMON_COMPILE_OPTS})
 
 # 1) Build your code as a static library
 file(GLOB_RECURSE ALL_SRC "${CMAKE_SOURCE_DIR}/src/*.cpp")
@@ -75,15 +87,26 @@ list(FILTER ALL_SRC EXCLUDE REGEX ".*/src/main\\.cpp$")
 set(GAME_SRC ${ALL_SRC})
 
 add_library(game_lib STATIC ${GAME_SRC})
-target_include_directories(game_lib PUBLIC ${COMMON_INCLUDES})
+target_include_directories(game_lib PUBLIC
+  ${COMMON_INCLUDES}
+  ${IMGUI_DIR}
+  ${IMPLOT_DIR})
 target_compile_options(game_lib PUBLIC ${COMMON_COMPILE_OPTS})
 
 # 2) Main executable just needs main.cpp + link to game_lib
 add_executable(${PROJECT_NAME} src/main.cpp)
+
+# Also ensure main executable has the includes for its own calls
+target_include_directories(${PROJECT_NAME} PRIVATE 
+    ${COMMON_INCLUDES}
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends # <--- CRITICAL FIX: For backend headers called in main.cpp
+    ${IMPLOT_DIR}
+)
+
 target_link_directories(${PROJECT_NAME} PRIVATE ${COMMON_LINK_DIRS})
 target_link_libraries(${PROJECT_NAME}
-    # PRIVATE game_lib imgui ${COMMON_LIBS}
-    PRIVATE game_lib ${COMMON_LIBS}
+    PRIVATE game_lib imgui implot ${COMMON_LIBS}
 )
 
 # 3) Tests: one executable per test, also link game_lib

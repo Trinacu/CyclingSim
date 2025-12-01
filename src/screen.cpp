@@ -1,4 +1,8 @@
 #include "screen.h"
+#include "backends/imgui_impl_sdl3.h"
+#include "backends/imgui_impl_sdlrenderer3.h"
+#include "imgui.h"
+#include "implot.h"
 #include "simulationrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -95,7 +99,92 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
 void SimulationScreen::update() { sim_renderer->update(); }
 
-void SimulationScreen::render() { sim_renderer->render_frame(); }
+// NOTE: You'll need to pass the SDL_Window* or the window size to this function
+// A safer way is to use ImGui::GetIO().DisplaySize
+void SetupDockspaceWindow() {
+  // Get the I/O state for ImGui
+  // ImGuiIO& io = ImGui::GetIO();
+
+  // Set the next window position and size to cover the entire screen
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(ImVec2(200, 200));
+
+  // Set the window flags to remove all decorations and interaction
+  // ImGuiWindowFlags_NoDecoration: Removes title bar, border, resize handle
+  // ImGuiWindowFlags_NoMove: Prevents the window from being moved
+  // ImGuiWindowFlags_NoResize: Prevents resizing
+  // ImGuiWindowFlags_NoBringToFrontOnFocus: Keeps it in the back
+  // ImGuiWindowFlags_NoBackground: (Optional, only if you want a transparent
+  // background) ImGuiWindowFlags_NoDocking: Essential if using a dockspace,
+  // good practice here.
+  ImGuiWindowFlags window_flags =
+      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+      ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+      ImGuiWindowFlags_NoBackground; // Use your SDL clear color as the
+                                     // background
+
+  // Begin the full-screen background window
+  // The name "SDL3_Background" is just a unique identifier
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+
+  ImGui::Begin("SDL3_Background", nullptr, window_flags);
+
+  ImGui::PopStyleVar(3);
+}
+
+void RenderSimplePlot() {
+  // ... (Your static data generation remains the same) ...
+  // Define the data arrays and generate data (as shown in the previous answer)
+  static float x_data[100];
+  static float y_data[100];
+  // ... data generation ...
+
+  // --- Plotting area starts here ---
+
+  // The plot will take up 50% of the background window's width
+  float plot_width = 200; // ImGui::GetContentRegionAvail().x * 0.5f;
+
+  // Center the plot horizontally within the invisible background window
+  ImGui::SetCursorPosX(20);
+
+  // Start the ImPlot Plot area
+  // Use ImVec2(plot_width, 300) to control its size within the window
+  if (ImPlot::BeginPlot("My Sine Wave Overlay", "Time (s)", "Amplitude",
+                        ImVec2(plot_width, 300))) {
+    ImPlot::PlotLine("sin(3x)", x_data, y_data, 100);
+
+    // End the ImPlot Plot area
+    ImPlot::EndPlot();
+  }
+}
+
+void SimulationScreen::render() {
+  ImGui_ImplSDLRenderer3_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
+  ImGui::NewFrame();
+
+  // 1) Draw ImGui windows here
+  // --------------------------------
+  ImGui::Begin("Telemetry");
+  ImPlot::BeginPlot("Speed");
+  // plot data here
+  ImPlot::EndPlot();
+  ImGui::End();
+  // --------------------------------
+
+  // 2) Now draw the simulation world
+  sim_renderer->render_frame(); // <-- new method
+
+  // 3) Now have ImGui render its draw data
+  ImGui::Render();
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), state->renderer);
+
+  // 4) Finally present
+  SDL_RenderPresent(state->renderer);
+}
 
 bool SimulationScreen::handle_event(const SDL_Event* e) {
   if (sim_renderer->handle_event(e))

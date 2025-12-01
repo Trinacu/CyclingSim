@@ -1,6 +1,9 @@
 // src/appstate.cpp
 #include "appstate.h"
 #include "SDL3_ttf/SDL_ttf.h"
+#include "backends/imgui_impl_sdl3.h"
+#include "backends/imgui_impl_sdlrenderer3.h"
+#include "implot.h"
 #include "screen.h"
 
 AppState::AppState() {
@@ -20,6 +23,23 @@ AppState::AppState() {
     SDL_Log("CreateWindowAndRenderer failed: %s", SDL_GetError());
     throw std::runtime_error("Window Creation Failed");
   }
+
+  // init imgui
+  // 1) Create ImGui context
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImPlot::CreateContext(); // Don't forget ImPlot's context too
+
+  // ImGuiIO& io = ImGui::GetIO();
+  // (void)io;
+  // (optionally set io.ConfigFlags, fonts, etc.)
+
+  // 2) Set ImGui style
+  ImGui::StyleColorsDark();
+
+  // 3) Initialize backends
+  ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
+  ImGui_ImplSDLRenderer3_Init(renderer);
 
   // 3. Initialize Shared Resources
   resources = new GameResources(renderer);
