@@ -9,8 +9,7 @@
 #include <thread>
 
 // Forward declarations
-class IScreen;
-enum class ScreenType;
+class ScreenManager;
 
 class AppState {
 public:
@@ -33,13 +32,10 @@ public:
   std::thread* physics_thread = nullptr;
 
   // View State
-  IScreen* current_screen_ptr = nullptr; // Renamed to avoid confusion
-  ScreenType current_type;
+  ScreenManager* screens;
 
   AppState();
   ~AppState();
-
-  void switch_screen(ScreenType type);
 
   bool load_image(const char* id, const char* filename);
 

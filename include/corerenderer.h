@@ -1,11 +1,12 @@
 #ifndef CORE_RENDERER_H
 #define CORE_RENDERER_H
 
-#include "display.h"
-#include "texturemanager.h"
 #include <SDL3/SDL.h>
 #include <memory>
 #include <vector>
+
+class GameResources;
+class Drawable;
 
 // The fundamental UI-only renderer.
 // This draws only 2D/UI Drawables; no camera, no simulation, no world-space.

@@ -2,7 +2,6 @@
 #define PLOT_RENDERER_H
 
 #include "corerenderer.h"
-#include "implot.h"
 
 class PlotRenderer : public CoreRenderer {
 public:

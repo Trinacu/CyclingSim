@@ -1,5 +1,8 @@
 #include "plotrenderer.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
+#include "display.h"
+#include "implot.h"
+#include <cmath>
 
 PlotRenderer::PlotRenderer(SDL_Renderer* r, GameResources* res)
     : CoreRenderer(r, res) {}

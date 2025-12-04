@@ -1,4 +1,5 @@
 #include "corerenderer.h"
+#include "display.h"
 #include <memory>
 
 CoreRenderer::CoreRenderer(SDL_Renderer* r, GameResources* res)

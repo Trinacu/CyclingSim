@@ -2,10 +2,13 @@
 #define SIMULATION_RENDERER_H
 
 #include "corerenderer.h"
-#include "display.h"
-#include "sim.h"
-#include "widget.h"
+#include "snapshot.h"
 #include <memory>
+#include <mutex>
+
+class Simulation;
+class Camera;
+class RiderPanel;
 
 // This renderer extends CoreRenderer with:
 // - Camera

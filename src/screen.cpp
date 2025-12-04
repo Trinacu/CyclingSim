@@ -1,8 +1,10 @@
 #include "screen.h"
+#include "appstate.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "imgui.h"
-#include "implot.h"
+#include "plotrenderer.h"
+#include "screenmanager.h"
 #include "simulationrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -97,6 +99,8 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // camera->set_target_rider(state->sim->get_engine()->get_rider(0));
 }
 
+SimulationScreen::~SimulationScreen() = default;
+
 void SimulationScreen::update() { sim_renderer->update(); }
 
 void SimulationScreen::render() {
@@ -155,7 +159,7 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
 
   case SDL_EVENT_KEY_DOWN:
     if (e->key.key == SDLK_ESCAPE)
-      state->switch_screen(ScreenType::Menu);
+      state->screens->replace(ScreenType::Menu);
     break;
   }
   return true;
@@ -168,7 +172,7 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
 
   renderer->add_drawable(std::make_unique<Button>(
       20, 20, 120, 30, "Back to simulation", f,
-      [this]() { state->switch_screen(ScreenType::Simulation); }));
+      [this]() { state->screens->replace(ScreenType::Simulation); }));
 
   renderer->add_drawable(
       std::make_unique<Button>(20, 60, 120, 30, "Pause", f, [this]() {
@@ -180,6 +184,8 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
       }));
 }
 
+PlotScreen::~PlotScreen() = default;
+
 void PlotScreen::update() { ; }
 
 void PlotScreen::render() { renderer->render_frame(); }
@@ -189,7 +195,7 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
     return true;
 
   if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
-    state->switch_screen(ScreenType::Simulation);
+    state->screens->replace(ScreenType::Simulation);
     return true;
   }
   return false;

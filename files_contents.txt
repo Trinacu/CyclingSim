@@ -11,8 +11,7 @@ include/appstate.h
 #include <thread>
 
 // Forward declarations
-class IScreen;
-enum class ScreenType;
+class ScreenManager;
 
 class AppState {
 public:
@@ -35,13 +34,10 @@ public:
   std::thread* physics_thread = nullptr;
 
   // View State
-  IScreen* current_screen_ptr = nullptr; // Renamed to avoid confusion
-  ScreenType current_type;
+  ScreenManager* screens;
 
   AppState();
   ~AppState();
-
-  void switch_screen(ScreenType type);
 
   bool load_image(const char* id, const char* filename);
 
@@ -113,11 +109,12 @@ include/corerenderer.h
 #ifndef CORE_RENDERER_H
 #define CORE_RENDERER_H
 
-#include "display.h"
-#include "texturemanager.h"
 #include <SDL3/SDL.h>
 #include <memory>
 #include <vector>
+
+class GameResources;
+class Drawable;
 
 // The fundamental UI-only renderer.
 // This draws only 2D/UI Drawables; no camera, no simulation, no world-space.
@@ -309,7 +306,6 @@ include/plotrenderer.h
 #define PLOT_RENDERER_H
 
 #include "corerenderer.h"
-#include "implot.h"
 
 class PlotRenderer : public CoreRenderer {
 public:
@@ -457,10 +453,13 @@ include/screen.h
 #define SCREEN_H
 
 #include "SDL3/SDL_events.h"
-#include "appstate.h"
-#include "plotrenderer.h"
-#include "simulationrenderer.h"
 #include "widget.h"
+#include <memory>
+
+class AppState;
+class TTF_Font;
+class PlotRenderer;
+class SimulationRenderer;
 
 enum class ScreenType { Menu, Simulation, Result, Plot };
 
@@ -509,7 +508,7 @@ public:
   int WORLD_WIDTH = 200;
 
   SimulationScreen(AppState* s);
-  ~SimulationScreen() {} // delete sim_renderer; }
+  ~SimulationScreen(); // delete sim_renderer; }
 
   void update() override;
   void render() override;
@@ -533,7 +532,7 @@ private:
 class PlotScreen : public IScreen {
 public:
   PlotScreen(AppState* s);
-  ~PlotScreen() {};
+  ~PlotScreen();
 
   void update() override;
   void render() override;
@@ -542,6 +541,45 @@ public:
 private:
   AppState* state;
   std::unique_ptr<PlotRenderer> renderer;
+};
+
+#endif
+```
+
+include/screenmanager.h
+```
+#ifndef SCREEN_MANAGER_H
+#define SCREEN_MANAGER_H
+
+#include "screen.h"
+#include <memory>
+#include <vector>
+
+class AppState;
+
+class ScreenManager {
+public:
+  ScreenManager(AppState* state);
+
+  // Core operations
+  void push(ScreenType type);
+  void pop();                    // removes top screen
+  void replace(ScreenType type); // pop then push
+
+  // Game loop hooks
+  void handle_event(const SDL_Event* e);
+  void update();
+  void render();
+
+  // Utilities
+  bool empty() const { return stack.empty(); }
+  IScreen* top() const { return stack.empty() ? nullptr : stack.back().get(); }
+
+private:
+  AppState* app;
+  std::vector<std::unique_ptr<IScreen>> stack;
+
+  std::unique_ptr<IScreen> create_screen(ScreenType type);
 };
 
 #endif
@@ -638,10 +676,13 @@ include/simulationrenderer.h
 #define SIMULATION_RENDERER_H
 
 #include "corerenderer.h"
-#include "display.h"
-#include "sim.h"
-#include "widget.h"
+#include "snapshot.h"
 #include <memory>
+#include <mutex>
+
+class Simulation;
+class Camera;
+class RiderPanel;
 
 // This renderer extends CoreRenderer with:
 // - Camera
@@ -1094,6 +1135,7 @@ src/appstate.cpp
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "implot.h"
 #include "screen.h"
+#include "screenmanager.h"
 
 AppState::AppState() {
   // 1. Initialize SDL Core
@@ -1112,6 +1154,9 @@ AppState::AppState() {
     SDL_Log("CreateWindowAndRenderer failed: %s", SDL_GetError());
     throw std::runtime_error("Window Creation Failed");
   }
+
+  screens = new ScreenManager(this);
+  screens->push(ScreenType::Simulation);
 
   // init imgui
   // 1) Create ImGui context
@@ -1149,14 +1194,14 @@ AppState::~AppState() {
     delete physics_thread;
   }
 
-  if (current_screen_ptr)
-    delete current_screen_ptr;
   if (sim)
     delete sim;
   if (course)
     delete course;
   if (resources)
     delete resources;
+  if (screens)
+    delete screens;
 
   if (renderer)
     SDL_DestroyRenderer(renderer);
@@ -1169,35 +1214,6 @@ AppState::~AppState() {
 
 bool AppState::load_image(const char* id, const char* filename) {
   return resources->get_textureManager()->load_texture(id, filename);
-}
-
-void AppState::switch_screen(ScreenType type) {
-  if (current_type == ScreenType::Simulation && sim) {
-    sim->pause();
-  }
-
-  if (current_screen_ptr) {
-    delete current_screen_ptr;
-    current_screen_ptr = nullptr;
-  }
-
-  current_type = type;
-
-  switch (type) {
-  case ScreenType::Menu:
-    current_screen_ptr = new MenuScreen(this);
-    break;
-  case ScreenType::Simulation:
-    sim->resume();
-    current_screen_ptr = new SimulationScreen(this);
-    break;
-  case ScreenType::Result:
-    current_screen_ptr = new ResultsScreen(this);
-    break;
-  case ScreenType::Plot:
-    current_screen_ptr = new PlotScreen(this);
-    break;
-  }
 }
 ```
 
@@ -1298,6 +1314,7 @@ Vector2d Camera::screen_to_world(Vector2d s) const {
 src/corerenderer.cpp
 ```
 #include "corerenderer.h"
+#include "display.h"
 #include <memory>
 
 CoreRenderer::CoreRenderer(SDL_Renderer* r, GameResources* res)
@@ -1672,6 +1689,7 @@ src/main.cpp
 #include "SDL3/SDL_init.h"
 #include "appstate.h"
 #include "backends/imgui_impl_sdl3.h"
+#include "screenmanager.h"
 #include "sim.h"
 #include <chrono>
 #include <exception>
@@ -1703,7 +1721,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     //     SDL_CreateWindow("Cycling Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
     // state->renderer = SDL_CreateRenderer(state->window, nullptr);
 
-    state->switch_screen(ScreenType::Simulation);
+    state->screens->replace(ScreenType::Simulation);
 
     *appstate = state;
     return SDL_APP_CONTINUE;
@@ -1724,23 +1742,21 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
   if (event->type == SDL_EVENT_KEY_DOWN) {
     switch (event->key.key) {
     case SDLK_ESCAPE:
-      state->switch_screen(ScreenType::Menu);
+      state->screens->replace(ScreenType::Menu);
       return SDL_APP_CONTINUE;
 
     case SDLK_P:
-      state->switch_screen(ScreenType::Plot); // new plot screen
+      state->screens->replace(ScreenType::Plot); // new plot screen
       return SDL_APP_CONTINUE;
 
     case SDLK_S:
-      state->switch_screen(ScreenType::Simulation);
+      state->screens->replace(ScreenType::Simulation);
       return SDL_APP_CONTINUE;
     }
   }
 
   // Pass event to current screen
-  if (state->current_screen_ptr) {
-    state->current_screen_ptr->handle_event(event);
-  }
+  state->screens->handle_event(event);
 
   return SDL_APP_CONTINUE; /* carry on with the program! */
 }
@@ -1753,8 +1769,8 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
   std::chrono::duration<double> dt = now - state->last_frame_time;
 
   if (dt.count() >= 1.0 / state->FPS) {
-    state->current_screen_ptr->update();
-    state->current_screen_ptr->render();
+    state->screens->update();
+    state->screens->render();
     state->last_frame_time = now;
   } else {
     double remaining = (1.0 / state->FPS) - dt.count();
@@ -1784,6 +1800,9 @@ src/plotrenderer.cpp
 ```
 #include "plotrenderer.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
+#include "display.h"
+#include "implot.h"
+#include <cmath>
 
 PlotRenderer::PlotRenderer(SDL_Renderer* r, GameResources* res)
     : CoreRenderer(r, res) {}
@@ -2137,10 +2156,12 @@ RiderSnapshot Rider::snapshot() const {
 src/screen.cpp
 ```
 #include "screen.h"
+#include "appstate.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "imgui.h"
-#include "implot.h"
+#include "plotrenderer.h"
+#include "screenmanager.h"
 #include "simulationrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -2235,6 +2256,8 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // camera->set_target_rider(state->sim->get_engine()->get_rider(0));
 }
 
+SimulationScreen::~SimulationScreen() = default;
+
 void SimulationScreen::update() { sim_renderer->update(); }
 
 void SimulationScreen::render() {
@@ -2293,7 +2316,7 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
 
   case SDL_EVENT_KEY_DOWN:
     if (e->key.key == SDLK_ESCAPE)
-      state->switch_screen(ScreenType::Menu);
+      state->screens->replace(ScreenType::Menu);
     break;
   }
   return true;
@@ -2306,7 +2329,7 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
 
   renderer->add_drawable(std::make_unique<Button>(
       20, 20, 120, 30, "Back to simulation", f,
-      [this]() { state->switch_screen(ScreenType::Simulation); }));
+      [this]() { state->screens->replace(ScreenType::Simulation); }));
 
   renderer->add_drawable(
       std::make_unique<Button>(20, 60, 120, 30, "Pause", f, [this]() {
@@ -2318,6 +2341,8 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
       }));
 }
 
+PlotScreen::~PlotScreen() = default;
+
 void PlotScreen::update() { ; }
 
 void PlotScreen::render() { renderer->render_frame(); }
@@ -2327,10 +2352,71 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
     return true;
 
   if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
-    state->switch_screen(ScreenType::Simulation);
+    state->screens->replace(ScreenType::Simulation);
     return true;
   }
   return false;
+}
+```
+
+src/screenmanager.cpp
+```
+#include "screenmanager.h"
+#include "appstate.h"
+#include "screen.h"
+
+ScreenManager::ScreenManager(AppState* state) : app(state) {}
+
+std::unique_ptr<IScreen> ScreenManager::create_screen(ScreenType type) {
+  switch (type) {
+  case ScreenType::Menu:
+    return std::make_unique<MenuScreen>(app);
+  case ScreenType::Simulation:
+    return std::make_unique<SimulationScreen>(app);
+  case ScreenType::Result:
+    return std::make_unique<ResultsScreen>(app);
+  case ScreenType::Plot:
+    return std::make_unique<PlotScreen>(app);
+  }
+  return nullptr;
+}
+
+void ScreenManager::push(ScreenType type) {
+  stack.push_back(create_screen(type));
+}
+
+void ScreenManager::pop() {
+  if (!stack.empty()) {
+    stack.pop_back();
+  }
+}
+
+void ScreenManager::replace(ScreenType type) {
+  pop();
+  push(type);
+}
+
+void ScreenManager::handle_event(const SDL_Event* e) {
+  if (!stack.empty()) {
+    stack.back()->handle_event(e);
+  }
+}
+
+void ScreenManager::update() {
+  if (!stack.empty()) {
+    stack.back()->update();
+  }
+  // or if we add modal
+  // for (auto& s : stack)
+  // if (s->is_modal()) break;
+  // else s->update();
+  // screens get virtual bool is_modal()
+}
+
+void ScreenManager::render() {
+  // Important: render *all* screens if you want overlays.
+  for (auto& s : stack)
+    s->render();
 }
 ```
 
@@ -2506,6 +2592,8 @@ PhysicsEngine* Simulation::get_engine() { return &engine; }
 src/simulationrenderer.cpp
 ```
 #include "simulationrenderer.h"
+#include "camera.h"
+#include "display.h"
 #include "sim.h"
 #include <memory>
 #include <mutex>

@@ -1,4 +1,6 @@
 #include "simulationrenderer.h"
+#include "camera.h"
+#include "display.h"
 #include "sim.h"
 #include <memory>
 #include <mutex>

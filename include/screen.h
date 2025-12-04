@@ -3,10 +3,13 @@
 #define SCREEN_H
 
 #include "SDL3/SDL_events.h"
-#include "appstate.h"
-#include "plotrenderer.h"
-#include "simulationrenderer.h"
 #include "widget.h"
+#include <memory>
+
+class AppState;
+class TTF_Font;
+class PlotRenderer;
+class SimulationRenderer;
 
 enum class ScreenType { Menu, Simulation, Result, Plot };
 
@@ -55,7 +58,7 @@ public:
   int WORLD_WIDTH = 200;
 
   SimulationScreen(AppState* s);
-  ~SimulationScreen() {} // delete sim_renderer; }
+  ~SimulationScreen(); // delete sim_renderer; }
 
   void update() override;
   void render() override;
@@ -79,7 +82,7 @@ private:
 class PlotScreen : public IScreen {
 public:
   PlotScreen(AppState* s);
-  ~PlotScreen() {};
+  ~PlotScreen();
 
   void update() override;
   void render() override;
