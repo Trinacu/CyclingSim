@@ -1,5 +1,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -631,10 +632,15 @@ void RiderPanel::render_imgui(const RenderContext* ctx) {
       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground;
 
-  static float data1[static_cast<size_t>(PowerTerm::COUNT)];
+  static double data1[static_cast<size_t>(PowerTerm::COUNT)];
   for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
     data1[i] = static_cast<float>(snap->power_breakdown[i]);
   }
+  // clamp so we don't show negative inertia term
+  // thought ideally we'd only show the output of the other terms
+  // but that'd require subtracting the change from before or sth similar?
+  data1[static_cast<size_t>(PowerTerm::Inertia)] =
+      std::max(0.0, data1[static_cast<size_t>(PowerTerm::Inertia)]);
   static ImPlotPieChartFlags flags = 0;
   bool open = ImGui::Begin("##riderplot", nullptr, win_flags);
 
