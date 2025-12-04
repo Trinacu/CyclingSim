@@ -99,68 +99,6 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
 void SimulationScreen::update() { sim_renderer->update(); }
 
-// NOTE: You'll need to pass the SDL_Window* or the window size to this function
-// A safer way is to use ImGui::GetIO().DisplaySize
-void SetupDockspaceWindow() {
-  // Get the I/O state for ImGui
-  // ImGuiIO& io = ImGui::GetIO();
-
-  // Set the next window position and size to cover the entire screen
-  ImGui::SetNextWindowPos(ImVec2(0, 0));
-  ImGui::SetNextWindowSize(ImVec2(200, 200));
-
-  // Set the window flags to remove all decorations and interaction
-  // ImGuiWindowFlags_NoDecoration: Removes title bar, border, resize handle
-  // ImGuiWindowFlags_NoMove: Prevents the window from being moved
-  // ImGuiWindowFlags_NoResize: Prevents resizing
-  // ImGuiWindowFlags_NoBringToFrontOnFocus: Keeps it in the back
-  // ImGuiWindowFlags_NoBackground: (Optional, only if you want a transparent
-  // background) ImGuiWindowFlags_NoDocking: Essential if using a dockspace,
-  // good practice here.
-  ImGuiWindowFlags window_flags =
-      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
-      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-      ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
-      ImGuiWindowFlags_NoBackground; // Use your SDL clear color as the
-                                     // background
-
-  // Begin the full-screen background window
-  // The name "SDL3_Background" is just a unique identifier
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-
-  ImGui::Begin("SDL3_Background", nullptr, window_flags);
-
-  ImGui::PopStyleVar(3);
-}
-
-void RenderSimplePlot() {
-  // ... (Your static data generation remains the same) ...
-  // Define the data arrays and generate data (as shown in the previous answer)
-  static float x_data[100];
-  static float y_data[100];
-  // ... data generation ...
-
-  // --- Plotting area starts here ---
-
-  // The plot will take up 50% of the background window's width
-  float plot_width = 200; // ImGui::GetContentRegionAvail().x * 0.5f;
-
-  // Center the plot horizontally within the invisible background window
-  ImGui::SetCursorPosX(20);
-
-  // Start the ImPlot Plot area
-  // Use ImVec2(plot_width, 300) to control its size within the window
-  if (ImPlot::BeginPlot("My Sine Wave Overlay", "Time (s)", "Amplitude",
-                        ImVec2(plot_width, 300))) {
-    ImPlot::PlotLine("sin(3x)", x_data, y_data, 100);
-
-    // End the ImPlot Plot area
-    ImPlot::EndPlot();
-  }
-}
-
 void SimulationScreen::render() {
   ImGui_ImplSDLRenderer3_NewFrame();
   ImGui_ImplSDL3_NewFrame();
@@ -223,43 +161,32 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
   return true;
 }
 
-void PlotScreen::render() {
-  SDL_SetRenderDrawColor(state->renderer, 20, 20, 20, 255);
-  SDL_RenderClear(state->renderer);
+PlotScreen::PlotScreen(AppState* s) : state(s) {
+  renderer = std::make_unique<PlotRenderer>(state->renderer, state->resources);
 
-  // You MUST start a frame before any ImGui
-  ImGui::NewFrame();
+  TTF_Font* f = state->resources->get_fontManager()->get_font("default");
 
-  ImGui::Begin("My Plot");
+  renderer->add_drawable(std::make_unique<Button>(
+      20, 20, 120, 30, "Back to simulation", f,
+      [this]() { state->switch_screen(ScreenType::Simulation); }));
 
-  if (ImPlot::BeginPlot("Example Plot")) {
-    static float xs[100], ys[100];
-    static bool initialized = false;
-
-    if (!initialized) {
-      for (int i = 0; i < 100; ++i) {
-        xs[i] = i * 0.1f;
-        ys[i] = sinf(xs[i]);
-      }
-      initialized = true;
-    }
-
-    ImPlot::PlotLine("sin(x)", xs, ys, 100);
-    ImPlot::EndPlot();
-  }
-
-  ImGui::End();
-
-  // Render ImGui
-  ImGui::Render();
-  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), state->renderer);
-
-  SDL_RenderPresent(state->renderer);
+  renderer->add_drawable(
+      std::make_unique<Button>(20, 60, 120, 30, "Pause", f, [this]() {
+        auto sim = state->sim;
+        if (sim->is_paused())
+          sim->resume();
+        else
+          sim->pause();
+      }));
 }
 
+void PlotScreen::update() { ; }
+
+void PlotScreen::render() { renderer->render_frame(); }
+
 bool PlotScreen::handle_event(const SDL_Event* e) {
-  // feed events to imgui first
-  ImGui_ImplSDL3_ProcessEvent(e);
+  if (renderer->handle_event(e))
+    return true;
 
   if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
     state->switch_screen(ScreenType::Simulation);

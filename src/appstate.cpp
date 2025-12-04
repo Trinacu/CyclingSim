@@ -83,6 +83,10 @@ bool AppState::load_image(const char* id, const char* filename) {
 }
 
 void AppState::switch_screen(ScreenType type) {
+  if (current_type == ScreenType::Simulation && sim) {
+    sim->pause();
+  }
+
   if (current_screen_ptr) {
     delete current_screen_ptr;
     current_screen_ptr = nullptr;
@@ -95,6 +99,7 @@ void AppState::switch_screen(ScreenType type) {
     current_screen_ptr = new MenuScreen(this);
     break;
   case ScreenType::Simulation:
+    sim->resume();
     current_screen_ptr = new SimulationScreen(this);
     break;
   case ScreenType::Result:

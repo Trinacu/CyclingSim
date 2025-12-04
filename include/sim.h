@@ -37,7 +37,11 @@ class SimulationCondition;
 class Simulation {
 private:
   PhysicsEngine engine;
+  // when this is false, we exit and kill the thread
   std::atomic<bool> running{false};
+  // this is different because it pauses
+  std::atomic<bool> paused{false};
+
   double time_factor = 1.0;
   double sim_seconds = 0.0;
 
@@ -52,6 +56,9 @@ public:
 
   void run_max_speed(const SimulationCondition& cond);
 
+  void pause();
+  void resume();
+  bool is_paused() const;
   void stop();
 
   double get_time_factor() { return time_factor; }

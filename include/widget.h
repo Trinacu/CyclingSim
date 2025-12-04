@@ -80,21 +80,28 @@ public:
   bool handle_event(const SDL_Event* e) override;
 };
 
-class TimeFactorButton : public Widget {
+class TimeFactorButton : public Button {
+public:
+  TimeFactorButton(int x, int y, int w, int h, double val, Simulation* sim,
+                   TTF_Font* font)
+      : Button(x, y, w, h, format_label(val), font,
+               [sim, val]() { sim->set_time_factor(val); }) {}
+
 private:
-  int x, y, w, h;
-  double value;
-  Simulation* sim;
-  TTF_Font* font;
+  static std::string format_label(double v) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.1f ×", v);
+    return std::string(buf);
+  }
+};
+
+class PauseButton : public Button {
+private:
+  Simulation* sim = nullptr;
 
 public:
-  TimeFactorButton(int x_, int y_, int h_, double val, Simulation* sim_,
-                   TTF_Font* f)
-      : x(x_), y(y_), w(50), h(h_), value(val), sim(sim_), font(f) {}
-
+  PauseButton(int x, int y, int w, int h, Simulation* sim, TTF_Font* font);
   void render(const RenderContext* ctx) override;
-
-  bool handle_event(const SDL_Event* e) override;
 };
 
 class TimeFactorSlider : public Widget {

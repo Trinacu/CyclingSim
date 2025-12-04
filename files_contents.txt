@@ -102,7 +102,7 @@ private:
   std::optional<int> target_uid;
 
   // smooth follow parameters
-  double follow_strength = 0.15; // 0=no follow, 1=teleport
+  double follow_strength = 0.4; // 0=no follow, 1=teleport
 };
 
 #endif
@@ -152,10 +152,11 @@ include/course.h
 #define COURSE_H
 
 #include "pch.hpp"
+#include <iostream>
 
 struct Wind {
-  double speed;
   double heading;
+  double speed;
 };
 
 struct Segment {
@@ -245,6 +246,7 @@ public:
   virtual void render(const RenderContext* ctx) = 0;
   virtual bool handle_event(const SDL_Event* e) { return false; }
   virtual ~Drawable() = default;
+  virtual void render_imgui(const RenderContext* ctx) {} // NEW: default empty
 };
 
 class CourseDrawable : public Drawable {
@@ -292,9 +294,6 @@ include/pch.hpp
 #define PCH_HPP
 
 #include <Eigen/Core> // Minimal Eigen header
-#include <cmath>
-#include <iostream>
-#include <vector>
 // Add other common headers here
 //
 using Vector2d = Eigen::RowVector2d;
@@ -302,6 +301,29 @@ using MatrixX2d = Eigen::MatrixX2d;
 using MatrixX3d = Eigen::MatrixX3d;
 
 #endif // PCH_HPP
+```
+
+include/plotrenderer.h
+```
+#ifndef PLOT_RENDERER_H
+#define PLOT_RENDERER_H
+
+#include "corerenderer.h"
+#include "implot.h"
+
+class PlotRenderer : public CoreRenderer {
+public:
+  PlotRenderer(SDL_Renderer* r, GameResources* res);
+
+  void render_frame() override;
+
+  bool handle_event(const SDL_Event* e);
+
+private:
+  void render_plot_imgui();
+};
+
+#endif
 ```
 
 include/rider.h
@@ -327,20 +349,6 @@ public:
   int id;
 };
 
-// struct RiderSnapshot {
-//   const size_t uid;
-//   std::string name;
-//   double pos;
-//   double slope;
-//   Vector2d pos2d;
-//   double power;
-//   double effort;
-//   double speed;
-//   double km_h;
-//   double heading;
-//   Team team;
-// };
-//
 class Bike {
 public:
   double mass;
@@ -389,6 +397,10 @@ private:
   void set_cda_factor(double cda_factor_);
   void set_mass(double total_mass_);
 
+  void update_power_breakdown(double old_speed);
+
+  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
+
 public:
   std::string name;
   double target_effort;
@@ -418,9 +430,9 @@ public:
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
 
-  double pow_speed(double new_speed) const;
-  double pow_speed_prime(double new_speed);
-  double pow_speed_double_prime(double new_speed);
+  double pow_speed(double new_speed);
+  double pow_speed_prime(double new_speed) const;
+  double pow_speed_double_prime(double new_speed) const;
 
   void compute_drag();
   void compute_roll();
@@ -428,7 +440,7 @@ public:
   void compute_coeff();
   void compute_headwind();
 
-  double newton(double power, double speed_guess, int max_iterations = 20);
+  double newton(double power, double speed_guess, int max_iterations = 1000);
   double householder(double power, double speed_guess, int max_iterations = 20);
 
   // friend allows aceesing private/protected members
@@ -446,10 +458,11 @@ include/screen.h
 
 #include "SDL3/SDL_events.h"
 #include "appstate.h"
+#include "plotrenderer.h"
 #include "simulationrenderer.h"
 #include "widget.h"
 
-enum class ScreenType { Menu, Simulation, Result };
+enum class ScreenType { Menu, Simulation, Result, Plot };
 
 class IScreen {
 public:
@@ -517,6 +530,20 @@ private:
   RiderPanel* rider_panel = nullptr;
 };
 
+class PlotScreen : public IScreen {
+public:
+  PlotScreen(AppState* s);
+  ~PlotScreen() {};
+
+  void update() override;
+  void render() override;
+  bool handle_event(const SDL_Event* e) override;
+
+private:
+  AppState* state;
+  std::unique_ptr<PlotRenderer> renderer;
+};
+
 #endif
 ```
 
@@ -561,7 +588,11 @@ class SimulationCondition;
 class Simulation {
 private:
   PhysicsEngine engine;
+  // when this is false, we exit and kill the thread
   std::atomic<bool> running{false};
+  // this is different because it pauses
+  std::atomic<bool> paused{false};
+
   double time_factor = 1.0;
   double sim_seconds = 0.0;
 
@@ -576,6 +607,9 @@ public:
 
   void run_max_speed(const SimulationCondition& cond);
 
+  void pause();
+  void resume();
+  bool is_paused() const;
   void stop();
 
   double get_time_factor() { return time_factor; }
@@ -665,6 +699,19 @@ include/snapshot.h
 #include <string>
 #include <unordered_map>
 
+enum class PowerTerm : int {
+  Aerodynamic = 0,
+  Rolling,
+  Bearings,
+  Gravity,
+  Inertia,
+  Drivetrain,
+  COUNT
+};
+
+static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
+                                               "Grav", "Inert", "Drive"};
+
 struct RiderSnapshot {
   const size_t uid;
   std::string name;
@@ -677,6 +724,8 @@ struct RiderSnapshot {
   double km_h;
   double heading;
   int team_id;
+
+  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 };
 
 using SnapshotMap = std::unordered_map<int, RiderSnapshot>;
@@ -795,6 +844,7 @@ public:
   RenderLayer layer() const override { return RenderLayer::UI; }
   virtual void render(const RenderContext* ctx) override = 0;
   virtual ~Widget() = default;
+  bool visible = true;
 };
 
 class Stopwatch : public Widget {
@@ -840,21 +890,48 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
-class TimeFactorButton : public Widget {
+class Button : public Widget {
+public:
+  using Callback = std::function<void()>;
+
 private:
   int x, y, w, h;
-  double value;
-  Simulation* sim;
+  std::string label;
   TTF_Font* font;
+  Callback on_click;
+  bool hovered = false;
+  bool pressed = false;
 
 public:
-  TimeFactorButton(int x_, int y_, int h_, double val, Simulation* sim_,
-                   TTF_Font* f)
-      : x(x_), y(y_), w(50), h(h_), value(val), sim(sim_), font(f) {}
+  Button(int x, int y, int w, int h, std::string label, TTF_Font* font,
+         Callback cb);
 
   void render(const RenderContext* ctx) override;
-
   bool handle_event(const SDL_Event* e) override;
+};
+
+class TimeFactorButton : public Button {
+public:
+  TimeFactorButton(int x, int y, int w, int h, double val, Simulation* sim,
+                   TTF_Font* font)
+      : Button(x, y, w, h, format_label(val), font,
+               [sim, val]() { sim->set_time_factor(val); }) {}
+
+private:
+  static std::string format_label(double v) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.1f ×", v);
+    return std::string(buf);
+  }
+};
+
+class PauseButton : public Button {
+private:
+  Simulation* sim = nullptr;
+
+public:
+  PauseButton(int x, int y, int w, int h, Simulation* sim, TTF_Font* font);
+  void render(const RenderContext* ctx) override;
 };
 
 class TimeFactorSlider : public Widget {
@@ -878,56 +955,73 @@ private:
   double factor_to_slider(double f);
 };
 
+class ValueField : public Widget {
+protected:
+  int x, y, w, h;
+  TTF_Font* font;
+  SDL_Color text_color = {255, 255, 255, 255};
+
+  // Caching
+  std::string current_text;
+  SDL_Texture* texture = nullptr;
+  SDL_Texture* bg_texture = nullptr;
+
+  void update_texture(SDL_Renderer* renderer);
+  void create_bg(SDL_Renderer* renderer);
+
+public:
+  ValueField(int x, int y, int w, int h, TTF_Font* font);
+  virtual ~ValueField();
+
+  void set_text(const std::string& text);
+
+  // Standard Widget interface
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override { return false; }
+
+  void set_position(int new_x, int new_y) {
+    x = new_x;
+    y = new_y;
+  }
+  int get_width() const { return w; }
+};
+
+class RiderValueField : public ValueField {
+public:
+  using DataGetter = std::function<std::string(const RiderSnapshot&)>;
+
+private:
+  size_t target_rider_id;
+  DataGetter getter;
+
+public:
+  RiderValueField(int x, int y, int w, int h, TTF_Font* font, size_t rider_id,
+                  DataGetter getter);
+
+  void render_with_snapshot(const RenderContext* ctx,
+                            const RiderSnapshot* snap);
+};
+
 class TimeControlPanel : public Widget {
 private:
   int x, y, h;
-  int slider_w = 200;
+  int valfield_w = 50;
+  int slider_w = 120;
+  int button_w = 50;
+  int gap_w = 5;
+  int next_x = x + gap_w;
   std::vector<std::unique_ptr<Widget>> children;
+
+  ValueField* time_factor_field = nullptr;
+
+  // for reading current time_factor
+  Simulation* sim = nullptr;
 
 public:
   TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, Simulation* sim);
 
   void render(const RenderContext* ctx) override;
   bool handle_event(const SDL_Event* e) override;
-};
-
-class ValueField {
-public:
-  using DataGetter = std::function<std::string(const RiderSnapshot&)>;
-
-private:
-  TTF_Font* font;
-  SDL_Color text_color = {255, 255, 255, 255};
-  int x, y, width, height;
-
-  // Logic
-  size_t target_rider_id;
-  DataGetter getter;
-
-  // Caching
-  std::string current_text;
-  SDL_Texture* texture = nullptr;
-  SDL_Texture* bg_texture = nullptr;
-  uint32_t last_update = 0;
-
-  void update_texture(SDL_Renderer* renderer, const RiderSnapshot& snap);
-  void create_bg(SDL_Renderer* renderer);
-
-public:
-  ValueField(int x, int y, int w, int h, TTF_Font* font, size_t id,
-             DataGetter getter);
-  ~ValueField();
-
-  // void render(const RenderContext* ctx) override;
-  void render_with_snapshot(const RenderContext* ctx,
-                            const RiderSnapshot* snap);
-
-  // Allow parents to move this widget
-  void set_position(int new_x, int new_y) {
-    x = new_x;
-    y = new_y;
-  }
-  int get_width() const { return width; }
 };
 
 class MetricRow {
@@ -937,7 +1031,7 @@ private:
   TTF_Font* font;
 
   // Components
-  std::unique_ptr<ValueField> field;
+  std::unique_ptr<RiderValueField> field;
   SDL_Texture* label_tex = nullptr;
   SDL_Texture* unit_tex = nullptr;
 
@@ -947,7 +1041,7 @@ private:
 
 public:
   MetricRow(int x, int y, TTF_Font* font, size_t id, std::string label,
-            std::string unit, ValueField::DataGetter getter);
+            std::string unit, RiderValueField::DataGetter getter);
 
   ~MetricRow();
 
@@ -968,6 +1062,8 @@ private:
   std::string title;
   SDL_Texture* title_tex = nullptr;
 
+  bool show_plot = false;
+
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
 
@@ -978,9 +1074,12 @@ public:
   void set_rider_id(int uid);
   // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
   void add_row(std::string label, std::string unit,
-               ValueField::DataGetter getter);
+               RiderValueField::DataGetter getter);
 
   void render(const RenderContext* ctx) override;
+  void render_imgui(const RenderContext* ctx) override;
+
+  void render_plot_overlay(const RenderContext* ctx);
 };
 
 #endif
@@ -991,6 +1090,9 @@ src/appstate.cpp
 // src/appstate.cpp
 #include "appstate.h"
 #include "SDL3_ttf/SDL_ttf.h"
+#include "backends/imgui_impl_sdl3.h"
+#include "backends/imgui_impl_sdlrenderer3.h"
+#include "implot.h"
 #include "screen.h"
 
 AppState::AppState() {
@@ -1010,6 +1112,23 @@ AppState::AppState() {
     SDL_Log("CreateWindowAndRenderer failed: %s", SDL_GetError());
     throw std::runtime_error("Window Creation Failed");
   }
+
+  // init imgui
+  // 1) Create ImGui context
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImPlot::CreateContext(); // Don't forget ImPlot's context too
+
+  // ImGuiIO& io = ImGui::GetIO();
+  // (void)io;
+  // (optionally set io.ConfigFlags, fonts, etc.)
+
+  // 2) Set ImGui style
+  ImGui::StyleColorsDark();
+
+  // 3) Initialize backends
+  ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
+  ImGui_ImplSDLRenderer3_Init(renderer);
 
   // 3. Initialize Shared Resources
   resources = new GameResources(renderer);
@@ -1053,6 +1172,10 @@ bool AppState::load_image(const char* id, const char* filename) {
 }
 
 void AppState::switch_screen(ScreenType type) {
+  if (current_type == ScreenType::Simulation && sim) {
+    sim->pause();
+  }
+
   if (current_screen_ptr) {
     delete current_screen_ptr;
     current_screen_ptr = nullptr;
@@ -1065,10 +1188,14 @@ void AppState::switch_screen(ScreenType type) {
     current_screen_ptr = new MenuScreen(this);
     break;
   case ScreenType::Simulation:
+    sim->resume();
     current_screen_ptr = new SimulationScreen(this);
     break;
   case ScreenType::Result:
     current_screen_ptr = new ResultsScreen(this);
+    break;
+  case ScreenType::Plot:
+    current_screen_ptr = new PlotScreen(this);
     break;
   }
 }
@@ -1257,7 +1384,7 @@ double Course::get_slope(double pos) const {
   return segments[find_segment(pos)].slope;
 }
 
-Wind Course::get_wind(double pos) const { return Wind{1, 0}; }
+Wind Course::get_wind(double pos) const { return Wind{0, 1}; }
 
 MatrixX2d Course::get_points(double x_min, double x_max) const {
   if (x_min > x_max)
@@ -1544,6 +1671,7 @@ src/main.cpp
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_init.h"
 #include "appstate.h"
+#include "backends/imgui_impl_sdl3.h"
 #include "sim.h"
 #include <chrono>
 #include <exception>
@@ -1587,9 +1715,26 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
 
 /* This function runs when a new event (mouse input, keypresses, etc) occurs. */
 SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
+  ImGui_ImplSDL3_ProcessEvent(event);
   auto* state = static_cast<AppState*>(appstate);
   if (event->type == SDL_EVENT_QUIT) {
     return SDL_APP_SUCCESS; /* end the program, reporting success */
+  }
+
+  if (event->type == SDL_EVENT_KEY_DOWN) {
+    switch (event->key.key) {
+    case SDLK_ESCAPE:
+      state->switch_screen(ScreenType::Menu);
+      return SDL_APP_CONTINUE;
+
+    case SDLK_P:
+      state->switch_screen(ScreenType::Plot); // new plot screen
+      return SDL_APP_CONTINUE;
+
+    case SDLK_S:
+      state->switch_screen(ScreenType::Simulation);
+      return SDL_APP_CONTINUE;
+    }
   }
 
   // Pass event to current screen
@@ -1635,6 +1780,70 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
 }
 ```
 
+src/plotrenderer.cpp
+```
+#include "plotrenderer.h"
+#include "backends/imgui_impl_sdlrenderer3.h"
+
+PlotRenderer::PlotRenderer(SDL_Renderer* r, GameResources* res)
+    : CoreRenderer(r, res) {}
+
+void PlotRenderer::render_frame() {
+  // Clear screen first
+  SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+  SDL_RenderClear(renderer);
+
+  // --- Render standard CoreRenderer widgets ---
+  RenderContext ctx;
+  ctx.renderer = renderer;
+  ctx.resources = resources;
+  ctx.camera_weak = std::weak_ptr<Camera>();
+  ctx.rider_snapshots = nullptr;
+
+  for (auto& d : drawables)
+    d->render(&ctx);
+
+  // --- ImGui pass ---
+  ImGui::NewFrame();
+  render_plot_imgui();
+  ImGui::Render();
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
+
+  SDL_RenderPresent(renderer);
+}
+
+void PlotRenderer::render_plot_imgui() {
+  ImGui::Begin("Plot");
+
+  static float xs[100], ys[100];
+  static bool init = false;
+
+  if (!init) {
+    for (int i = 0; i < 100; ++i) {
+      xs[i] = i * 0.1f;
+      ys[i] = sinf(xs[i]);
+    }
+    init = true;
+  }
+
+  if (ImPlot::BeginPlot("Example Plot")) {
+    ImPlot::PlotLine("sin(x)", xs, ys, 100);
+    ImPlot::EndPlot();
+  }
+
+  ImGui::End();
+}
+
+bool PlotRenderer::handle_event(const SDL_Event* e) {
+  // UI above world
+  for (auto& d : drawables)
+    if (d->handle_event(e))
+      return true;
+
+  return false;
+}
+```
+
 src/rider.cpp
 ```
 #include "rider.h"
@@ -1644,8 +1853,10 @@ src/rider.cpp
 #include <iostream>
 // for std::setprecision
 #include <iomanip>
+#include <numeric>
 
 #include "helpers.h"
+#include "snapshot.h"
 
 size_t Rider::global_id_counter = 0;
 
@@ -1717,9 +1928,7 @@ void Rider::set_cda_factor(double cda_factor_) {
 void Rider::set_mass(double rider_mass) {
   mass = rider_mass;
   total_mass = rider_mass + bike.mass;
-  compute_roll();
-  compute_drag();
-  compute_inertia();
+  compute_coeff();
 }
 
 void Rider::compute_headwind() {
@@ -1767,8 +1976,11 @@ void Rider::update(double dt) {
   power = std::min(target_effort, effort_limit) * ftp;
   // energy_model.update(power, timestep);
   try {
+    double old_speed = speed;
     speed = newton(power, speed);
-  } catch (std::exception e) {
+    update_power_breakdown(old_speed);
+  } catch (std::exception& e) {
+    SDL_Log("oops! %s", e.what());
     // TODO -  what here?
   }
   pos += timestep * speed;
@@ -1780,8 +1992,41 @@ double Rider::km() const { return pos / 1000.0; }
 
 double Rider::km_h() const { return speed * 3.6; }
 
-double Rider::pow_speed(double new_speed) const {
-  double v_air = new_speed + v_hw;
+void Rider::update_power_breakdown(double old_speed) {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = speed + v_rel_wind;
+
+  power_breakdown[(int)PowerTerm::Aerodynamic] =
+      drag_coeff * pow(v_air, 2) * speed;
+  power_breakdown[(int)PowerTerm::Rolling] = roll_coeff * speed;
+  power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) * speed;
+  power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope)) * speed;
+  power_breakdown[(int)PowerTerm::Inertia] =
+      inertia_coeff * (pow(speed, 2) - pow(old_speed, 2)) / timestep;
+  // sum without Drivetrain loss
+  double sum_raw = std::accumulate(
+      power_breakdown.begin(),
+      power_breakdown.begin() + (int)PowerTerm::Drivetrain, 0.0);
+
+  power_breakdown[(int)PowerTerm::Drivetrain] = sum_raw * bike.dt_loss;
+
+  double total =
+      std::accumulate(power_breakdown.begin(), power_breakdown.end(), 0.0);
+  if (std::abs(total - power) > 0.2) {
+    SDL_Log("%.2f", total - power);
+    SDL_Log("%.2f", sum_raw);
+    SDL_Log("%.2f", total);
+  }
+}
+
+double Rider::pow_speed(double new_speed) {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = new_speed + v_rel_wind;
+
   return (drag_coeff * pow(v_air, 2) * new_speed + roll_coeff * new_speed +
           (0.091 + 0.0087 * new_speed) * new_speed +
           f_grav * sin(atan(slope)) * new_speed +
@@ -1789,16 +2034,22 @@ double Rider::pow_speed(double new_speed) const {
          (1 - bike.dt_loss);
 }
 
-double Rider::pow_speed_prime(double new_speed) {
-  double v_air = new_speed + v_hw;
+double Rider::pow_speed_prime(double new_speed) const {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = new_speed + v_rel_wind;
   return (drag_coeff * (2 * v_air * new_speed + pow(v_air, 2)) + roll_coeff +
           0.091 + 0.0174 * new_speed + f_grav * sin(atan(slope)) +
           inertia_coeff * 2 * new_speed / timestep) /
          (1 - bike.dt_loss);
 }
 
-double Rider::pow_speed_double_prime(double new_speed) {
-  double v_air = new_speed + v_hw;
+double Rider::pow_speed_double_prime(double new_speed) const {
+  auto [wind_dir, wind_speed] = course->get_wind(pos);
+  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+
+  double v_air = new_speed + v_rel_wind;
   return (drag_coeff * (2 * new_speed + 4 * v_air) + 0.0174 +
           inertia_coeff * 2 / timestep) /
          (1 - bike.dt_loss);
@@ -1878,6 +2129,7 @@ RiderSnapshot Rider::snapshot() const {
       .km_h = this->km_h(),
       .heading = this->heading,
       .team_id = this->team.id,
+      .power_breakdown = this->power_breakdown,
   };
 }
 ```
@@ -1885,6 +2137,10 @@ RiderSnapshot Rider::snapshot() const {
 src/screen.cpp
 ```
 #include "screen.h"
+#include "backends/imgui_impl_sdl3.h"
+#include "backends/imgui_impl_sdlrenderer3.h"
+#include "imgui.h"
+#include "implot.h"
 #include "simulationrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -1981,7 +2237,20 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
 void SimulationScreen::update() { sim_renderer->update(); }
 
-void SimulationScreen::render() { sim_renderer->render_frame(); }
+void SimulationScreen::render() {
+  ImGui_ImplSDLRenderer3_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
+  ImGui::NewFrame();
+
+  sim_renderer->render_frame();
+
+  // 3) Now have ImGui render its draw data
+  ImGui::Render();
+  ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), state->renderer);
+
+  // 4) Finally present
+  SDL_RenderPresent(state->renderer);
+}
 
 bool SimulationScreen::handle_event(const SDL_Event* e) {
   if (sim_renderer->handle_event(e))
@@ -2028,6 +2297,40 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
     break;
   }
   return true;
+}
+
+PlotScreen::PlotScreen(AppState* s) : state(s) {
+  renderer = std::make_unique<PlotRenderer>(state->renderer, state->resources);
+
+  TTF_Font* f = state->resources->get_fontManager()->get_font("default");
+
+  renderer->add_drawable(std::make_unique<Button>(
+      20, 20, 120, 30, "Back to simulation", f,
+      [this]() { state->switch_screen(ScreenType::Simulation); }));
+
+  renderer->add_drawable(
+      std::make_unique<Button>(20, 60, 120, 30, "Pause", f, [this]() {
+        auto sim = state->sim;
+        if (sim->is_paused())
+          sim->resume();
+        else
+          sim->pause();
+      }));
+}
+
+void PlotScreen::update() { ; }
+
+void PlotScreen::render() { renderer->render_frame(); }
+
+bool PlotScreen::handle_event(const SDL_Event* e) {
+  if (renderer->handle_event(e))
+    return true;
+
+  if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
+    state->switch_screen(ScreenType::Simulation);
+    return true;
+  }
+  return false;
 }
 ```
 
@@ -2082,6 +2385,12 @@ void Simulation::start_realtime() {
   auto t_prev = std::chrono::steady_clock::now();
 
   while (running) {
+    if (paused) {
+      t_prev = std::chrono::steady_clock::now();
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+
     auto t_now = std::chrono::steady_clock::now();
     double frame_time = std::chrono::duration<double>(t_now - t_prev).count();
     t_prev = t_now;
@@ -2150,6 +2459,12 @@ void Simulation::run_max_speed(const SimulationCondition& cond) {
     }
   }
 }
+
+void Simulation::pause() { paused = true; }
+
+void Simulation::resume() { paused = false; }
+
+bool Simulation::is_paused() const { return paused; }
 
 void Simulation::stop() { running = false; }
 
@@ -2261,6 +2576,9 @@ void SimulationRenderer::render_frame() {
   for (auto& d : drawables) {
     d->render(&ctx);
   }
+
+  for (auto& w : drawables)
+    w->render_imgui(&ctx);
 
   SDL_RenderPresent(renderer);
 }
@@ -2427,13 +2745,19 @@ src/widget.cpp
 ```
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <algorithm>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 #include "SDL3/SDL_log.h"
+#include "SDL3/SDL_pixels.h"
 #include "SDL3/SDL_render.h"
 #include "SDL3/SDL_surface.h"
 #include "display.h"
+#include "imgui.h"
+#include "implot.h"
+#include "snapshot.h"
 #include "widget.h"
 // for std::setprecision
 // #include <iomanip>
@@ -2592,38 +2916,93 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
   return tex;
 }
 
-void TimeFactorButton::render(const RenderContext* ctx) {
+Button::Button(int x_, int y_, int w_, int h_, std::string label_,
+               TTF_Font* font_, Callback cb)
+    : x(x_), y(y_), w(w_), h(h_), label(std::move(label_)), font(font_),
+      on_click(std::move(cb)) {}
+
+void Button::render(const RenderContext* ctx) {
   SDL_Renderer* r = ctx->renderer;
-  SDL_SetRenderDrawColor(r, 80, 80, 80, 255);
-  SDL_FRect box{(float)x, (float)y, (float)w, (float)h};
-  SDL_RenderFillRect(r, &box);
 
-  char buf[12];
-  // snprintf(buf, 12, "x%.0f", value);
-  snprintf(buf, 12, "%.1fx", value);
+  // Colors
+  if (pressed)
+    SDL_SetRenderDrawColor(r, 60, 60, 60, 255);
+  else if (hovered)
+    SDL_SetRenderDrawColor(r, 90, 90, 90, 255);
+  else
+    SDL_SetRenderDrawColor(r, 70, 70, 70, 255);
 
-  SDL_Surface* surf =
-      TTF_RenderText_Blended(font, buf, 0, SDL_Color{255, 255, 255, 255});
+  SDL_FRect bg{(float)x, (float)y, (float)w, (float)h};
+  SDL_RenderFillRect(r, &bg);
+
+  // Render text
+  SDL_Surface* surf = TTF_RenderText_Blended(font, label.c_str(), 0,
+                                             SDL_Color{255, 255, 255, 255});
+  if (!surf)
+    return;
 
   SDL_Texture* tex = SDL_CreateTextureFromSurface(r, surf);
+  if (!tex) {
+    SDL_DestroySurface(surf);
+    return;
+  }
 
-  SDL_FRect dst{(float)(x + 5), (float)(y + 2), (float)surf->w, (float)surf->h};
+  float tx = x + (w - surf->w) * 0.5f;
+  float ty = y + (h - surf->h) * 0.5f;
+  SDL_FRect dst{tx, ty, (float)surf->w, (float)surf->h};
   SDL_RenderTexture(r, tex, nullptr, &dst);
 
   SDL_DestroyTexture(tex);
   SDL_DestroySurface(surf);
 }
 
-bool TimeFactorButton::handle_event(const SDL_Event* e) {
-  if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-      e->button.button == SDL_BUTTON_LEFT) {
-    if (e->button.x >= x && e->button.x <= x + w && e->button.y >= y &&
-        e->button.y <= y + h) {
-      sim->set_time_factor(value);
+bool Button::handle_event(const SDL_Event* e) {
+  int mx, my;
+
+  switch (e->type) {
+
+  case SDL_EVENT_MOUSE_MOTION:
+    mx = e->motion.x;
+    my = e->motion.y;
+    hovered = (mx >= x && mx <= x + w && my >= y && my <= y + h);
+    return hovered;
+
+  case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    if (e->button.button == SDL_BUTTON_LEFT && hovered) {
+      pressed = true;
       return true;
     }
+    break;
+
+  case SDL_EVENT_MOUSE_BUTTON_UP:
+    if (e->button.button == SDL_BUTTON_LEFT) {
+      if (pressed && hovered)
+        if (on_click)
+          on_click(); // <-- fire callback
+
+      pressed = false;
+      return hovered; // consumed if inside
+    }
+    break;
   }
+
   return false;
+}
+
+PauseButton::PauseButton(int x, int y, int w, int h, Simulation* sim,
+                         TTF_Font* font)
+    : Button(x, y, w, h, sim->is_paused() ? "Resume" : "Pause", font, [sim]() {
+        if (sim->is_paused())
+          sim->resume();
+        else
+          sim->pause();
+      }) {}
+
+void PauseButton::render(const RenderContext* ctx) {
+  // Update label before drawing
+  // set_label(sim->is_paused() ? "Resume" : "Pause");
+
+  Button::render(ctx);
 }
 
 double TimeFactorSlider::slider_to_factor(double t) {
@@ -2698,21 +3077,40 @@ bool TimeFactorSlider::handle_event(const SDL_Event* e) {
 }
 
 TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
-                                   Simulation* sim)
-    : x(x_), y(y_), h(h_) {
-  // Add slider
-  children.push_back(std::make_unique<TimeFactorSlider>(x + 0, y + h_ / 4,
-                                                        slider_w, h_ / 2, sim));
+                                   Simulation* sim_)
+    : x(x_), y(y_), h(h_), sim(sim_) {
+  auto tf =
+      std::make_unique<ValueField>(next_x, y + 2, valfield_w, h - 4, font);
+  time_factor_field = tf.get();
+  children.push_back(std::move(tf));
+  next_x += valfield_w + gap_w;
 
-  // Add time buttons
-  children.push_back(std::make_unique<TimeFactorButton>(
-      x + 210, y + h_ / 4, h_ / 2, 0.5, sim, font));
+  int widget_h = h_ / 2;
+  int widget_y = y + h_ / 4;
 
-  children.push_back(std::make_unique<TimeFactorButton>(
-      x + 255, y + h_ / 4, h_ / 2, 1.0, sim, font));
+  children.push_back(std::make_unique<TimeFactorSlider>(
+      next_x, widget_y, slider_w, widget_h, sim));
+  next_x += slider_w + gap_w;
 
-  children.push_back(std::make_unique<TimeFactorButton>(
-      x + 300, y + h_ / 4, h_ / 2, 10.0, sim, font));
+  auto make_factor_button = [&](double val) {
+    char buffer[50];
+    snprintf(buffer, sizeof(buffer), "%.1f", val);
+    std::string str = buffer; // "3.1"
+    // children.push_back(std::make_unique<Button>(
+    //     next_x, y + h_ / 4, button_w, h_ / 2, str + " ×", font,
+    //     [sim_, val]() { sim_->set_time_factor(val); }));
+    children.push_back(std::make_unique<TimeFactorButton>(
+        next_x, widget_y, button_w, widget_h, val, sim_, font));
+    next_x += gap_w + button_w;
+  };
+
+  make_factor_button(0.5);
+  make_factor_button(1.0);
+  make_factor_button(20.0);
+
+  next_x += gap_w + button_w;
+  children.push_back(std::make_unique<PauseButton>(next_x, widget_y, button_w,
+                                                   widget_h, sim, font));
 }
 
 void TimeControlPanel::render(const RenderContext* ctx) {
@@ -2720,8 +3118,15 @@ void TimeControlPanel::render(const RenderContext* ctx) {
 
   // (Optional) panel background
   SDL_SetRenderDrawColor(r, 40, 40, 40, 200);
-  SDL_FRect bg{(float)x, (float)y, 350.f, static_cast<float>(h)};
+  SDL_FRect bg{
+      (float)x, (float)y,
+      static_cast<float>(valfield_w + slider_w + 3 * button_w + 6 * gap_w),
+      static_cast<float>(h)};
   SDL_RenderFillRect(r, &bg);
+
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%.2f", sim->get_time_factor());
+  time_factor_field->set_text(buf);
 
   // Children
   for (auto& w : children)
@@ -2736,10 +3141,8 @@ bool TimeControlPanel::handle_event(const SDL_Event* e) {
   return false;
 }
 
-ValueField::ValueField(int x_, int y_, int w, int h, TTF_Font* f, size_t id,
-                       DataGetter g)
-    : x(x_), y(y_), width(w), height(h), font(f), target_rider_id(id),
-      getter(g) {}
+ValueField::ValueField(int x_, int y_, int w_, int h_, TTF_Font* font_)
+    : x(x_), y(y_), w(w_), h(h_), font(font_) {}
 
 ValueField::~ValueField() {
   if (texture)
@@ -2748,73 +3151,85 @@ ValueField::~ValueField() {
     SDL_DestroyTexture(bg_texture);
 }
 
+void ValueField::set_text(const std::string& text) {
+  if (text != current_text) {
+    current_text = text;
+    if (texture) {
+      SDL_DestroyTexture(texture);
+      texture = nullptr;
+    }
+  }
+}
+
 void ValueField::create_bg(SDL_Renderer* renderer) {
-  // Create a dark gray box background
-  SDL_Surface* surf =
-      SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA8888);
+  SDL_Surface* surf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
   SDL_FillSurfaceRect(surf, nullptr,
                       SDL_MapRGBA(SDL_GetPixelFormatDetails(surf->format),
-                                  nullptr, 50, 50, 50, 255));
+                                  nullptr, 100, 100, 100, 200));
   bg_texture = SDL_CreateTextureFromSurface(renderer, surf);
   SDL_DestroySurface(surf);
 }
 
-void ValueField::update_texture(SDL_Renderer* renderer,
-                                const RiderSnapshot& snap) {
-  // 1. Get string from lambda
-  std::string new_text = getter(snap);
-
-  // 2. Only re-render if text changed (Optimization)
-  if (new_text == current_text && texture)
+void ValueField::update_texture(SDL_Renderer* renderer) {
+  if (current_text.empty())
     return;
 
-  current_text = new_text;
-  if (texture)
-    SDL_DestroyTexture(texture);
-
-  // 3. Render Text
   SDL_Surface* surf =
       TTF_RenderText_Blended(font, current_text.c_str(), 0, text_color);
-  if (surf) {
-    texture = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-  }
+  if (!surf)
+    return;
+
+  texture = SDL_CreateTextureFromSurface(renderer, surf);
+  SDL_DestroySurface(surf);
 }
 
-void ValueField::render_with_snapshot(const RenderContext* ctx,
-                                      const RiderSnapshot* snap) {
+void ValueField::render(const RenderContext* ctx) {
+  SDL_Renderer* renderer = ctx->renderer;
+
+  if (!bg_texture)
+    create_bg(renderer);
+
+  if (!texture && !current_text.empty())
+    update_texture(renderer);
+
+  float tex_w, tex_h;
+  SDL_GetTextureSize(texture, &tex_w, &tex_h);
+
+  // SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
+  SDL_FRect rect{(float)x, (float)y, (float)tex_w, (float)tex_h};
+  SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+
+  if (texture)
+    SDL_RenderTexture(renderer, texture, nullptr, &rect);
+}
+
+RiderValueField::RiderValueField(int x, int y, int w, int h, TTF_Font* font,
+                                 size_t rider_id, DataGetter getter_)
+    : ValueField(x, y, w, h, font), target_rider_id(rider_id), getter(getter_) {
+}
+
+void RiderValueField::render_with_snapshot(const RenderContext* ctx,
+                                           const RiderSnapshot* snap) {
   if (!snap)
     return;
 
-  if (!bg_texture)
-    create_bg(ctx->renderer);
-  update_texture(ctx->renderer, *snap);
-  // 3. Draw Background
-  SDL_FRect bg_rect = {(float)x, (float)y, (float)width, (float)height};
-  SDL_RenderTexture(ctx->renderer, bg_texture, nullptr, &bg_rect);
+  std::string new_text = getter(*snap);
+  set_text(new_text);
 
-  // 4. Draw Text (Centered or Right Aligned)
-  if (texture) {
-    float tex_w, tex_h;
-    SDL_GetTextureSize(texture, &tex_w, &tex_h);
-    // Align right inside the box with padding
-    float txt_x = x + width - tex_w - 5;
-    float txt_y = y + (height - tex_h) / 2;
-    SDL_FRect txt_rect = {txt_x, txt_y, tex_w, tex_h};
-    SDL_RenderTexture(ctx->renderer, texture, nullptr, &txt_rect);
-  }
+  // Use base render method
+  render(ctx);
 }
 
 // ======================= METRIC ROW =======================
 
 MetricRow::MetricRow(int x_, int y_, TTF_Font* f, size_t id, std::string label,
-                     std::string unit, ValueField::DataGetter getter)
+                     std::string unit, RiderValueField::DataGetter getter)
     : x(x_), y(y_), font(f), label_txt(label), unit_txt(unit) {
 
   // Create the child ValueField (Width 80, Height 24)
   // We position it relative to our X + label_width
-  field = std::make_unique<ValueField>(x + label_width, y, 80, 24, font, id,
-                                       getter);
+  field = std::make_unique<RiderValueField>(x + label_width, y, 80, 24, font,
+                                            id, getter);
 }
 
 MetricRow::~MetricRow() {
@@ -2881,7 +3296,7 @@ RiderPanel::~RiderPanel() {
 }
 
 void RiderPanel::add_row(std::string label, std::string unit,
-                         ValueField::DataGetter getter) {
+                         RiderValueField::DataGetter getter) {
   int row_height = 30;                                // height + spacing
   int current_offset = rows.size() * row_height + 30; // +30 for title space
 
@@ -2928,12 +3343,73 @@ void RiderPanel::render(const RenderContext* ctx) {
   SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
 
   // HACK for now: Iterate rows, find their internal fields, and update their
-  // ID? Proper way: Refactor ValueField::render to take a snapshot, not look it
-  // up itself.
-  // Draw all rows
+  // ID? Proper way: Refactor ValueField::render to take a snapshot, not look
+  // it up itself. Draw all rows
   for (auto& row : rows) {
     row->render_for_rider(ctx, snap);
   }
+}
+
+void RiderPanel::render_imgui(const RenderContext* ctx) {
+  if (!visible || rider_uid == -1)
+    return;
+
+  const RiderSnapshot* snap = ctx->get_snapshot(rider_uid);
+
+  // compute where the plot goes based on panel position
+  ImVec2 pos((float)x, (float)y + 140);
+  ImVec2 size(300, 300);
+
+  ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+  ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+
+  ImGuiWindowFlags win_flags =
+      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground;
+
+  static double data1[static_cast<size_t>(PowerTerm::COUNT)];
+  for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
+    data1[i] = static_cast<float>(snap->power_breakdown[i]);
+  }
+  // clamp so we don't show negative inertia term
+  // thought ideally we'd only show the output of the other terms
+  // but that'd require subtracting the change from before or sth similar?
+  data1[static_cast<size_t>(PowerTerm::Inertia)] =
+      std::max(0.0, data1[static_cast<size_t>(PowerTerm::Inertia)]);
+  static ImPlotPieChartFlags flags = 0;
+  bool open = ImGui::Begin("##riderplot", nullptr, win_flags);
+
+  // DragFloat controls
+  // ImGui::SetNextItemWidth(250);
+  // for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
+  //   char label[32];
+  //   snprintf(label, sizeof(label), POWER_LABELS[i], i);
+  //   ImGui::DragFloat(label, &data1[i], 0.01f, 0, 1);
+  // }
+
+  if (open) {
+    if (ImGui::Button(show_plot ? "Hide plot" : "Show plot")) {
+      show_plot = !show_plot;
+    }
+
+    if (show_plot) {
+      if (ImPlot::BeginPlot("##Pie1",
+                            ImVec2(ImGui::GetTextLineHeight() * 16,
+                                   ImGui::GetTextLineHeight() * 16),
+                            ImPlotFlags_Equal | ImPlotFlags_NoMouseText)) {
+        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations,
+                          ImPlotAxisFlags_NoDecorations);
+        ImPlot::SetupAxesLimits(0, 1, 0, 1);
+        ImPlot::PlotPieChart(POWER_LABELS, data1,
+                             static_cast<int>(PowerTerm::COUNT), 0.5, 0.5, 0.4,
+                             "%.2f", 90, flags);
+        ImPlot::EndPlot();
+      }
+    }
+  }
+
+  ImGui::End();
 }
 ```
 

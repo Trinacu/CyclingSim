@@ -4,6 +4,7 @@
 
 #include "SDL3/SDL_events.h"
 #include "appstate.h"
+#include "plotrenderer.h"
 #include "simulationrenderer.h"
 #include "widget.h"
 
@@ -77,17 +78,16 @@ private:
 
 class PlotScreen : public IScreen {
 public:
-  AppState* state;
+  PlotScreen(AppState* s);
+  ~PlotScreen() {};
 
-  PlotScreen(AppState* s) : state(s) {}
-
-  void update() override {
-    // no logic needed for static plot
-  }
-
+  void update() override;
   void render() override;
-
   bool handle_event(const SDL_Event* e) override;
+
+private:
+  AppState* state;
+  std::unique_ptr<PlotRenderer> renderer;
 };
 
 #endif

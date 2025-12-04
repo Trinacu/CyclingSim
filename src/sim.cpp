@@ -47,6 +47,12 @@ void Simulation::start_realtime() {
   auto t_prev = std::chrono::steady_clock::now();
 
   while (running) {
+    if (paused) {
+      t_prev = std::chrono::steady_clock::now();
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
+
     auto t_now = std::chrono::steady_clock::now();
     double frame_time = std::chrono::duration<double>(t_now - t_prev).count();
     t_prev = t_now;
@@ -115,6 +121,12 @@ void Simulation::run_max_speed(const SimulationCondition& cond) {
     }
   }
 }
+
+void Simulation::pause() { paused = true; }
+
+void Simulation::resume() { paused = false; }
+
+bool Simulation::is_paused() const { return paused; }
 
 void Simulation::stop() { running = false; }
 

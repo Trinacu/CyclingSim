@@ -176,28 +176,6 @@ Button::Button(int x_, int y_, int w_, int h_, std::string label_,
     : x(x_), y(y_), w(w_), h(h_), label(std::move(label_)), font(font_),
       on_click(std::move(cb)) {}
 
-void TimeFactorButton::render(const RenderContext* ctx) {
-  SDL_Renderer* r = ctx->renderer;
-  SDL_SetRenderDrawColor(r, 80, 80, 80, 255);
-  SDL_FRect box{(float)x, (float)y, (float)w, (float)h};
-  SDL_RenderFillRect(r, &box);
-
-  char buf[12];
-  // snprintf(buf, 12, "x%.0f", value);
-  snprintf(buf, 12, "%.1f×", value);
-
-  SDL_Surface* surf =
-      TTF_RenderText_Blended(font, buf, 0, SDL_Color{255, 255, 255, 255});
-
-  SDL_Texture* tex = SDL_CreateTextureFromSurface(r, surf);
-
-  SDL_FRect dst{(float)(x + 5), (float)(y + 2), (float)surf->w, (float)surf->h};
-  SDL_RenderTexture(r, tex, nullptr, &dst);
-
-  SDL_DestroyTexture(tex);
-  SDL_DestroySurface(surf);
-}
-
 void Button::render(const RenderContext* ctx) {
   SDL_Renderer* r = ctx->renderer;
 
@@ -266,16 +244,20 @@ bool Button::handle_event(const SDL_Event* e) {
   return false;
 }
 
-bool TimeFactorButton::handle_event(const SDL_Event* e) {
-  if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-      e->button.button == SDL_BUTTON_LEFT) {
-    if (e->button.x >= x && e->button.x <= x + w && e->button.y >= y &&
-        e->button.y <= y + h) {
-      sim->set_time_factor(value);
-      return true;
-    }
-  }
-  return false;
+PauseButton::PauseButton(int x, int y, int w, int h, Simulation* sim,
+                         TTF_Font* font)
+    : Button(x, y, w, h, sim->is_paused() ? "Resume" : "Pause", font, [sim]() {
+        if (sim->is_paused())
+          sim->resume();
+        else
+          sim->pause();
+      }) {}
+
+void PauseButton::render(const RenderContext* ctx) {
+  // Update label before drawing
+  // set_label(sim->is_paused() ? "Resume" : "Pause");
+
+  Button::render(ctx);
 }
 
 double TimeFactorSlider::slider_to_factor(double t) {
@@ -358,23 +340,32 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
   children.push_back(std::move(tf));
   next_x += valfield_w + gap_w;
 
-  children.push_back(std::make_unique<TimeFactorSlider>(next_x, y + h_ / 4,
-                                                        slider_w, h_ / 2, sim));
+  int widget_h = h_ / 2;
+  int widget_y = y + h_ / 4;
+
+  children.push_back(std::make_unique<TimeFactorSlider>(
+      next_x, widget_y, slider_w, widget_h, sim));
   next_x += slider_w + gap_w;
 
   auto make_factor_button = [&](double val) {
     char buffer[50];
     snprintf(buffer, sizeof(buffer), "%.1f", val);
     std::string str = buffer; // "3.1"
-    children.push_back(std::make_unique<Button>(
-        next_x, y + h_ / 4, button_w, h_ / 2, str + " ×", font,
-        [sim_, val]() { sim_->set_time_factor(val); }));
+    // children.push_back(std::make_unique<Button>(
+    //     next_x, y + h_ / 4, button_w, h_ / 2, str + " ×", font,
+    //     [sim_, val]() { sim_->set_time_factor(val); }));
+    children.push_back(std::make_unique<TimeFactorButton>(
+        next_x, widget_y, button_w, widget_h, val, sim_, font));
     next_x += gap_w + button_w;
   };
 
   make_factor_button(0.5);
   make_factor_button(1.0);
   make_factor_button(20.0);
+
+  next_x += gap_w + button_w;
+  children.push_back(std::make_unique<PauseButton>(next_x, widget_y, button_w,
+                                                   widget_h, sim, font));
 }
 
 void TimeControlPanel::render(const RenderContext* ctx) {
