@@ -27,7 +27,7 @@ const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
 
 // this is (now) only used to set camera to first rider... kinda useless if
 // fixed
-const Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
+Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
 
 PhysicsEngine::~PhysicsEngine() {
   // WARNING - if riders have textures or other dependencies

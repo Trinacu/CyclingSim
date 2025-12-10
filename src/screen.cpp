@@ -89,32 +89,19 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
-  Simulation* sim = state->sim;
-
-  auto editable = std::make_unique<EditableValueField>(
-      200, 400, 80, 26, default_font, state->window, [sim](double new_effort) {
-        auto* r = sim->get_engine()->get_riders()[0];
-        r->target_effort = new_effort;
+  auto num = std::make_unique<EditableNumberField>(
+      200, 400, 80, 26, default_font, state->window, [&](double v) {
+        Rider* r = state->sim->get_engine()->get_rider(0);
+        r->set_effort(v);
       });
 
-  editable->set_value(0.75);
-  sim_renderer->add_drawable(std::move(editable));
+  sim_renderer->add_drawable(std::move(num));
 
   auto name_field = std::make_unique<EditableStringField>(
-      200, 100, 180, 26, default_font, state->window,
-      [&](const std::string& new_name) { SDL_Log("%s", new_name.c_str()); });
+      200, 450, 120, 26, default_font, state->window,
+      [&](const std::string& s) { SDL_Log("%s", s.c_str()); });
 
-  name_field->set_value("Pogacar 😎");
   sim_renderer->add_drawable(std::move(name_field));
-
-  // display->add_drawable(std::make_unique<ValueField>(
-  //     300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
-  //     [](const RiderSnapshot& s) -> std::string { return s.name; }));
-  // display->add_drawable(std::make_unique<ValueFieldPanel>(
-  //     300, 400, state->resources->get_fontManager()->get_font("default"),
-  //     r));
-
-  // camera->set_target_rider(state->sim->get_engine()->get_rider(0));
 }
 
 SimulationScreen::~SimulationScreen() = default;

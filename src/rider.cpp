@@ -140,6 +140,9 @@ void Rider::update(double dt) {
   set_pos2d(Vector2d{pos, altitude});
 }
 
+void Rider::set_effort(double new_effort) { target_effort = new_effort; }
+
+// these 2 are a bit odd, no?
 double Rider::km() const { return pos / 1000.0; }
 
 double Rider::km_h() const { return speed * 3.6; }

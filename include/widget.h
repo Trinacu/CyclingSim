@@ -252,57 +252,73 @@ public:
   void render_plot_overlay(const RenderContext* ctx);
 };
 
-class EditableValueField : public ValueField {
+class BaseEditableField : public ValueField {
 public:
-  using Callback = std::function<void(double)>;
+  using CommitCallback = std::function<void(const std::string&)>;
 
-private:
+protected:
   bool editing = false;
   std::string buffer;
-  Callback on_value_changed;
-  SDL_Window* window; // <- just this
+  SDL_Window* window;
+  CommitCallback on_commit;
 
-public:
-  EditableValueField(int x, int y, int w, int h, TTF_Font* font,
-                     SDL_Window* window_, // <- take window here
-                     Callback cb = nullptr)
-      : ValueField(x, y, w, h, font), on_value_changed(std::move(cb)),
-        window(window_) {}
+  // blinking cursor
+  Uint32 last_cursor_blink = 0;
+  bool cursor_visible = true;
+  const Uint32 cursor_blink_ms = 500;
 
-  void set_value(double v) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%.3f", v);
-    set_text(buf);
+  // hook: validation/acceptance of character input
+  virtual bool accept_char(char c, const std::string& before) = 0;
+
+  // helper: commit and fire callback
+  void commit() {
+    editing = false;
+    SDL_StopTextInput(window);
+    set_text(buffer);
+    if (on_commit)
+      on_commit(buffer);
   }
 
-  void render(const RenderContext* ctx) override;
+public:
+  BaseEditableField(int x, int y, int w, int h, TTF_Font* font, SDL_Window* win,
+                    CommitCallback cb)
+      : ValueField(x, y, w, h, font), window(win), on_commit(std::move(cb)) {}
+
   bool handle_event(const SDL_Event* e) override;
+  void render(const RenderContext* ctx) override;
 };
 
-class EditableStringField : public ValueField {
+class EditableNumberField : public BaseEditableField {
 public:
-  using Callback = std::function<void(const std::string&)>;
-
-private:
-  bool editing = false;
-  std::string buffer;
-  Callback on_value_changed;
-  SDL_Window* window;
-
-public:
-  EditableStringField(int x, int y, int w, int h, TTF_Font* font,
-                      SDL_Window* win, Callback cb = nullptr)
-      : ValueField(x, y, w, h, font), on_value_changed(std::move(cb)),
-        window(win) {}
-
-  void set_value(const std::string& s) {
-    set_text(s); // uses ValueField's logic
+  EditableNumberField(int x, int y, int w, int h, TTF_Font* font,
+                      SDL_Window* win, std::function<void(double)> cb)
+      : BaseEditableField(x, y, w, h, font, win,
+                          [cb](const std::string& s) { cb(atof(s.c_str())); }) {
   }
 
-  const std::string& get_value() const { return current_text; }
+protected:
+  bool accept_char(char c, const std::string& before) override {
+    if (c >= '0' && c <= '9')
+      return true;
+    if (c == '.' && before.find('.') == std::string::npos)
+      return true;
+    if (c == '-' && before.empty())
+      return true;
+    return false;
+  }
+};
 
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override;
+class EditableStringField : public BaseEditableField {
+public:
+  EditableStringField(int x, int y, int w, int h, TTF_Font* font,
+                      SDL_Window* win,
+                      std::function<void(const std::string&)> cb)
+      : BaseEditableField(x, y, w, h, font, win, std::move(cb)) {}
+
+protected:
+  bool accept_char(char c, const std::string&) override {
+    return true; // accept all UTF-8 bytes SDL gives us
+  }
 };
 
 #endif

@@ -24,7 +24,7 @@ public:
 
   // do these returns need to/should be const?
   const std::vector<Rider*>& get_riders() const;
-  const Rider* get_rider(int idx) const;
+  Rider* get_rider(int idx) const;
   std::mutex* get_frame_mutex() const;
 
   ~PhysicsEngine();

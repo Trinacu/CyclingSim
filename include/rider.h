@@ -94,6 +94,8 @@ public:
 
   size_t get_id() const { return uid; }
 
+  void set_effort(double new_effort);
+
   double km() const;
   double km_h() const;
 

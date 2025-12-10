@@ -667,101 +667,61 @@ void RiderPanel::render_imgui(const RenderContext* ctx) {
   ImGui::End();
 }
 
-void EditableValueField::render(const RenderContext* ctx) {
-  SDL_Renderer* renderer = ctx->renderer;
-
-  // Lazy-create background
-  if (!bg_texture)
-    create_bg(renderer);
-
-  std::string display = editing ? (buffer + "|") : current_text;
-
-  // Create texture if changed
-  if (editing) {
-    if (texture)
-      SDL_DestroyTexture(texture);
-    SDL_Surface* surf =
-        TTF_RenderText_Blended(font, display.c_str(), 0, text_color);
-    texture = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-  } else {
-    if (!texture)
-      update_texture(renderer);
-  }
-
-  float tex_w = 0.f, tex_h = 0.f;
-  if (texture)
-    SDL_GetTextureSize(texture, &tex_w, &tex_h);
-
-  SDL_FRect rect = {(float)x, (float)y, (float)w, (float)h};
-  SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
-
-  if (texture) {
-    SDL_FRect dst = {(float)x, (float)y, tex_w, tex_h};
-    SDL_RenderTexture(renderer, texture, nullptr, &dst);
-  }
-}
-
-bool EditableValueField::handle_event(const SDL_Event* e) {
+bool BaseEditableField::handle_event(const SDL_Event* e) {
   switch (e->type) {
+
+  // ================================
+  // CLICK EVENTS
+  // ================================
   case SDL_EVENT_MOUSE_BUTTON_DOWN: {
     int mx = e->button.x;
     int my = e->button.y;
-    if (mx >= x && mx <= x + w && my >= y && my <= y + h) {
+    bool inside = (mx >= x && mx <= x + w && my >= y && my <= y + h);
+
+    if (inside) {
       editing = true;
       buffer = current_text;
-      SDL_StartTextInput(window); // <- here
+      SDL_StartTextInput(window);
+      last_cursor_blink = SDL_GetTicks();
+      cursor_visible = true;
       return true;
-    } else {
-      if (editing) {
-        editing = false;
-        SDL_StopTextInput(window); // <- and here
-        double v = atof(buffer.c_str());
-        set_text(buffer);
-        if (on_value_changed)
-          on_value_changed(v);
-      }
+    } else if (editing) {
+      commit();
+      return true;
     }
     break;
   }
 
+  // ================================
+  // KEY EVENTS
+  // ================================
   case SDL_EVENT_KEY_DOWN:
-    if (editing) {
-      if (e->key.key == SDLK_BACKSPACE) { // SDL3: keysym.sym
-        if (!buffer.empty())
-          buffer.pop_back();
-        return true;
-      }
-      if (e->key.key == SDLK_RETURN || e->key.key == SDLK_KP_ENTER) {
-        editing = false;
-        SDL_StopTextInput(window);
-        double v = atof(buffer.c_str());
-        set_text(buffer);
-        if (on_value_changed)
-          on_value_changed(v);
-        return true;
-      }
+    if (!editing)
+      break;
+
+    if (e->key.key == SDLK_BACKSPACE) {
+      if (!buffer.empty())
+        buffer.pop_back();
+      return true;
     }
+
+    if (e->key.key == SDLK_RETURN || e->key.key == SDLK_KP_ENTER) {
+      commit();
+      return true;
+    }
+
     break;
 
+  // ================================
+  // TEXT INPUT (UTF-8)
+  // ================================
   case SDL_EVENT_TEXT_INPUT:
     if (!editing)
       break;
 
     for (char c : std::string(e->text.text)) {
-      if (c >= '0' && c <= '9') {
+      if (accept_char(c, buffer))
         buffer.push_back(c);
-        continue;
-      }
-      if (c == '.' && buffer.find('.') == std::string::npos) {
-        buffer.push_back(c);
-        continue;
-      }
-      if (c == '-' && buffer.empty()) {
-        buffer.push_back(c);
-        continue;
-      }
-      // ignore everything else
     }
     return true;
   }
@@ -769,98 +729,50 @@ bool EditableValueField::handle_event(const SDL_Event* e) {
   return false;
 }
 
-void EditableStringField::render(const RenderContext* ctx) {
+void BaseEditableField::render(const RenderContext* ctx) {
   SDL_Renderer* renderer = ctx->renderer;
 
   if (!bg_texture)
     create_bg(renderer);
 
-  std::string display = editing ? (buffer + "|") : current_text;
-
+  // blink update
   if (editing) {
-    if (texture)
-      SDL_DestroyTexture(texture);
-    SDL_Surface* surf =
-        TTF_RenderText_Blended(font, display.c_str(), 0, text_color);
-    texture = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-  } else {
-    if (!texture)
-      update_texture(renderer);
+    Uint32 now = SDL_GetTicks();
+    if (now - last_cursor_blink >= cursor_blink_ms) {
+      cursor_visible = !cursor_visible;
+      last_cursor_blink = now;
+    }
   }
 
-  float tex_w = 0.f, tex_h = 0.f;
-  if (texture)
-    SDL_GetTextureSize(texture, &tex_w, &tex_h);
+  std::string displayed;
 
-  SDL_FRect rect = {(float)x, (float)y, (float)w, (float)h};
+  if (editing) {
+    displayed = buffer;
+    if (cursor_visible)
+      displayed += "|";
+  } else {
+    displayed = current_text;
+  }
+
+  // regenerate texture every frame while editing
+  if (texture) {
+    SDL_DestroyTexture(texture);
+    texture = nullptr;
+  }
+  if (!displayed.empty()) {
+    SDL_Surface* surf =
+        TTF_RenderText_Blended(font, displayed.c_str(), 0, text_color);
+    texture = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+  }
+
+  SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
   SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
 
   if (texture) {
-    SDL_FRect dst = {(float)x, (float)y, tex_w, tex_h};
+    float tw, th;
+    SDL_GetTextureSize(texture, &tw, &th);
+    SDL_FRect dst{(float)x, (float)y, tw, th};
     SDL_RenderTexture(renderer, texture, nullptr, &dst);
   }
-}
-
-bool EditableStringField::handle_event(const SDL_Event* e) {
-  switch (e->type) {
-
-  // ---------------------------
-  // Click handling
-  // ---------------------------
-  case SDL_EVENT_MOUSE_BUTTON_DOWN: {
-    int mx = e->button.x;
-    int my = e->button.y;
-
-    if (mx >= x && mx <= x + w && my >= y && my <= y + h) {
-      editing = true;
-      buffer = current_text;
-      SDL_StartTextInput(window);
-      return true;
-    } else {
-      if (editing) {
-        editing = false;
-        SDL_StopTextInput(window);
-        set_text(buffer);
-        if (on_value_changed)
-          on_value_changed(buffer);
-      }
-    }
-    break;
-  }
-
-  // ---------------------------
-  // Key handling
-  // ---------------------------
-  case SDL_EVENT_KEY_DOWN:
-    if (editing) {
-      if (e->key.key == SDLK_BACKSPACE) {
-        if (!buffer.empty())
-          buffer.pop_back();
-        return true;
-      }
-      if (e->key.key == SDLK_RETURN || e->key.key == SDLK_KP_ENTER) {
-
-        editing = false;
-        SDL_StopTextInput(window);
-        set_text(buffer);
-        if (on_value_changed)
-          on_value_changed(buffer);
-        return true;
-      }
-    }
-    break;
-
-  // ---------------------------
-  // TEXT INPUT: accept *all* chars
-  // ---------------------------
-  case SDL_EVENT_TEXT_INPUT:
-    if (!editing)
-      break;
-
-    buffer += e->text.text; // accept raw UTF-8 input
-    return true;
-  }
-
-  return false;
 }
