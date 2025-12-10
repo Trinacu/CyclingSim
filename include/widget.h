@@ -279,4 +279,30 @@ public:
   bool handle_event(const SDL_Event* e) override;
 };
 
+class EditableStringField : public ValueField {
+public:
+  using Callback = std::function<void(const std::string&)>;
+
+private:
+  bool editing = false;
+  std::string buffer;
+  Callback on_value_changed;
+  SDL_Window* window;
+
+public:
+  EditableStringField(int x, int y, int w, int h, TTF_Font* font,
+                      SDL_Window* win, Callback cb = nullptr)
+      : ValueField(x, y, w, h, font), on_value_changed(std::move(cb)),
+        window(win) {}
+
+  void set_value(const std::string& s) {
+    set_text(s); // uses ValueField's logic
+  }
+
+  const std::string& get_value() const { return current_text; }
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
+};
+
 #endif
