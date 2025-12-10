@@ -252,4 +252,31 @@ public:
   void render_plot_overlay(const RenderContext* ctx);
 };
 
+class EditableValueField : public ValueField {
+public:
+  using Callback = std::function<void(double)>;
+
+private:
+  bool editing = false;
+  std::string buffer;
+  Callback on_value_changed;
+  SDL_Window* window; // <- just this
+
+public:
+  EditableValueField(int x, int y, int w, int h, TTF_Font* font,
+                     SDL_Window* window_, // <- take window here
+                     Callback cb = nullptr)
+      : ValueField(x, y, w, h, font), on_value_changed(std::move(cb)),
+        window(window_) {}
+
+  void set_value(double v) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%.3f", v);
+    set_text(buf);
+  }
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
+};
+
 #endif

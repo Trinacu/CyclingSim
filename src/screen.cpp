@@ -89,6 +89,17 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
+  Simulation* sim = state->sim;
+
+  auto editable = std::make_unique<EditableValueField>(
+      200, 400, 80, 26, default_font, state->window, [sim](double new_effort) {
+        auto* r = sim->get_engine()->get_riders()[0];
+        r->target_effort = new_effort;
+      });
+
+  editable->set_value(0.75);
+  sim_renderer->add_drawable(std::move(editable));
+
   // display->add_drawable(std::make_unique<ValueField>(
   //     300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
   //     [](const RiderSnapshot& s) -> std::string { return s.name; }));
