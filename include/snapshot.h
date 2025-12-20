@@ -2,6 +2,7 @@
 #define SNAPSHOT_H
 
 #include "pch.hpp"
+#include "visualmodel.h"
 #include <string>
 #include <unordered_map>
 
@@ -26,10 +27,13 @@ struct RiderSnapshot {
   Vector2d pos2d;
   double power;
   double effort;
+  double max_effort;
   double speed;
   double km_h;
   double heading;
   int team_id;
+
+  BikeType visual_type;
 
   std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 };

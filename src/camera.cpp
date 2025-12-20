@@ -34,6 +34,7 @@ void Camera::update(const SnapshotMap& snaps) {
 
   // Smooth interpolation toward target
   pos = pos + follow_strength * (target_pos - pos);
+  pos = target_pos;
 }
 
 // ------------------------

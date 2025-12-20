@@ -27,11 +27,15 @@ bool is_close(double value, double target, double tol, double rtol) {
 }
 
 Bike::Bike(double mass_, double wheel_i_, double wheel_r_,
-           double wheel_drag_factor_, double crr_, double dt_loss_)
+           double wheel_drag_factor_, double crr_, double dt_loss_,
+           BikeType type_)
     : mass(mass_), wheel_i(wheel_i_), wheel_r(wheel_r_),
-      wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_) {}
+      wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_),
+      type(type_) {}
 
-Bike Bike::create_generic() { return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02); }
+Bike Bike::create_generic() {
+  return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02, BikeType::Road);
+}
 
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
@@ -280,10 +284,13 @@ RiderSnapshot Rider::snapshot() const {
       .slope = this->slope,
       .pos2d = this->_pos2d,
       .power = this->power,
+      .effort = this->effort,
+      .max_effort = this->max_effort,
       .speed = this->speed,
       .km_h = this->km_h(),
       .heading = this->heading,
       .team_id = this->team.id,
+      .visual_type = this->bike.type,
       .power_breakdown = this->power_breakdown,
   };
 }

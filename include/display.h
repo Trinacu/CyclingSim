@@ -5,6 +5,7 @@
 #include "camera.h"
 #include "course.h"
 #include "texturemanager.h"
+#include "visualmodel.h"
 #include <memory>
 
 #include <SDL3/SDL.h>
@@ -14,6 +15,7 @@ struct RenderContext {
   std::weak_ptr<Camera> camera_weak;
   const SnapshotMap* rider_snapshots;
   ResourceProvider* resources;
+  double sim_time;
 
   const RiderSnapshot* get_snapshot(const size_t id) const {
     auto it = rider_snapshots->find(id);
@@ -46,7 +48,16 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
+struct RiderVisualState {
+  double wheel_angle = 0.0; // radians
+  double last_pos = 0.0;    // for calculating wheel angle
+  double anim_phase = 0.0;  // 0..1 for sprite animation
+};
+
 class RiderDrawable : public Drawable {
+  std::unordered_map<size_t, RiderVisualState> visuals;
+  const RiderVisualModel& model = ROAD_BIKE_VISUAL;
+
 public:
   RiderDrawable() = default;
   RenderLayer layer() const override { return RenderLayer::Riders; }

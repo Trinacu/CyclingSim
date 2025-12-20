@@ -1,10 +1,29 @@
 #include "display.h"
+#include "SDL3/SDL_log.h"
 #include "SDL3/SDL_rect.h"
+#include "SDL3/SDL_render.h"
 #include "pch.hpp"
 #include "texturemanager.h"
+#include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <vector>
+
+double effort_to_freq(double effort, double max_effort) {
+  double anim_hz;
+  double min_rpm = 40.0;
+  double max_rpm = 130.0;
+
+  if (effort <= 1.0) {
+    // 0 → 1  maps to 40 → 100
+    anim_hz = min_rpm + effort * (100.0 - min_rpm);
+  } else {
+    // 1 → max_effort maps to 100 → 130
+    double t = (effort - 1.0) / (max_effort - 1.0);
+    anim_hz = 100.0 + t * (max_rpm - 100.0);
+  }
+  return anim_hz;
+}
 
 CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
 
@@ -37,41 +56,144 @@ void CourseDrawable::render(const RenderContext* ctx) {
   SDL_RenderLines(ctx->renderer, screen_points.data(), screen_points.size());
 };
 
-void RiderDrawable::render(const RenderContext* ctx) {
-  // if (ctx->rider_snapshots->size() == 0) {
-  //   throw std::runtime_error(
-  //       "rider snapshots are empty (RiderDrawable::render)");
-  // }
-  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty()) {
-    return;
-  }
+// maybe move into helpers or sth?
+Vector2d rotate(Vec2 p, double a) {
+  return {float(p.x * cos(a) - p.y * sin(a)),
+          float(p.x * sin(a) + p.y * cos(a))};
+}
 
-  SDL_SetRenderDrawColor(ctx->renderer, 0, 255, 0, 255);
-  // Draw each rider as a small 6×6 filled rect, centered on its screen‐space
-  // pos
-  for (const auto& [id, rider_snapshot] : *ctx->rider_snapshots) {
-    auto cam = ctx->camera_weak.lock();
-    if (!cam) {
-      SDL_Log("failed to lock camera weak_ptr");
-      return;
-    }
-    Vector2d screen_pos = cam->world_to_screen(rider_snapshot.pos2d);
-    // SDL_Log("%.1f %.1f", rider_snapshot.pos2d.x(), rider_snapshot.pos2d.y());
-    float w = 128;
-    float h = 128;
-    float x = static_cast<float>(screen_pos.x()) - w;
-    float y = static_cast<float>(screen_pos.y()) - h;
-    const SDL_FRect dst = SDL_FRect{x, y, w, h};
-    const SDL_FRect src = SDL_FRect{0, 0, 256, 256};
-    const SDL_Texture* tex =
-        ctx->resources->get_textureManager()->get_texture("player");
-    if (!tex) {
-      SDL_Log("Missing texture 'player' while rendering tider %ld",
-              (long)rider_snapshot.uid);
-      continue;
-    }
-    SDL_RenderTexture(ctx->renderer, const_cast<SDL_Texture*>(tex), &src, &dst);
-    SDL_FRect r{x - 3.0f, y - 3.0f, 6.0f, 6.0f};
-    SDL_RenderFillRect(ctx->renderer, &r);
+void RiderDrawable::render(const RenderContext* ctx) {
+  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty())
+    return;
+
+  auto cam = ctx->camera_weak.lock();
+  if (!cam)
+    return;
+
+  for (const auto& [id, snap] : *ctx->rider_snapshots) {
+
+    // ---------------------------
+    // Resolve visual model
+    // ---------------------------
+    const RiderVisualModel& model = resolve_visual_model(snap.visual_type);
+
+    RiderVisualState& vis = visuals[snap.uid];
+
+    // ---------------------------
+    // Camera & orientation
+    // ---------------------------
+    Vector2d front_ground_world = snap.pos2d;
+    Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
+
+    double tilt_rad = std::atan(snap.slope);
+    double tilt_deg = tilt_rad * 180.0 / M_PI;
+
+    // ---------------------------
+    // Rotate offsets in world space
+    // ---------------------------
+    Vector2d front_wheel_world =
+        front_ground_world + rotate(model.front_wheel_offset, tilt_rad);
+
+    Vector2d rear_wheel_world =
+        front_ground_world + rotate(model.rear_wheel_offset, tilt_rad);
+
+    Vector2d body_world =
+        front_ground_world + rotate(model.body_offset, tilt_rad);
+
+    // ---------------------------
+    // World → screen
+    // ---------------------------
+    Vector2d front_wheel_screen = cam->world_to_screen(front_wheel_world);
+
+    Vector2d rear_wheel_screen = cam->world_to_screen(rear_wheel_world);
+
+    Vector2d body_screen = cam->world_to_screen(body_world);
+
+    // ---------------------------
+    // Distance-based wheel rotation
+    // ---------------------------
+    if (vis.last_pos == 0.0)
+      vis.last_pos = snap.pos;
+
+    double ds = snap.pos - vis.last_pos;
+    vis.last_pos = snap.pos;
+
+    vis.wheel_angle += ds / model.wheel_radius;
+
+    // ---------------------------
+    // Draw wheels
+    // ---------------------------
+    SDL_Texture* front_wheel_tex =
+        ctx->resources->get_textureManager()->get_texture("wheel_front");
+    SDL_Texture* rear_wheel_tex =
+        ctx->resources->get_textureManager()->get_texture("wheel_rear");
+
+    float wheel_screen_diameter = cam->get_scale() * 2.0 * model.wheel_radius;
+
+    SDL_FRect front_wheel_dst{
+        float(front_wheel_screen.x() - wheel_screen_diameter * 0.5),
+        float(front_wheel_screen.y() - wheel_screen_diameter * 0.5),
+        wheel_screen_diameter, wheel_screen_diameter};
+
+    SDL_FRect rear_wheel_dst{
+        float(rear_wheel_screen.x() - wheel_screen_diameter * 0.5),
+        float(rear_wheel_screen.y() - wheel_screen_diameter * 0.5),
+        wheel_screen_diameter, wheel_screen_diameter};
+
+    SDL_FPoint wheel_center{wheel_screen_diameter * 0.5f,
+                            wheel_screen_diameter * 0.5f};
+
+    double wheel_angle_deg = vis.wheel_angle * 180.0 / M_PI + tilt_deg;
+
+    // ---------------------------
+    // Draw rider / bike texture
+    // ---------------------------
+    SDL_Texture* rider_front_tex =
+        ctx->resources->get_textureManager()->get_texture("rider_front");
+    SDL_Texture* rider_back_tex =
+        ctx->resources->get_textureManager()->get_texture("rider_back");
+
+    // float rider_screen_size =
+    //     cam->get_scale() * model.wheelbase * 512.0f / 330.0f;
+
+    float wheel_radius_px = 112.5;
+
+    float scale_from_radius =
+        cam->get_scale() * model.wheel_radius / model.wheel_radius_px;
+
+    float rider_screen_size = scale_from_radius * 512.0f;
+
+    // texture-space anchor → screen pixels
+    float anchor_x = model.front_ground_point.x * rider_screen_size;
+    float anchor_y = model.front_ground_point.y * rider_screen_size;
+
+    SDL_FRect rider_dst{float(front_ground_screen.x() - anchor_x),
+                        float(front_ground_screen.y() - anchor_y),
+                        rider_screen_size, rider_screen_size};
+
+    SDL_FPoint rider_pivot{anchor_x, anchor_y};
+
+    SDL_FRect src{0, 0, 512, 512};
+
+    // draw the back side first, because wheels appear on top of it
+    SDL_RenderTextureRotated(ctx->renderer, rider_back_tex, &src, &rider_dst,
+                             -tilt_deg, &rider_pivot, SDL_FLIP_NONE);
+
+    SDL_RenderTextureRotated(ctx->renderer, rear_wheel_tex, nullptr,
+                             &rear_wheel_dst, wheel_angle_deg, &wheel_center,
+                             SDL_FLIP_NONE);
+
+    SDL_RenderTextureRotated(ctx->renderer, front_wheel_tex, nullptr,
+                             &front_wheel_dst, wheel_angle_deg, &wheel_center,
+                             SDL_FLIP_NONE);
+
+    SDL_RenderTextureRotated(ctx->renderer, rider_front_tex, &src, &rider_dst,
+                             -tilt_deg, &rider_pivot, SDL_FLIP_NONE);
+
+    // show the anchor point
+    SDL_SetRenderDrawColor(ctx->renderer, 255, 0, 0, 255);
+    SDL_FRect anchor_rect = SDL_FRect{(float)front_ground_screen.x() - 2,
+                                      (float)front_ground_screen.y() - 2, 5, 5};
+    SDL_RenderRect(ctx->renderer, &anchor_rect);
   }
 }

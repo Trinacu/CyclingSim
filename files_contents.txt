@@ -79,6 +79,8 @@ public:
   // --- Manual controls ---
   void pan(double dx, double dy); // screen space delta
   void zoom(double amount);       // amount > 0 zooms in
+                                  //
+  double get_scale() { return scale; }
 
   // Direct set (used rarely)
   void set_center(Vector2d p) { pos = p; }
@@ -91,8 +93,8 @@ private:
   const int world_width;
   Vector2d screensize;
 
-  double scale;      // horizontal world→screen scale
-  double vert_scale; // vertical world→screen scale
+  double scale;      // pixels per meter
+  double vert_scale; //  additional vertical scaling
 
   Vector2d pos; // world coordinate camera center
   std::optional<int> target_uid;
@@ -216,6 +218,7 @@ include/display.h
 #include "camera.h"
 #include "course.h"
 #include "texturemanager.h"
+#include "visualmodel.h"
 #include <memory>
 
 #include <SDL3/SDL.h>
@@ -257,7 +260,16 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
+struct RiderVisualState {
+  double wheel_angle = 0.0; // radians
+  double last_pos = 0.0;    // for calculating wheel angle
+  double anim_phase = 0.0;  // 0..1 for sprite animation
+};
+
 class RiderDrawable : public Drawable {
+  std::unordered_map<size_t, RiderVisualState> visuals;
+  const RiderVisualModel& model = ROAD_BIKE_VISUAL;
+
 public:
   RiderDrawable() = default;
   RenderLayer layer() const override { return RenderLayer::Riders; }
@@ -331,6 +343,7 @@ include/rider.h
 #include "course.h"
 #include "snapshot.h"
 #include "texturemanager.h"
+#include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <iostream>
 
@@ -353,9 +366,10 @@ public:
   double wheel_drag_factor;
   double crr;
   double dt_loss;
+  BikeType type;
 
   Bike(double mass_, double wheel_i_, double wheel_r_,
-       double wheel_drag_factor_, double crr_, double dt_loss_);
+       double wheel_drag_factor_, double crr_, double dt_loss_, BikeType type_);
   static Bike create_generic();
 };
 
@@ -419,6 +433,8 @@ public:
   void update(double dt);
 
   size_t get_id() const { return uid; }
+
+  void set_effort(double new_effort);
 
   double km() const;
   double km_h() const;
@@ -505,7 +521,7 @@ public:
 class SimulationScreen : public IScreen {
 public:
   // DisplayEngine* display = nullptr;
-  int WORLD_WIDTH = 200;
+  int WORLD_WIDTH = 5;
 
   SimulationScreen(AppState* s);
   ~SimulationScreen(); // delete sim_renderer; }
@@ -557,6 +573,13 @@ include/screenmanager.h
 
 class AppState;
 
+enum class PendingActionType { None, Push, Pop, Replace };
+
+struct PendingAction {
+  PendingActionType type = PendingActionType::None;
+  ScreenType screen;
+};
+
 class ScreenManager {
 public:
   ScreenManager(AppState* state);
@@ -580,6 +603,8 @@ private:
   std::vector<std::unique_ptr<IScreen>> stack;
 
   std::unique_ptr<IScreen> create_screen(ScreenType type);
+
+  PendingAction pending;
 };
 
 #endif
@@ -613,7 +638,7 @@ public:
 
   // do these returns need to/should be const?
   const std::vector<Rider*>& get_riders() const;
-  const Rider* get_rider(int idx) const;
+  Rider* get_rider(int idx) const;
   std::mutex* get_frame_mutex() const;
 
   ~PhysicsEngine();
@@ -737,6 +762,7 @@ include/snapshot.h
 #define SNAPSHOT_H
 
 #include "pch.hpp"
+#include "visualmodel.h"
 #include <string>
 #include <unordered_map>
 
@@ -765,6 +791,8 @@ struct RiderSnapshot {
   double km_h;
   double heading;
   int team_id;
+
+  BikeType visual_type;
 
   std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 };
@@ -849,6 +877,25 @@ public:
     if (!textureManager.load_texture("player", "resources/collated_grid.png")) {
       SDL_Log("Failed to load 'player' texture");
     }
+    if (!textureManager.load_texture("rider", "resources/rider_sheet.png")) {
+      SDL_Log("Failed to load 'rider' texture");
+    }
+    if (!textureManager.load_texture("rider_front",
+                                     "resources/rider_sheet_front.png")) {
+      SDL_Log("Failed to load 'rider_front' texture");
+    }
+    if (!textureManager.load_texture("rider_back",
+                                     "resources/rider_sheet_back.png")) {
+      SDL_Log("Failed to load 'rider_back' texture");
+    }
+    if (!textureManager.load_texture("wheel_rear",
+                                     "resources/wheel_rear.png")) {
+      SDL_Log("Failed to load 'wheel_rear' texture");
+    }
+    if (!textureManager.load_texture("wheel_front",
+                                     "resources/wheel_front.png")) {
+      SDL_Log("Failed to load 'wheel_front' texture");
+    }
     if (!fontManager.load_font("default", "resources/Roboto-Regular.ttf", 16)) {
       SDL_Log("Failed to load 'default' font");
     }
@@ -863,6 +910,91 @@ private:
   TextureManager textureManager;
   FontManager fontManager;
 };
+
+#endif
+```
+
+include/visualmodel.h
+```
+#ifndef VISUALMODEL_H
+#define VISUALMODEL_H
+
+namespace {
+constexpr double ROAD_WHEEL_RADIUS = 0.311;
+constexpr double TT_WHEEL_RADIUS = 0.311;
+constexpr double ROAD_WHEELBASE = 1.02;
+constexpr double TT_WHEELBASE = 0.99;
+} // namespace
+
+struct Vec2 {
+  double x;
+  double y;
+};
+
+enum class BikeType { Road, TT, Climbing };
+
+struct RiderVisualModel {
+  // all in WORLD units (meters)
+  double wheel_radius;
+  double wheelbase;
+
+  // local offsets relative to rear wheel contact point
+  Vec2 front_wheel_offset;
+  Vec2 rear_wheel_offset;
+  Vec2 body_offset;
+
+  // sprite layout
+  int body_frame_count;
+
+  Vec2 front_ground_point;
+};
+
+// (0, 0) point is rider.pos
+// it is the front edge of the tire at the ground level
+inline constexpr RiderVisualModel ROAD_BIKE_VISUAL{
+    .wheel_radius = ROAD_WHEEL_RADIUS,
+    .wheelbase = ROAD_WHEELBASE,
+    .front_wheel_offset = {-ROAD_WHEEL_RADIUS, ROAD_WHEEL_RADIUS},
+    .rear_wheel_offset = {-ROAD_WHEELBASE - ROAD_WHEEL_RADIUS,
+                          ROAD_WHEEL_RADIUS},
+    .body_offset = {-ROAD_WHEEL_RADIUS, ROAD_WHEEL_RADIUS},
+    // .body_offset = {0, ROAD_WHEEL_RADIUS},
+    .body_frame_count = 8,
+    // this is determined by pixels on the actual image
+    // .front_wheel_axis = {430.0 / 512.0, 407.0 / 512.0}};
+    // pos is wheel radius offset more in either direction (should be 112.5)
+    .front_ground_point = {(430.0 + 112.5) / 512.0, (407.0 + 112.5) / 512.0}};
+
+inline constexpr RiderVisualModel TT_BIKE_VISUAL{
+    .wheel_radius = ROAD_WHEEL_RADIUS,
+    .wheelbase = TT_WHEELBASE,
+    .front_wheel_offset = {-ROAD_WHEEL_RADIUS, 2 * ROAD_WHEEL_RADIUS},
+    .rear_wheel_offset = {-TT_WHEELBASE - TT_WHEEL_RADIUS, 2 * TT_WHEEL_RADIUS},
+    .body_offset = {0.5, 0.9},
+    .body_frame_count = 8,
+    .front_ground_point = {430.0 / 512.0, 407.0 / 512.0}};
+
+inline constexpr RiderVisualModel CLIMB_BIKE_VISUAL{
+    .wheel_radius = ROAD_WHEEL_RADIUS,
+    .wheelbase = ROAD_WHEELBASE,
+    .front_wheel_offset = {-ROAD_WHEEL_RADIUS, 2 * ROAD_WHEEL_RADIUS},
+    .rear_wheel_offset = {-ROAD_WHEELBASE - ROAD_WHEEL_RADIUS,
+                          2 * ROAD_WHEEL_RADIUS},
+    .body_offset = {0.5, 0.9},
+    .body_frame_count = 8,
+    .front_ground_point = {430.0 / 512.0, 407.0 / 512.0}};
+
+inline const RiderVisualModel& resolve_visual_model(BikeType type) {
+  switch (type) {
+  case BikeType::TT:
+    return TT_BIKE_VISUAL;
+  case BikeType::Climbing:
+    return CLIMB_BIKE_VISUAL;
+  case BikeType::Road:
+  default:
+    return ROAD_BIKE_VISUAL;
+  }
+}
 
 #endif
 ```
@@ -1123,6 +1255,75 @@ public:
   void render_plot_overlay(const RenderContext* ctx);
 };
 
+class BaseEditableField : public ValueField {
+public:
+  using CommitCallback = std::function<void(const std::string&)>;
+
+protected:
+  bool editing = false;
+  std::string buffer;
+  SDL_Window* window;
+  CommitCallback on_commit;
+
+  // blinking cursor
+  Uint32 last_cursor_blink = 0;
+  bool cursor_visible = true;
+  const Uint32 cursor_blink_ms = 500;
+
+  // hook: validation/acceptance of character input
+  virtual bool accept_char(char c, const std::string& before) = 0;
+
+  // helper: commit and fire callback
+  void commit() {
+    editing = false;
+    SDL_StopTextInput(window);
+    set_text(buffer);
+    if (on_commit)
+      on_commit(buffer);
+  }
+
+public:
+  BaseEditableField(int x, int y, int w, int h, TTF_Font* font, SDL_Window* win,
+                    CommitCallback cb)
+      : ValueField(x, y, w, h, font), window(win), on_commit(std::move(cb)) {}
+
+  bool handle_event(const SDL_Event* e) override;
+  void render(const RenderContext* ctx) override;
+};
+
+class EditableNumberField : public BaseEditableField {
+public:
+  EditableNumberField(int x, int y, int w, int h, TTF_Font* font,
+                      SDL_Window* win, std::function<void(double)> cb)
+      : BaseEditableField(x, y, w, h, font, win,
+                          [cb](const std::string& s) { cb(atof(s.c_str())); }) {
+  }
+
+protected:
+  bool accept_char(char c, const std::string& before) override {
+    if (c >= '0' && c <= '9')
+      return true;
+    if (c == '.' && before.find('.') == std::string::npos)
+      return true;
+    if (c == '-' && before.empty())
+      return true;
+    return false;
+  }
+};
+
+class EditableStringField : public BaseEditableField {
+public:
+  EditableStringField(int x, int y, int w, int h, TTF_Font* font,
+                      SDL_Window* win,
+                      std::function<void(const std::string&)> cb)
+      : BaseEditableField(x, y, w, h, font, win, std::move(cb)) {}
+
+protected:
+  bool accept_char(char c, const std::string&) override {
+    return true; // accept all UTF-8 bytes SDL gives us
+  }
+};
+
 #endif
 ```
 
@@ -1155,23 +1356,12 @@ AppState::AppState() {
     throw std::runtime_error("Window Creation Failed");
   }
 
-  screens = new ScreenManager(this);
-  screens->push(ScreenType::Simulation);
-
   // init imgui
   // 1) Create ImGui context
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImPlot::CreateContext(); // Don't forget ImPlot's context too
-
-  // ImGuiIO& io = ImGui::GetIO();
-  // (void)io;
-  // (optionally set io.ConfigFlags, fonts, etc.)
-
-  // 2) Set ImGui style
   ImGui::StyleColorsDark();
-
-  // 3) Initialize backends
   ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
   ImGui_ImplSDLRenderer3_Init(renderer);
 
@@ -1182,6 +1372,9 @@ AppState::AppState() {
   course = new Course(Course::create_endulating());
   sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(5.0);
+
+  screens = new ScreenManager(this);
+  screens->push(ScreenType::Simulation);
 
   // (Optional) Setup default riders here or in Main
 }
@@ -1255,6 +1448,7 @@ void Camera::update(const SnapshotMap& snaps) {
 
   // Smooth interpolation toward target
   pos = pos + follow_strength * (target_pos - pos);
+  pos = target_pos;
 }
 
 // ------------------------
@@ -1480,9 +1674,12 @@ void Course::print() {
 src/display.cpp
 ```
 #include "display.h"
+#include "SDL3/SDL_log.h"
 #include "SDL3/SDL_rect.h"
+#include "SDL3/SDL_render.h"
 #include "pch.hpp"
 #include "texturemanager.h"
+#include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <vector>
@@ -1518,42 +1715,132 @@ void CourseDrawable::render(const RenderContext* ctx) {
   SDL_RenderLines(ctx->renderer, screen_points.data(), screen_points.size());
 };
 
-void RiderDrawable::render(const RenderContext* ctx) {
-  // if (ctx->rider_snapshots->size() == 0) {
-  //   throw std::runtime_error(
-  //       "rider snapshots are empty (RiderDrawable::render)");
-  // }
-  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty()) {
-    return;
-  }
+// maybe move into helpers or sth?
+Vector2d rotate(Vec2 p, double a) {
+  return {float(p.x * cos(a) - p.y * sin(a)),
+          float(p.x * sin(a) + p.y * cos(a))};
+}
 
-  SDL_SetRenderDrawColor(ctx->renderer, 0, 255, 0, 255);
-  // Draw each rider as a small 6×6 filled rect, centered on its screen‐space
-  // pos
-  for (const auto& [id, rider_snapshot] : *ctx->rider_snapshots) {
-    auto cam = ctx->camera_weak.lock();
-    if (!cam) {
-      SDL_Log("failed to lock camera weak_ptr");
-      return;
-    }
-    Vector2d screen_pos = cam->world_to_screen(rider_snapshot.pos2d);
-    // SDL_Log("%.1f %.1f", rider_snapshot.pos2d.x(), rider_snapshot.pos2d.y());
-    float w = 128;
-    float h = 128;
-    float x = static_cast<float>(screen_pos.x()) - w;
-    float y = static_cast<float>(screen_pos.y()) - h;
-    const SDL_FRect dst = SDL_FRect{x, y, w, h};
-    const SDL_FRect src = SDL_FRect{0, 0, 256, 256};
-    const SDL_Texture* tex =
-        ctx->resources->get_textureManager()->get_texture("player");
-    if (!tex) {
-      SDL_Log("Missing texture 'player' while rendering tider %ld",
-              (long)rider_snapshot.uid);
-      continue;
-    }
-    SDL_RenderTexture(ctx->renderer, const_cast<SDL_Texture*>(tex), &src, &dst);
-    SDL_FRect r{x - 3.0f, y - 3.0f, 6.0f, 6.0f};
-    SDL_RenderFillRect(ctx->renderer, &r);
+void RiderDrawable::render(const RenderContext* ctx) {
+  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty())
+    return;
+
+  auto cam = ctx->camera_weak.lock();
+  if (!cam)
+    return;
+
+  for (const auto& [id, snap] : *ctx->rider_snapshots) {
+
+    // ---------------------------
+    // Resolve visual model
+    // ---------------------------
+    const RiderVisualModel& model = resolve_visual_model(snap.visual_type);
+
+    RiderVisualState& vis = visuals[snap.uid];
+
+    // ---------------------------
+    // Camera & orientation
+    // ---------------------------
+    Vector2d front_ground_world = snap.pos2d;
+    Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
+
+    double tilt_rad = std::atan(snap.slope);
+    double tilt_deg = tilt_rad * 180.0 / M_PI;
+
+    // ---------------------------
+    // Rotate offsets in world space
+    // ---------------------------
+    Vector2d front_wheel_world =
+        front_ground_world + rotate(model.front_wheel_offset, tilt_rad);
+
+    Vector2d rear_wheel_world =
+        front_ground_world + rotate(model.rear_wheel_offset, tilt_rad);
+
+    Vector2d body_world =
+        front_ground_world + rotate(model.body_offset, tilt_rad);
+
+    // ---------------------------
+    // World → screen
+    // ---------------------------
+    Vector2d front_wheel_screen = cam->world_to_screen(front_wheel_world);
+
+    Vector2d rear_wheel_screen = cam->world_to_screen(rear_wheel_world);
+
+    Vector2d body_screen = cam->world_to_screen(body_world);
+
+    // ---------------------------
+    // Distance-based wheel rotation
+    // ---------------------------
+    if (vis.last_pos == 0.0)
+      vis.last_pos = snap.pos;
+
+    double ds = snap.pos - vis.last_pos;
+    vis.last_pos = snap.pos;
+
+    vis.wheel_angle += ds / model.wheel_radius;
+
+    // ---------------------------
+    // Draw wheels
+    // ---------------------------
+    SDL_Texture* front_wheel_tex =
+        ctx->resources->get_textureManager()->get_texture("wheel_front");
+    SDL_Texture* rear_wheel_tex =
+        ctx->resources->get_textureManager()->get_texture("wheel_rear");
+
+    float wheel_screen_diameter = cam->get_scale() * 2.0 * model.wheel_radius;
+
+    SDL_FRect front_wheel_dst{
+        float(front_wheel_screen.x() - wheel_screen_diameter * 0.5),
+        float(front_wheel_screen.y() - wheel_screen_diameter * 0.5),
+        wheel_screen_diameter, wheel_screen_diameter};
+
+    SDL_FRect rear_wheel_dst{
+        float(rear_wheel_screen.x() - wheel_screen_diameter * 0.5),
+        float(rear_wheel_screen.y() - wheel_screen_diameter * 0.5),
+        wheel_screen_diameter, wheel_screen_diameter};
+
+    SDL_FPoint wheel_center{wheel_screen_diameter * 0.5f,
+                            wheel_screen_diameter * 0.5f};
+
+    double wheel_angle_deg = vis.wheel_angle * 180.0 / M_PI + tilt_deg;
+
+    // ---------------------------
+    // Draw rider / bike texture
+    // ---------------------------
+    SDL_Texture* rider_front_tex =
+        ctx->resources->get_textureManager()->get_texture("rider_front");
+    SDL_Texture* rider_back_tex =
+        ctx->resources->get_textureManager()->get_texture("rider_back");
+
+    float rider_screen_size =
+        cam->get_scale() * model.wheelbase * 512.0f / 330.0f;
+
+    // texture-space anchor → screen pixels
+    float anchor_x = model.front_ground_point.x * rider_screen_size;
+    float anchor_y = model.front_ground_point.y * rider_screen_size;
+
+    SDL_FRect rider_dst{float(front_ground_screen.x() - anchor_x),
+                        float(front_ground_screen.y() - anchor_y),
+                        rider_screen_size, rider_screen_size};
+
+    SDL_FPoint rider_pivot{anchor_x, anchor_y};
+
+    SDL_FRect src{0, 0, 512, 512};
+
+    // draw the back side first, because wheels appear on top of it
+    SDL_RenderTextureRotated(ctx->renderer, rider_back_tex, &src, &rider_dst,
+                             -tilt_deg, &rider_pivot, SDL_FLIP_NONE);
+
+    SDL_RenderTextureRotated(ctx->renderer, rear_wheel_tex, nullptr,
+                             &rear_wheel_dst, wheel_angle_deg, &wheel_center,
+                             SDL_FLIP_NONE);
+
+    SDL_RenderTextureRotated(ctx->renderer, front_wheel_tex, nullptr,
+                             &front_wheel_dst, wheel_angle_deg, &wheel_center,
+                             SDL_FLIP_NONE);
+
+    SDL_RenderTextureRotated(ctx->renderer, rider_front_tex, &src, &rider_dst,
+                             -tilt_deg, &rider_pivot, SDL_FLIP_NONE);
   }
 }
 ```
@@ -1894,11 +2181,15 @@ bool is_close(double value, double target, double tol, double rtol) {
 }
 
 Bike::Bike(double mass_, double wheel_i_, double wheel_r_,
-           double wheel_drag_factor_, double crr_, double dt_loss_)
+           double wheel_drag_factor_, double crr_, double dt_loss_,
+           BikeType type_)
     : mass(mass_), wheel_i(wheel_i_), wheel_r(wheel_r_),
-      wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_) {}
+      wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_),
+      type(type_) {}
 
-Bike Bike::create_generic() { return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02); }
+Bike Bike::create_generic() {
+  return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02, BikeType::Road);
+}
 
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
@@ -2007,6 +2298,9 @@ void Rider::update(double dt) {
   set_pos2d(Vector2d{pos, altitude});
 }
 
+void Rider::set_effort(double new_effort) { target_effort = new_effort; }
+
+// these 2 are a bit odd, no?
 double Rider::km() const { return pos / 1000.0; }
 
 double Rider::km_h() const { return speed * 3.6; }
@@ -2148,6 +2442,7 @@ RiderSnapshot Rider::snapshot() const {
       .km_h = this->km_h(),
       .heading = this->heading,
       .team_id = this->team.id,
+      .visual_type = this->bike.type,
       .power_breakdown = this->power_breakdown,
   };
 }
@@ -2156,6 +2451,7 @@ RiderSnapshot Rider::snapshot() const {
 src/screen.cpp
 ```
 #include "screen.h"
+#include "SDL3/SDL_log.h"
 #include "appstate.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
@@ -2246,14 +2542,20 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
-  // display->add_drawable(std::make_unique<ValueField>(
-  //     300, 300, 5, resources->get_fontManager()->get_font("default"), 0,
-  //     [](const RiderSnapshot& s) -> std::string { return s.name; }));
-  // display->add_drawable(std::make_unique<ValueFieldPanel>(
-  //     300, 400, state->resources->get_fontManager()->get_font("default"),
-  //     r));
+  auto num = std::make_unique<EditableNumberField>(
+      200, 400, 80, 26, default_font, state->window, [&](double v) {
+        Rider* r = state->sim->get_engine()->get_rider(0);
+        r->set_effort(v);
+        SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
+      });
 
-  // camera->set_target_rider(state->sim->get_engine()->get_rider(0));
+  sim_renderer->add_drawable(std::move(num));
+
+  auto name_field = std::make_unique<EditableStringField>(
+      200, 450, 120, 26, default_font, state->window,
+      [&](const std::string& s) { SDL_Log("%s", s.c_str()); });
+
+  sim_renderer->add_drawable(std::move(name_field));
 }
 
 SimulationScreen::~SimulationScreen() = default;
@@ -2382,18 +2684,23 @@ std::unique_ptr<IScreen> ScreenManager::create_screen(ScreenType type) {
 }
 
 void ScreenManager::push(ScreenType type) {
-  stack.push_back(create_screen(type));
+  // stack.push_back(create_screen(type));
+  pending.type = PendingActionType::Push;
+  pending.screen = type;
 }
 
 void ScreenManager::pop() {
-  if (!stack.empty()) {
-    stack.pop_back();
-  }
+  // if (!stack.empty()) {
+  //   stack.pop_back();
+  // }
+  pending.type = PendingActionType::Pop;
 }
 
 void ScreenManager::replace(ScreenType type) {
-  pop();
-  push(type);
+  // pop();
+  // push(type);
+  pending.type = PendingActionType::Replace;
+  pending.screen = type;
 }
 
 void ScreenManager::handle_event(const SDL_Event* e) {
@@ -2403,6 +2710,32 @@ void ScreenManager::handle_event(const SDL_Event* e) {
 }
 
 void ScreenManager::update() {
+  // --- 1. Apply queued transition BEFORE updating top screen ---
+  if (pending.type != PendingActionType::None) {
+    switch (pending.type) {
+    case PendingActionType::Push:
+      stack.push_back(create_screen(pending.screen));
+      break;
+
+    case PendingActionType::Pop:
+      if (!stack.empty())
+        stack.pop_back();
+      break;
+
+    case PendingActionType::Replace:
+      if (!stack.empty())
+        stack.pop_back();
+      stack.push_back(create_screen(pending.screen));
+      break;
+
+    default:
+      break;
+    }
+
+    pending.type = PendingActionType::None;
+  }
+
+  // --- 2. Now update current top screen safely ---
   if (!stack.empty()) {
     stack.back()->update();
   }
@@ -2451,7 +2784,7 @@ const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
 
 // this is (now) only used to set camera to first rider... kinda useless if
 // fixed
-const Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
+Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
 
 PhysicsEngine::~PhysicsEngine() {
   // WARNING - if riders have textures or other dependencies
@@ -2667,8 +3000,6 @@ void SimulationRenderer::render_frame() {
 
   for (auto& w : drawables)
     w->render_imgui(&ctx);
-
-  SDL_RenderPresent(renderer);
 }
 
 // TODO - make this safe - there is a suggestion in "Code review feedback" chat
@@ -3498,6 +3829,116 @@ void RiderPanel::render_imgui(const RenderContext* ctx) {
   }
 
   ImGui::End();
+}
+
+bool BaseEditableField::handle_event(const SDL_Event* e) {
+  switch (e->type) {
+
+  // ================================
+  // CLICK EVENTS
+  // ================================
+  case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+    int mx = e->button.x;
+    int my = e->button.y;
+    bool inside = (mx >= x && mx <= x + w && my >= y && my <= y + h);
+
+    if (inside) {
+      editing = true;
+      buffer = current_text;
+      SDL_StartTextInput(window);
+      last_cursor_blink = SDL_GetTicks();
+      cursor_visible = true;
+      return true;
+    } else if (editing) {
+      commit();
+      return true;
+    }
+    break;
+  }
+
+  // ================================
+  // KEY EVENTS
+  // ================================
+  case SDL_EVENT_KEY_DOWN:
+    if (!editing)
+      break;
+
+    if (e->key.key == SDLK_BACKSPACE) {
+      if (!buffer.empty())
+        buffer.pop_back();
+      return true;
+    }
+
+    if (e->key.key == SDLK_RETURN || e->key.key == SDLK_KP_ENTER) {
+      commit();
+      return true;
+    }
+
+    break;
+
+  // ================================
+  // TEXT INPUT (UTF-8)
+  // ================================
+  case SDL_EVENT_TEXT_INPUT:
+    if (!editing)
+      break;
+
+    for (char c : std::string(e->text.text)) {
+      if (accept_char(c, buffer))
+        buffer.push_back(c);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+void BaseEditableField::render(const RenderContext* ctx) {
+  SDL_Renderer* renderer = ctx->renderer;
+
+  if (!bg_texture)
+    create_bg(renderer);
+
+  // blink update
+  if (editing) {
+    Uint32 now = SDL_GetTicks();
+    if (now - last_cursor_blink >= cursor_blink_ms) {
+      cursor_visible = !cursor_visible;
+      last_cursor_blink = now;
+    }
+  }
+
+  std::string displayed;
+
+  if (editing) {
+    displayed = buffer;
+    if (cursor_visible)
+      displayed += "|";
+  } else {
+    displayed = current_text;
+  }
+
+  // regenerate texture every frame while editing
+  if (texture) {
+    SDL_DestroyTexture(texture);
+    texture = nullptr;
+  }
+  if (!displayed.empty()) {
+    SDL_Surface* surf =
+        TTF_RenderText_Blended(font, displayed.c_str(), 0, text_color);
+    texture = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+  }
+
+  SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
+  SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+
+  if (texture) {
+    float tw, th;
+    SDL_GetTextureSize(texture, &tw, &th);
+    SDL_FRect dst{(float)x, (float)y, tw, th};
+    SDL_RenderTexture(renderer, texture, nullptr, &dst);
+  }
 }
 ```
 

@@ -42,6 +42,7 @@ public:
   bool handle_event(const SDL_Event* e);
 
 private:
+  // sim and camera are owned by AppState !
   Simulation* sim;                // Not owned
   std::shared_ptr<Camera> camera; // Owned here
   std::vector<std::unique_ptr<Drawable>> world_drawables;

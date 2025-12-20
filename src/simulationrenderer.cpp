@@ -59,6 +59,7 @@ void SimulationRenderer::render_frame() {
   ctx.resources = resources;
   ctx.camera_weak = camera;
   ctx.rider_snapshots = &snapshot_front;
+  ctx.sim_time = sim->get_sim_seconds();
 
   // 1. Draw world-space drawables
   int cnt = 0;
@@ -74,8 +75,6 @@ void SimulationRenderer::render_frame() {
 
   for (auto& w : drawables)
     w->render_imgui(&ctx);
-
-  SDL_RenderPresent(renderer);
 }
 
 // TODO - make this safe - there is a suggestion in "Code review feedback" chat

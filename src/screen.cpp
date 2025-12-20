@@ -1,4 +1,5 @@
 #include "screen.h"
+#include "SDL3/SDL_log.h"
 #include "appstate.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
@@ -93,6 +94,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
       200, 400, 80, 26, default_font, state->window, [&](double v) {
         Rider* r = state->sim->get_engine()->get_rider(0);
         r->set_effort(v);
+        SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       });
 
   sim_renderer->add_drawable(std::move(num));

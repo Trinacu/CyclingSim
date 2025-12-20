@@ -1,0 +1,153 @@
+Spritesheet: spritesheet_grid_scaled.png
+Grid layout: 6 columns per row
+Scale factor: 0.5
+Total sprites: 24
+
+Sprite positions (filename, column, row, x, y, width, height):
+Armature_animtion0_00.png: col=0, row=0, x=0, y=0, width=512, height=512
+Armature_animtion0_01.png: col=1, row=0, x=512, y=0, width=512, height=512
+Armature_animtion0_02.png: col=2, row=0, x=1024, y=0, width=512, height=512
+Armature_animtion0_03.png: col=3, row=0, x=1536, y=0, width=512, height=512
+Armature_animtion0_04.png: col=4, row=0, x=2048, y=0, width=512, height=512
+Armature_animtion0_05.png: col=5, row=0, x=2560, y=0, width=512, height=512
+Armature_animtion0_06.png: col=0, row=1, x=0, y=512, width=512, height=512
+Armature_animtion0_07.png: col=1, row=1, x=512, y=512, width=512, height=512
+Armature_animtion0_08.png: col=2, row=1, x=1024, y=512, width=512, height=512
+Armature_animtion0_09.png: col=3, row=1, x=1536, y=512, width=512, height=512
+Armature_animtion0_10.png: col=4, row=1, x=2048, y=512, width=512, height=512
+Armature_animtion0_11.png: col=5, row=1, x=2560, y=512, width=512, height=512
+Armature_animtion0_12.png: col=0, row=2, x=0, y=1024, width=512, height=512
+Armature_animtion0_13.png: col=1, row=2, x=512, y=1024, width=512, height=512
+Armature_animtion0_14.png: col=2, row=2, x=1024, y=1024, width=512, height=512
+Armature_animtion0_15.png: col=3, row=2, x=1536, y=1024, width=512, height=512
+Armature_animtion0_16.png: col=4, row=2, x=2048, y=1024, width=512, height=512
+Armature_animtion0_17.png: col=5, row=2, x=2560, y=1024, width=512, height=512
+Armature_animtion0_18.png: col=0, row=3, x=0, y=1536, width=512, height=512
+Armature_animtion0_19.png: col=1, row=3, x=512, y=1536, width=512, height=512
+Armature_animtion0_20.png: col=2, row=3, x=1024, y=1536, width=512, height=512
+Armature_animtion0_21.png: col=3, row=3, x=1536, y=1536, width=512, height=512
+Armature_animtion0_22.png: col=4, row=3, x=2048, y=1536, width=512, height=512
+Armature_animtion0_23.png: col=5, row=3, x=2560, y=1536, width=512, height=512
+
+
+Arrays for easy iteration:
+# By row and column
+sprite_grid = [
+  # Row 0
+  [(0, 0), (512, 0), (1024, 0), (1536, 0), (2048, 0), (2560, 0)],
+  # Row 1
+  [(0, 512), (512, 512), (1024, 512), (1536, 512), (2048, 512), (2560, 512)],
+  # Row 2
+  [(0, 1024), (512, 1024), (1024, 1024), (1536, 1024), (2048, 1024), (2560, 1024)],
+  # Row 3
+  [(0, 1536), (512, 1536), (1024, 1536), (1536, 1536), (2048, 1536), (2560, 1536)],
+]
+
+# Flat arrays (all sprites in order)
+sprite_x_positions = [
+    0,  # Armature_animtion0_00.png
+    512,  # Armature_animtion0_01.png
+    1024,  # Armature_animtion0_02.png
+    1536,  # Armature_animtion0_03.png
+    2048,  # Armature_animtion0_04.png
+    2560,  # Armature_animtion0_05.png
+    0,  # Armature_animtion0_06.png
+    512,  # Armature_animtion0_07.png
+    1024,  # Armature_animtion0_08.png
+    1536,  # Armature_animtion0_09.png
+    2048,  # Armature_animtion0_10.png
+    2560,  # Armature_animtion0_11.png
+    0,  # Armature_animtion0_12.png
+    512,  # Armature_animtion0_13.png
+    1024,  # Armature_animtion0_14.png
+    1536,  # Armature_animtion0_15.png
+    2048,  # Armature_animtion0_16.png
+    2560,  # Armature_animtion0_17.png
+    0,  # Armature_animtion0_18.png
+    512,  # Armature_animtion0_19.png
+    1024,  # Armature_animtion0_20.png
+    1536,  # Armature_animtion0_21.png
+    2048,  # Armature_animtion0_22.png
+    2560,  # Armature_animtion0_23.png
+]
+
+sprite_y_positions = [
+    0,  # Armature_animtion0_00.png
+    0,  # Armature_animtion0_01.png
+    0,  # Armature_animtion0_02.png
+    0,  # Armature_animtion0_03.png
+    0,  # Armature_animtion0_04.png
+    0,  # Armature_animtion0_05.png
+    512,  # Armature_animtion0_06.png
+    512,  # Armature_animtion0_07.png
+    512,  # Armature_animtion0_08.png
+    512,  # Armature_animtion0_09.png
+    512,  # Armature_animtion0_10.png
+    512,  # Armature_animtion0_11.png
+    1024,  # Armature_animtion0_12.png
+    1024,  # Armature_animtion0_13.png
+    1024,  # Armature_animtion0_14.png
+    1024,  # Armature_animtion0_15.png
+    1024,  # Armature_animtion0_16.png
+    1024,  # Armature_animtion0_17.png
+    1536,  # Armature_animtion0_18.png
+    1536,  # Armature_animtion0_19.png
+    1536,  # Armature_animtion0_20.png
+    1536,  # Armature_animtion0_21.png
+    1536,  # Armature_animtion0_22.png
+    1536,  # Armature_animtion0_23.png
+]
+
+sprite_widths = [
+    512,  # Armature_animtion0_00.png
+    512,  # Armature_animtion0_01.png
+    512,  # Armature_animtion0_02.png
+    512,  # Armature_animtion0_03.png
+    512,  # Armature_animtion0_04.png
+    512,  # Armature_animtion0_05.png
+    512,  # Armature_animtion0_06.png
+    512,  # Armature_animtion0_07.png
+    512,  # Armature_animtion0_08.png
+    512,  # Armature_animtion0_09.png
+    512,  # Armature_animtion0_10.png
+    512,  # Armature_animtion0_11.png
+    512,  # Armature_animtion0_12.png
+    512,  # Armature_animtion0_13.png
+    512,  # Armature_animtion0_14.png
+    512,  # Armature_animtion0_15.png
+    512,  # Armature_animtion0_16.png
+    512,  # Armature_animtion0_17.png
+    512,  # Armature_animtion0_18.png
+    512,  # Armature_animtion0_19.png
+    512,  # Armature_animtion0_20.png
+    512,  # Armature_animtion0_21.png
+    512,  # Armature_animtion0_22.png
+    512,  # Armature_animtion0_23.png
+]
+
+sprite_heights = [
+    512,  # Armature_animtion0_00.png
+    512,  # Armature_animtion0_01.png
+    512,  # Armature_animtion0_02.png
+    512,  # Armature_animtion0_03.png
+    512,  # Armature_animtion0_04.png
+    512,  # Armature_animtion0_05.png
+    512,  # Armature_animtion0_06.png
+    512,  # Armature_animtion0_07.png
+    512,  # Armature_animtion0_08.png
+    512,  # Armature_animtion0_09.png
+    512,  # Armature_animtion0_10.png
+    512,  # Armature_animtion0_11.png
+    512,  # Armature_animtion0_12.png
+    512,  # Armature_animtion0_13.png
+    512,  # Armature_animtion0_14.png
+    512,  # Armature_animtion0_15.png
+    512,  # Armature_animtion0_16.png
+    512,  # Armature_animtion0_17.png
+    512,  # Armature_animtion0_18.png
+    512,  # Armature_animtion0_19.png
+    512,  # Armature_animtion0_20.png
+    512,  # Armature_animtion0_21.png
+    512,  # Armature_animtion0_22.png
+    512,  # Armature_animtion0_23.png
+]

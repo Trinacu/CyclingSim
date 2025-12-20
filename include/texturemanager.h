@@ -71,6 +71,25 @@ public:
     if (!textureManager.load_texture("player", "resources/collated_grid.png")) {
       SDL_Log("Failed to load 'player' texture");
     }
+    if (!textureManager.load_texture("rider", "resources/rider_sheet.png")) {
+      SDL_Log("Failed to load 'rider' texture");
+    }
+    if (!textureManager.load_texture("rider_front",
+                                     "resources/rider_sheet_front.png")) {
+      SDL_Log("Failed to load 'rider_front' texture");
+    }
+    if (!textureManager.load_texture("rider_back",
+                                     "resources/rider_sheet_back.png")) {
+      SDL_Log("Failed to load 'rider_back' texture");
+    }
+    if (!textureManager.load_texture("wheel_rear",
+                                     "resources/wheel_rear.png")) {
+      SDL_Log("Failed to load 'wheel_rear' texture");
+    }
+    if (!textureManager.load_texture("wheel_front",
+                                     "resources/wheel_front.png")) {
+      SDL_Log("Failed to load 'wheel_front' texture");
+    }
     if (!fontManager.load_font("default", "resources/Roboto-Regular.ttf", 16)) {
       SDL_Log("Failed to load 'default' font");
     }

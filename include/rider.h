@@ -5,6 +5,7 @@
 #include "course.h"
 #include "snapshot.h"
 #include "texturemanager.h"
+#include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <iostream>
 
@@ -27,9 +28,10 @@ public:
   double wheel_drag_factor;
   double crr;
   double dt_loss;
+  BikeType type;
 
   Bike(double mass_, double wheel_i_, double wheel_r_,
-       double wheel_drag_factor_, double crr_, double dt_loss_);
+       double wheel_drag_factor_, double crr_, double dt_loss_, BikeType type_);
   static Bike create_generic();
 };
 
@@ -39,6 +41,7 @@ private:
   const size_t uid;                // unique ID
   double ftp_base;
   double effort;
+  double max_effort;
   double cda;
   double cda_factor;
   double effective_cda;

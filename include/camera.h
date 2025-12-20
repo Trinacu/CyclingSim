@@ -25,6 +25,8 @@ public:
   // --- Manual controls ---
   void pan(double dx, double dy); // screen space delta
   void zoom(double amount);       // amount > 0 zooms in
+                                  //
+  double get_scale() { return scale; }
 
   // Direct set (used rarely)
   void set_center(Vector2d p) { pos = p; }
@@ -37,8 +39,8 @@ private:
   const int world_width;
   Vector2d screensize;
 
-  double scale;      // horizontal world→screen scale
-  double vert_scale; // vertical world→screen scale
+  double scale;      // pixels per meter
+  double vert_scale; //  additional vertical scaling
 
   Vector2d pos; // world coordinate camera center
   std::optional<int> target_uid;
