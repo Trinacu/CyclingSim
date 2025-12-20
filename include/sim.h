@@ -45,6 +45,8 @@ private:
   double time_factor = 1.0;
   double sim_seconds = 0.0;
 
+  double interp_alpha = 0.0;
+
   const float dt = 0.1; // 100 Hz physics
 
   void step_fixed(double dt);
@@ -63,6 +65,9 @@ public:
 
   double get_time_factor() { return time_factor; }
   void set_time_factor(double f) { time_factor = f; }
+
+  double get_dt() { return dt; }
+  double get_interp_alpha() { return interp_alpha; }
 
   const double get_sim_seconds() const;
   const PhysicsEngine* get_engine() const;

@@ -63,29 +63,46 @@ Vector2d rotate(Vec2 p, double a) {
 }
 
 void RiderDrawable::render(const RenderContext* ctx) {
-  if (!ctx->rider_snapshots || ctx->rider_snapshots->empty())
+  if (ctx->curr_frame->riders.empty() || ctx->prev_frame->riders.empty())
     return;
 
   auto cam = ctx->camera_weak.lock();
   if (!cam)
     return;
 
-  for (const auto& [id, snap] : *ctx->rider_snapshots) {
+  const auto& prev = ctx->prev_frame->riders;
+  const auto& curr = ctx->curr_frame->riders;
+
+  // for (const auto& [id, snap] : *ctx->rider_snapshots) {
+  for (auto& [id, s1] : curr) {
+    auto it0 = prev.find(id);
+    if (it0 == prev.end())
+      continue; // new rider appeared
+    const RiderSnapshot& s0 = it0->second;
+
+    double a = ctx->alpha;
+
+    Vector2d pos2d = s0.pos2d * (1.0 - a) + s1.pos2d * a;
+
+    double slope = s0.slope * (1.0 - a) + s1.slope * a;
+    double effort = s0.effort * (1.0 - a) + s1.effort * a;
 
     // ---------------------------
     // Resolve visual model
     // ---------------------------
-    const RiderVisualModel& model = resolve_visual_model(snap.visual_type);
+    const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
 
-    RiderVisualState& vis = visuals[snap.uid];
+    RiderVisualState& vis = visuals[s1.uid];
+
+    // interpolate
 
     // ---------------------------
     // Camera & orientation
     // ---------------------------
-    Vector2d front_ground_world = snap.pos2d;
+    Vector2d front_ground_world = pos2d;
     Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
 
-    double tilt_rad = std::atan(snap.slope);
+    double tilt_rad = std::atan(slope);
     double tilt_deg = tilt_rad * 180.0 / M_PI;
 
     // ---------------------------
@@ -113,10 +130,10 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // Distance-based wheel rotation
     // ---------------------------
     if (vis.last_pos == 0.0)
-      vis.last_pos = snap.pos;
+      vis.last_pos = s1.pos;
 
-    double ds = snap.pos - vis.last_pos;
-    vis.last_pos = snap.pos;
+    double ds = s1.pos - vis.last_pos;
+    vis.last_pos = s1.pos;
 
     vis.wheel_angle += ds / model.wheel_radius;
 
@@ -173,7 +190,24 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     SDL_FPoint rider_pivot{anchor_x, anchor_y};
 
-    SDL_FRect src{0, 0, 512, 512};
+    if (vis.last_sim_time == 0.0)
+      vis.last_sim_time = ctx->curr_frame->sim_time;
+
+    double dt_sim = ctx->curr_frame->sim_time - vis.last_sim_time;
+    vis.last_sim_time = ctx->curr_frame->sim_time;
+
+    double hz = effort_to_freq(effort, s1.max_effort);
+    vis.anim_phase = std::fmod(vis.anim_phase + hz * dt_sim, 1.0);
+
+    int idx = vis.anim_phase * model.body_frame_count;
+
+    int row = idx / 6;
+    int col = idx % 6;
+
+    SDL_Log("%d: %d, %d", id, row, col);
+
+    SDL_FRect src{static_cast<float>(col * 512), static_cast<float>(row * 512),
+                  512, 512};
 
     // draw the back side first, because wheels appear on top of it
     SDL_RenderTextureRotated(ctx->renderer, rider_back_tex, &src, &rider_dst,

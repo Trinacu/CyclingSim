@@ -10,6 +10,11 @@ class Simulation;
 class Camera;
 class RiderPanel;
 
+struct FramePairView {
+  const FrameSnapshot* prev;
+  const FrameSnapshot* curr;
+};
+
 // This renderer extends CoreRenderer with:
 // - Camera
 // - World-to-screen transform
@@ -36,7 +41,8 @@ public:
 
   int pick_rider(double screen_x, double screen_y) const;
 
-  const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
+  // const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
+  FramePairView get_frame_pair() const;
   void build_and_swap_snapshots();
 
   bool handle_event(const SDL_Event* e);
@@ -50,9 +56,12 @@ private:
   RiderPanel* rider_panel = nullptr;
 
   // Double buffers
-  SnapshotMap snapshot_front; // used by render + UI
-  SnapshotMap snapshot_back;  // temporary build buffer
+  FrameSnapshot frame_prev; // published previous
+  FrameSnapshot frame_curr; // published current
+  FrameSnapshot frame_back; // build buffer
   mutable std::mutex snapshot_swap_mtx;
+
+  bool frames_initialized = false;
 };
 
 #endif

@@ -84,6 +84,8 @@ void Simulation::start_realtime() {
                 step_time);
       }
     }
+    // interp_alpha = accumulator / dt;
+
     // After you’ve done zero or more physics steps,
     // you can sleep a tiny bit (to release thread?)
     std::this_thread::sleep_for(std::chrono::milliseconds(1));

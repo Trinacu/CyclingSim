@@ -40,7 +40,7 @@ AppState::AppState() {
   // 4. Initialize Simulation
   course = new Course(Course::create_endulating());
   sim = new Simulation(course); // Sim now owns the course
-  sim->set_time_factor(5.0);
+  sim->set_time_factor(0.1);
 
   screens = new ScreenManager(this);
   screens->push(ScreenType::Simulation);

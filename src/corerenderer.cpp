@@ -18,11 +18,15 @@ void CoreRenderer::render_frame() {
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
 
+  // RenderContext ctx;
+  // ctx.renderer = renderer;
+  // ctx.resources = resources;
+  // ctx.camera_weak = std::weak_ptr<Camera>();
+  // ctx.rider_snapshots = nullptr; // Not used
+  //
   RenderContext ctx;
   ctx.renderer = renderer;
   ctx.resources = resources;
-  ctx.camera_weak = std::weak_ptr<Camera>();
-  ctx.rider_snapshots = nullptr; // Not used
 
   for (auto& d : drawables) {
     d->render(&ctx);

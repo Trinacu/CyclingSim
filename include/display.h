@@ -4,6 +4,7 @@
 
 #include "camera.h"
 #include "course.h"
+#include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
 #include <memory>
@@ -13,13 +14,17 @@
 struct RenderContext {
   SDL_Renderer* renderer;
   std::weak_ptr<Camera> camera_weak;
-  const SnapshotMap* rider_snapshots;
   ResourceProvider* resources;
   double sim_time;
 
+  const FrameSnapshot* prev_frame = nullptr;
+  const FrameSnapshot* curr_frame = nullptr;
+
+  double alpha = 1.0; // 0 ... 1
+
   const RiderSnapshot* get_snapshot(const size_t id) const {
-    auto it = rider_snapshots->find(id);
-    if (it != rider_snapshots->end())
+    auto it = curr_frame->riders.find(id);
+    if (it != curr_frame->riders.end())
       return &it->second;
     return nullptr;
   }
@@ -52,6 +57,9 @@ struct RiderVisualState {
   double wheel_angle = 0.0; // radians
   double last_pos = 0.0;    // for calculating wheel angle
   double anim_phase = 0.0;  // 0..1 for sprite animation
+
+  // timing for spritesheet animation
+  double last_sim_time = 0;
 };
 
 class RiderDrawable : public Drawable {

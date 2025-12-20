@@ -44,7 +44,7 @@ inline constexpr RiderVisualModel ROAD_BIKE_VISUAL{
                           ROAD_WHEEL_RADIUS},
     .body_offset = {-ROAD_WHEEL_RADIUS, ROAD_WHEEL_RADIUS},
     // .body_offset = {0, ROAD_WHEEL_RADIUS},
-    .body_frame_count = 8,
+    .body_frame_count = 24,
     // this is determined by pixels on the actual image
     // .front_wheel_axis = {430.0 / 512.0, 407.0 / 512.0}};
     // pos is wheel radius offset more in either direction (should be 112.5)

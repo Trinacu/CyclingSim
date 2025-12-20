@@ -11,8 +11,9 @@ SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
                                        std::shared_ptr<Camera> cam)
     : CoreRenderer(r, resources), sim(sim_), camera(std::move(cam)) {
   build_and_swap_snapshots();
-  if (snapshot_front.count(0)) {
-    camera->set_center(snapshot_front.at(0).pos2d);
+  // this could probably be removed
+  if (frame_curr.riders.count(0)) {
+    camera->set_center(frame_curr.riders.at(0).pos2d);
   }
 }
 
@@ -21,10 +22,12 @@ void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
 }
 
 void SimulationRenderer::build_and_swap_snapshots() {
-  snapshot_back.clear();
+  // Build into frame_back (no lock needed if frame_back is not shared)
+  frame_back.riders.clear();
 
+  // sim->fill_snapshots(frame_back.riders); // however you currently do it
+  // could extract this into a function (gpt says it lives inside Simulation)
   PhysicsEngine* engine = sim->get_engine();
-
   {
     // protects only reading rider data
     std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
@@ -33,21 +36,38 @@ void SimulationRenderer::build_and_swap_snapshots() {
     for (const Rider* r : riders) {
       if (!r)
         continue;
-      snapshot_back.emplace(r->get_id(), r->snapshot());
+      frame_back.riders.emplace(r->get_id(), r->snapshot());
     }
   }
 
+  frame_back.sim_time = sim->get_sim_seconds();
+  frame_back.sim_dt = sim->get_dt();
+  frame_back.time_factor = sim->get_time_factor(); // or wherever it lives
+  frame_back.real_time = SDL_GetTicks() / 1000.0;
+
+  // Only publish if sim advanced
   {
-    // protects only swapping pointers to maps (instant)
-    std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
-    snapshot_front.swap(snapshot_back);
+    std::scoped_lock lock(snapshot_swap_mtx);
+
+    if (!frames_initialized) {
+      frame_curr = frame_back;
+      frame_prev = frame_back; // identical on purpose
+      frames_initialized = true;
+      return;
+    }
+
+    if (frame_back.sim_time <= frame_curr.sim_time) {
+      return; // no new sim step -> keep prev/curr stable for interpolation
+    }
+    frame_prev = std::move(frame_curr);
+    frame_curr = std::move(frame_back);
   }
 }
 
 void SimulationRenderer::update() {
   // First gather snapshots
   build_and_swap_snapshots();
-  camera->update(snapshot_front);
+  camera->update(frame_curr.riders);
 }
 
 void SimulationRenderer::render_frame() {
@@ -58,8 +78,29 @@ void SimulationRenderer::render_frame() {
   ctx.renderer = renderer;
   ctx.resources = resources;
   ctx.camera_weak = camera;
-  ctx.rider_snapshots = &snapshot_front;
   ctx.sim_time = sim->get_sim_seconds();
+
+  double now = SDL_GetTicks() / 1000.0;
+
+  {
+    // IMPORTANT: prevent swap while we compute alpha and set pointers
+    std::scoped_lock lock(snapshot_swap_mtx);
+
+    ctx.prev_frame = &frame_prev;
+    ctx.curr_frame = &frame_curr;
+
+    const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
+
+    // time since "curr" was published (real seconds)
+    const double real_since_curr = now - frame_curr.real_time;
+
+    double alpha = 1.0;
+    if (sim_dt > 0.0) {
+      alpha = (real_since_curr * frame_curr.time_factor) / sim_dt;
+    }
+    ctx.alpha = std::clamp(alpha, 0.0, 1.0);
+    SDL_Log("alpha=%.3f", ctx.alpha);
+  }
 
   // 1. Draw world-space drawables
   int cnt = 0;
@@ -91,7 +132,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   SDL_Log("\n%.1f, %.1f", world_pos.x(), world_pos.y());
 
   std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
-  for (auto& [id, snap] : snapshot_front) {
+  for (auto& [id, snap] : frame_curr.riders) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);

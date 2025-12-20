@@ -17,7 +17,7 @@ void PlotRenderer::render_frame() {
   ctx.renderer = renderer;
   ctx.resources = resources;
   ctx.camera_weak = std::weak_ptr<Camera>();
-  ctx.rider_snapshots = nullptr;
+  // ctx.rider_snapshots = nullptr;
 
   for (auto& d : drawables)
     d->render(&ctx);
