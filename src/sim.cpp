@@ -5,6 +5,13 @@
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
 
 void PhysicsEngine::add_rider(Rider* r) {
+  for (Rider* r0 : riders) {
+    if (r->get_id() == r0->get_id()) {
+      SDL_Log("Tried to add rider who is already in the list! %s",
+              r->name.c_str());
+      return;
+    }
+  }
   std::lock_guard<std::mutex> lock(frame_mtx);
   riders.push_back(r);
   r->set_course(course);

@@ -10,19 +10,19 @@
 #include <vector>
 
 double effort_to_freq(double effort, double max_effort) {
-  double anim_hz;
+  double anim_rpm;
   double min_rpm = 40.0;
   double max_rpm = 130.0;
 
   if (effort <= 1.0) {
     // 0 → 1  maps to 40 → 100
-    anim_hz = min_rpm + effort * (100.0 - min_rpm);
+    anim_rpm = min_rpm + effort * (100.0 - min_rpm);
   } else {
     // 1 → max_effort maps to 100 → 130
     double t = (effort - 1.0) / (max_effort - 1.0);
-    anim_hz = 100.0 + t * (max_rpm - 100.0);
+    anim_rpm = 100.0 + t * (max_rpm - 100.0);
   }
-  return anim_hz;
+  return anim_rpm / 60;
 }
 
 CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
@@ -89,26 +89,24 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // ---------------------------
     const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
 
-    // RiderVisualState& vis = visuals[s1.uid];
-    auto [it, inserted] = visuals.try_emplace(s1.uid);
+    auto [it, inserted] = visuals.try_emplace(id);
+    SDL_Log("id: %d", id);
     RiderVisualState& vis = it->second;
+    SDL_Log("id=%zu inserted=%d vis_ptr=%p last=%.6f interp=%.6f", (size_t)id,
+            inserted ? 1 : 0, (void*)&vis, vis.last_anim_sim_time,
+            ctx->view.interp_sim_time);
 
     if (inserted) {
-      vis.last_sim_time = ctx->curr_frame->sim_time;
+      vis.last_anim_sim_time = ctx->view.interp_sim_time;
       vis.anim_phase = 0.0;
       vis.wheel_angle = 0.0;
     }
-
-    // interpolate
 
     // ---------------------------
     // Camera & orientation
     // ---------------------------
     Vector2d front_ground_world = pos2d;
     Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
-
-    SDL_Log("world_y=%.6f screen_y=%.6f", front_ground_screen.y(),
-            front_ground_screen.y());
 
     double tilt_rad = std::atan(slope);
     double tilt_deg = tilt_rad * 180.0 / M_PI;
@@ -137,7 +135,7 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // ---------------------------
     // Distance-based wheel rotation
     // ---------------------------
-    if (vis.last_pos == 0.0)
+    if (std::isnan(vis.last_pos))
       vis.last_pos = pos2d.x();
 
     double ds = pos2d.x() - vis.last_pos;
@@ -200,14 +198,19 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     double prev_sim_time = ctx->prev_frame->sim_time;
     double curr_sim_time = ctx->curr_frame->sim_time;
-    double dt_sim = curr_sim_time - prev_sim_time;
 
-    if (dt_sim > 0.0) {
+    if (std::isnan(vis.last_anim_sim_time))
+      vis.last_anim_sim_time = ctx->view.interp_sim_time;
+
+    double dt = ctx->view.interp_sim_time - vis.last_anim_sim_time;
+
+    if (dt > 0.0) {
       double hz = effort_to_freq(effort, s1.max_effort);
-      vis.anim_phase = std::fmod(vis.anim_phase + hz * dt_sim, 1.0);
+      vis.anim_phase = std::fmod(vis.anim_phase + hz * dt, 1.0);
+      vis.last_anim_sim_time = ctx->view.interp_sim_time;
     }
-    constexpr int COLS = 6;
 
+    constexpr int COLS = 6;
     constexpr int ROWS = 4;
     constexpr int TOTAL_FRAMES = COLS * ROWS;
 
@@ -217,7 +220,9 @@ void RiderDrawable::render(const RenderContext* ctx) {
     int row = idx / COLS;
     int col = idx % COLS;
 
-    SDL_Log("%.1f %d: %d, %d", vis.anim_phase, idx, row, col);
+    SDL_Log("%.6f", dt);
+    SDL_Log("anim_phase, idx, row, col");
+    SDL_Log("%.2f %d: %d, %d", vis.anim_phase, idx, row, col);
 
     SDL_FRect src{static_cast<float>(col * 512), static_cast<float>(row * 512),
                   512, 512};

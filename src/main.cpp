@@ -24,8 +24,12 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     state->sim->get_engine()->add_rider(r);
 
     Rider* r2 = new Rider("Pedro", 320, 90, 0.3, Bike::create_generic(), team);
-    r2->pos = 20;
+    r2->pos = 2;
     state->sim->get_engine()->add_rider(r2);
+
+    Rider* r3 = new Rider("Marjo", 300, 88, 0.3, Bike::create_generic(), team);
+    r2->pos = 1.5;
+    state->sim->get_engine()->add_rider(r3);
 
     state->physics_thread =
         new std::thread([sim = state->sim]() { sim->start_realtime(); });

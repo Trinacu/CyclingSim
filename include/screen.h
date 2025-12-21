@@ -65,6 +65,8 @@ public:
 
   bool handle_event(const SDL_Event* e) override;
 
+  void cycle_rider(int direction);
+
 private:
   AppState* state;
   std::unique_ptr<SimulationRenderer> sim_renderer;

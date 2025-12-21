@@ -159,17 +159,56 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
     }
     break;
 
-  case SDL_EVENT_MOUSE_WHEEL:
-    // sim_renderer->get_camera()->zoom(e.wheel.y * 0.1);
-    // return true;
-    break;
+  case SDL_EVENT_MOUSE_WHEEL: {
+    constexpr double ZOOM_SENSITIVITY = 0.1;
+    sim_renderer->get_camera()->zoom(e->wheel.y * ZOOM_SENSITIVITY);
+    return true;
+  }
 
   case SDL_EVENT_KEY_DOWN:
-    if (e->key.key == SDLK_ESCAPE)
+    switch (e->key.key) {
+    case SDLK_LEFT:
+      cycle_rider(-1);
+      return true;
+
+    case SDLK_RIGHT:
+      cycle_rider(+1);
+      return true;
+
+    case SDLK_ESCAPE:
       state->screens->replace(ScreenType::Menu);
+      return true;
+    }
     break;
   }
-  return true;
+  return false;
+}
+
+void SimulationScreen::cycle_rider(int direction) {
+  const auto& riders = sim_renderer->get_frame_pair().curr->riders;
+  if (riders.empty())
+    return;
+
+  // Extract IDs into a sorted list for stable cycling
+  std::vector<int> ids;
+  ids.reserve(riders.size());
+  for (const auto& [id, _] : riders)
+    ids.push_back(id);
+
+  std::sort(ids.begin(), ids.end());
+
+  // Find current index
+  auto it = std::find(ids.begin(), ids.end(), selected_rider_uid);
+  int idx = (it == ids.end()) ? 0 : std::distance(ids.begin(), it);
+
+  // Cycle with wrap-around
+  idx = (idx + direction + ids.size()) % ids.size();
+
+  selected_rider_uid = ids[idx];
+
+  // Apply selection
+  sim_renderer->get_camera()->set_target_id(selected_rider_uid);
+  sim_renderer->get_rider_panel()->set_rider_id(selected_rider_uid);
 }
 
 PlotScreen::PlotScreen(AppState* s) : state(s) {

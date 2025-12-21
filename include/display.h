@@ -57,15 +57,14 @@ public:
 
 struct RiderVisualState {
   double wheel_angle = 0.0; // radians
-  double last_pos = 0.0;    // for calculating wheel angle
   double anim_phase = 0.0;  // 0..1 for sprite animation
 
-  // timing for spritesheet animation
-  double last_sim_time = 0;
+  double last_pos = std::numeric_limits<double>::quiet_NaN();
+  double last_anim_sim_time = std::numeric_limits<double>::quiet_NaN();
 };
 
 class RiderDrawable : public Drawable {
-  std::unordered_map<size_t, RiderVisualState> visuals;
+  std::unordered_map<int, RiderVisualState> visuals;
   const RiderVisualModel& model = ROAD_BIKE_VISUAL;
 
 public:

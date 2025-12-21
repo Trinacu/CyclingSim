@@ -101,7 +101,7 @@ void SimulationRenderer::render_frame() {
 
     InterpolatedFrameView view;
     view.alpha = alpha;
-    view.sim_time =
+    view.interp_sim_time =
         frame_prev.sim_time * (1.0 - alpha) + frame_curr.sim_time * alpha;
 
     for (const auto& [id, s1] : frame_curr.riders) {
@@ -119,8 +119,6 @@ void SimulationRenderer::render_frame() {
     }
 
     ctx.view = std::move(view);
-
-    SDL_Log("alpha=%.3f", ctx.alpha);
   }
 
   camera->update(ctx.view);
@@ -174,6 +172,12 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     return found_id;
   }
   return -1;
+}
+
+FramePairView SimulationRenderer::get_frame_pair() const {
+  std::scoped_lock lock(snapshot_swap_mtx);
+
+  return FramePairView{.prev = &frame_prev, .curr = &frame_curr};
 }
 
 bool SimulationRenderer::handle_event(const SDL_Event* e) {

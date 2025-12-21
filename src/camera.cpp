@@ -1,5 +1,4 @@
 #include "camera.h"
-#include "SDL3/SDL_log.h"
 #include "pch.hpp"
 
 Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
@@ -28,8 +27,7 @@ void Camera::update(const InterpolatedFrameView& view) {
   Vector2d target_pos = it->second;
   // Smooth interpolation toward target
   pos = pos + follow_strength * (target_pos - pos);
-  SDL_Log("%.1f %.1f", target_pos.x(), target_pos.y());
-  // pos = target_pos;
+  pos = target_pos;
 }
 
 // ------------------------
@@ -52,8 +50,8 @@ void Camera::zoom(double amount) {
   scale *= factor;
   if (scale < 0.01)
     scale = 0.01;
-  if (scale > 5.0)
-    scale = 5.0;
+  if (scale > 100.0)
+    scale = 100.0;
 }
 
 // ------------------------

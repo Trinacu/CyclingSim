@@ -129,6 +129,7 @@ void Rider::update(double dt) {
   double ftp = ftp_base;
   // this comes from energymodel
   double effort_limit = 1;
+  effort = target_effort;
   power = std::min(target_effort, effort_limit) * ftp;
   // energy_model.update(power, timestep);
   try {
