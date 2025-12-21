@@ -49,4 +49,13 @@ struct FrameSnapshot {
   SnapshotMap riders;
 };
 
+struct InterpolatedFrameView {
+  double sim_time; // optional, but useful
+  double alpha;
+
+  std::unordered_map<int, Vector2d> rider_pos;
+  std::unordered_map<size_t, double> rider_slope;
+  std::unordered_map<size_t, double> rider_effort;
+};
+
 #endif

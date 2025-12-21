@@ -58,7 +58,7 @@ inline constexpr RiderVisualModel TT_BIKE_VISUAL{
     .front_wheel_offset = {-ROAD_WHEEL_RADIUS, 2 * ROAD_WHEEL_RADIUS},
     .rear_wheel_offset = {-TT_WHEELBASE - TT_WHEEL_RADIUS, 2 * TT_WHEEL_RADIUS},
     .body_offset = {0.5, 0.9},
-    .body_frame_count = 8,
+    .body_frame_count = 24,
     .front_ground_point = {430.0 / 512.0, 407.0 / 512.0}};
 
 inline constexpr RiderVisualModel CLIMB_BIKE_VISUAL{
@@ -68,7 +68,7 @@ inline constexpr RiderVisualModel CLIMB_BIKE_VISUAL{
     .rear_wheel_offset = {-ROAD_WHEELBASE - ROAD_WHEEL_RADIUS,
                           2 * ROAD_WHEEL_RADIUS},
     .body_offset = {0.5, 0.9},
-    .body_frame_count = 8,
+    .body_frame_count = 24,
     .front_ground_point = {430.0 / 512.0, 407.0 / 512.0}};
 
 inline const RiderVisualModel& resolve_visual_model(BikeType type) {

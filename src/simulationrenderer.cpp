@@ -67,7 +67,6 @@ void SimulationRenderer::build_and_swap_snapshots() {
 void SimulationRenderer::update() {
   // First gather snapshots
   build_and_swap_snapshots();
-  camera->update(frame_curr.riders);
 }
 
 void SimulationRenderer::render_frame() {
@@ -99,8 +98,32 @@ void SimulationRenderer::render_frame() {
       alpha = (real_since_curr * frame_curr.time_factor) / sim_dt;
     }
     ctx.alpha = std::clamp(alpha, 0.0, 1.0);
+
+    InterpolatedFrameView view;
+    view.alpha = alpha;
+    view.sim_time =
+        frame_prev.sim_time * (1.0 - alpha) + frame_curr.sim_time * alpha;
+
+    for (const auto& [id, s1] : frame_curr.riders) {
+      auto it0 = frame_prev.riders.find(id);
+      if (it0 == frame_prev.riders.end())
+        continue;
+
+      const RiderSnapshot& s0 = it0->second;
+
+      view.rider_pos[id] = s0.pos2d * (1.0 - alpha) + s1.pos2d * alpha;
+
+      view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
+
+      view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
+    }
+
+    ctx.view = std::move(view);
+
     SDL_Log("alpha=%.3f", ctx.alpha);
   }
+
+  camera->update(ctx.view);
 
   // 1. Draw world-space drawables
   int cnt = 0;

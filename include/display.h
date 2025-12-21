@@ -20,6 +20,8 @@ struct RenderContext {
   const FrameSnapshot* prev_frame = nullptr;
   const FrameSnapshot* curr_frame = nullptr;
 
+  InterpolatedFrameView view;
+
   double alpha = 1.0; // 0 ... 1
 
   const RiderSnapshot* get_snapshot(const size_t id) const {

@@ -75,24 +75,29 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
   // for (const auto& [id, snap] : *ctx->rider_snapshots) {
   for (auto& [id, s1] : curr) {
-    auto it0 = prev.find(id);
-    if (it0 == prev.end())
-      continue; // new rider appeared
-    const RiderSnapshot& s0 = it0->second;
+    // auto it0 = prev.find(id);
+    // if (it0 == prev.end())
+    //   continue; // new rider appeared
+    // const RiderSnapshot& s0 = it0->second;
 
-    double a = ctx->alpha;
-
-    Vector2d pos2d = s0.pos2d * (1.0 - a) + s1.pos2d * a;
-
-    double slope = s0.slope * (1.0 - a) + s1.slope * a;
-    double effort = s0.effort * (1.0 - a) + s1.effort * a;
+    Vector2d pos2d = ctx->view.rider_pos.at(id);
+    double slope = ctx->view.rider_slope.at(id);
+    double effort = ctx->view.rider_effort.at(id);
 
     // ---------------------------
     // Resolve visual model
     // ---------------------------
     const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
 
-    RiderVisualState& vis = visuals[s1.uid];
+    // RiderVisualState& vis = visuals[s1.uid];
+    auto [it, inserted] = visuals.try_emplace(s1.uid);
+    RiderVisualState& vis = it->second;
+
+    if (inserted) {
+      vis.last_sim_time = ctx->curr_frame->sim_time;
+      vis.anim_phase = 0.0;
+      vis.wheel_angle = 0.0;
+    }
 
     // interpolate
 
@@ -101,6 +106,9 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // ---------------------------
     Vector2d front_ground_world = pos2d;
     Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
+
+    SDL_Log("world_y=%.6f screen_y=%.6f", front_ground_screen.y(),
+            front_ground_screen.y());
 
     double tilt_rad = std::atan(slope);
     double tilt_deg = tilt_rad * 180.0 / M_PI;
@@ -130,10 +138,10 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // Distance-based wheel rotation
     // ---------------------------
     if (vis.last_pos == 0.0)
-      vis.last_pos = s1.pos;
+      vis.last_pos = pos2d.x();
 
-    double ds = s1.pos - vis.last_pos;
-    vis.last_pos = s1.pos;
+    double ds = pos2d.x() - vis.last_pos;
+    vis.last_pos = pos2d.x();
 
     vis.wheel_angle += ds / model.wheel_radius;
 
@@ -190,21 +198,26 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     SDL_FPoint rider_pivot{anchor_x, anchor_y};
 
-    if (vis.last_sim_time == 0.0)
-      vis.last_sim_time = ctx->curr_frame->sim_time;
+    double prev_sim_time = ctx->prev_frame->sim_time;
+    double curr_sim_time = ctx->curr_frame->sim_time;
+    double dt_sim = curr_sim_time - prev_sim_time;
 
-    double dt_sim = ctx->curr_frame->sim_time - vis.last_sim_time;
-    vis.last_sim_time = ctx->curr_frame->sim_time;
+    if (dt_sim > 0.0) {
+      double hz = effort_to_freq(effort, s1.max_effort);
+      vis.anim_phase = std::fmod(vis.anim_phase + hz * dt_sim, 1.0);
+    }
+    constexpr int COLS = 6;
 
-    double hz = effort_to_freq(effort, s1.max_effort);
-    vis.anim_phase = std::fmod(vis.anim_phase + hz * dt_sim, 1.0);
+    constexpr int ROWS = 4;
+    constexpr int TOTAL_FRAMES = COLS * ROWS;
 
-    int idx = vis.anim_phase * model.body_frame_count;
+    int idx = static_cast<int>(vis.anim_phase * TOTAL_FRAMES);
+    idx = std::clamp(idx, 0, TOTAL_FRAMES - 1);
 
-    int row = idx / 6;
-    int col = idx % 6;
+    int row = idx / COLS;
+    int col = idx % COLS;
 
-    SDL_Log("%d: %d, %d", id, row, col);
+    SDL_Log("%.1f %d: %d, %d", vis.anim_phase, idx, row, col);
 
     SDL_FRect src{static_cast<float>(col * 512), static_cast<float>(row * 512),
                   512, 512};

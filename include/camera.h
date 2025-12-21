@@ -20,7 +20,7 @@ public:
   bool has_target() const { return target_uid.has_value(); }
 
   // Update camera position each frame
-  void update(const SnapshotMap& snaps);
+  void update(const InterpolatedFrameView& view);
 
   // --- Manual controls ---
   void pan(double dx, double dy); // screen space delta

@@ -1,5 +1,6 @@
 // src/appstate.cpp
 #include "appstate.h"
+#include "SDL3/SDL_render.h"
 #include "SDL3_ttf/SDL_ttf.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
@@ -38,6 +39,7 @@ AppState::AppState() {
   resources = new GameResources(renderer);
 
   // 4. Initialize Simulation
+  // v
   course = new Course(Course::create_endulating());
   sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(0.1);

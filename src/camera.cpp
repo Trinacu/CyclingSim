@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "SDL3/SDL_log.h"
 #include "pch.hpp"
 
 Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
@@ -15,26 +16,20 @@ void Camera::set_target_id(int rider_uid) { target_uid = rider_uid; }
 
 void Camera::clear_target() { target_uid.reset(); }
 
-void Camera::update(const SnapshotMap& snaps) {
-  if (!target_uid.has_value())
+void Camera::update(const InterpolatedFrameView& view) {
+  if (!target_uid)
     return;
-
   int id = *target_uid;
-  auto it = snaps.find(id);
-  if (it == snaps.end())
+
+  auto it = view.rider_pos.find(id);
+  if (it == view.rider_pos.end())
     return;
 
-  const RiderSnapshot& snap = it->second;
-
-  // Target position is rider position
-  Vector2d target_pos = snap.pos2d;
-
-  // Follow altitude using course
-  target_pos.y() = course->get_altitude(target_pos.x());
-
+  Vector2d target_pos = it->second;
   // Smooth interpolation toward target
   pos = pos + follow_strength * (target_pos - pos);
-  pos = target_pos;
+  SDL_Log("%.1f %.1f", target_pos.x(), target_pos.y());
+  // pos = target_pos;
 }
 
 // ------------------------
@@ -65,7 +60,7 @@ void Camera::zoom(double amount) {
 // TRANSFORMS
 // ------------------------
 Vector2d Camera::world_to_screen(Vector2d world) const {
-  return ((world - pos) * scale).cwiseProduct(Vector2d(1, -vert_scale)) +
+  return ((world - pos) * scale).cwiseProduct(Vector2d(1.0, -vert_scale)) +
          screensize * 0.5;
 }
 

@@ -55,7 +55,7 @@ public:
 class SimulationScreen : public IScreen {
 public:
   // DisplayEngine* display = nullptr;
-  int WORLD_WIDTH = 500;
+  int WORLD_WIDTH = 20;
 
   SimulationScreen(AppState* s);
   ~SimulationScreen(); // delete sim_renderer; }
