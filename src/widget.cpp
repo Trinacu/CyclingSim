@@ -7,6 +7,7 @@
 
 #include "SDL3/SDL_log.h"
 #include "SDL3/SDL_pixels.h"
+#include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_render.h"
 #include "SDL3/SDL_surface.h"
 #include "display.h"
@@ -447,15 +448,18 @@ void ValueField::render(const RenderContext* ctx) {
   if (!texture && !current_text.empty())
     update_texture(renderer);
 
-  float tex_w, tex_h;
-  SDL_GetTextureSize(texture, &tex_w, &tex_h);
-
-  // SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
-  SDL_FRect rect{(float)x, (float)y, (float)tex_w, (float)tex_h};
+  SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
   SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
 
-  if (texture)
+  if (texture) {
+    float tex_w, tex_h;
+    SDL_GetTextureSize(texture, &tex_w, &tex_h);
+
+    rect = SDL_FRect{(float)x + w - tex_w - 4, (float)y + (h - tex_h) * 0.5f,
+                     (float)tex_w, (float)tex_h};
+
     SDL_RenderTexture(renderer, texture, nullptr, &rect);
+  }
 }
 
 RiderValueField::RiderValueField(int x, int y, int w, int h, TTF_Font* font,
@@ -722,6 +726,7 @@ bool BaseEditableField::handle_event(const SDL_Event* e) {
     for (char c : std::string(e->text.text)) {
       if (accept_char(c, buffer))
         buffer.push_back(c);
+      SDL_Log("%s", buffer.c_str());
     }
     return true;
   }
@@ -730,49 +735,73 @@ bool BaseEditableField::handle_event(const SDL_Event* e) {
 }
 
 void BaseEditableField::render(const RenderContext* ctx) {
-  SDL_Renderer* renderer = ctx->renderer;
-
-  if (!bg_texture)
-    create_bg(renderer);
-
-  // blink update
   if (editing) {
     Uint32 now = SDL_GetTicks();
-    if (now - last_cursor_blink >= cursor_blink_ms) {
+    if (now - last_cursor_blink >= BLINK_MS) {
       cursor_visible = !cursor_visible;
       last_cursor_blink = now;
     }
   }
 
-  std::string displayed;
+  SDL_Renderer* renderer = ctx->renderer;
 
-  if (editing) {
-    displayed = buffer;
-    if (cursor_visible)
-      displayed += "|";
-  } else {
-    displayed = current_text;
-  }
+  // if (!bg_texture)
+  //   create_bg(renderer);
 
-  // regenerate texture every frame while editing
-  if (texture) {
-    SDL_DestroyTexture(texture);
-    texture = nullptr;
-  }
-  if (!displayed.empty()) {
-    SDL_Surface* surf =
-        TTF_RenderText_Blended(font, displayed.c_str(), 0, text_color);
-    texture = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-  }
+  std::string saved = current_text;
+  ValueField::set_text(current_display_text());
 
-  SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
-  SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+  ValueField::render(ctx);
 
-  if (texture) {
-    float tw, th;
-    SDL_GetTextureSize(texture, &tw, &th);
-    SDL_FRect dst{(float)x, (float)y, tw, th};
-    SDL_RenderTexture(renderer, texture, nullptr, &dst);
-  }
+  current_text = saved;
+  //
+  // // regenerate texture every frame while editing
+  // if (texture) {
+  //   SDL_DestroyTexture(texture);
+  //   texture = nullptr;
+  // }
+  // if (!displayed.empty()) {
+  //   SDL_Surface* surf =
+  //       TTF_RenderText_Blended(font, displayed.c_str(), 0, text_color);
+  //   texture = SDL_CreateTextureFromSurface(renderer, surf);
+  //   SDL_DestroySurface(surf);
+  // }
+  //
+  // SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
+  // SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+  //
+  // if (texture) {
+  //   float tw, th;
+  //   SDL_GetTextureSize(texture, &tw, &th);
+  //   SDL_FRect dst{(float)x, (float)y, tw, th};
+  //   SDL_RenderTexture(renderer, texture, nullptr, &dst);
+  // }
+}
+
+void BaseEditableField::commit() {
+  editing = false;
+  SDL_StopTextInput(window);
+  set_text(buffer);
+  if (on_commit)
+    on_commit(buffer);
+}
+
+std::string BaseEditableField::current_display_text() const {
+  if (!editing)
+    return current_text;
+
+  if (cursor_visible)
+    return buffer + "|";
+
+  return buffer;
+}
+
+bool EditableNumberField::accept_char(char c, const std::string& before) {
+  if (c >= '0' && c <= '9')
+    return true;
+  if (c == '.' && before.find('.') == std::string::npos)
+    return true;
+  if (c == '-' && before.empty())
+    return true;
+  return false;
 }

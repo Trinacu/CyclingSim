@@ -136,24 +136,27 @@ protected:
   SDL_Texture* texture = nullptr;
   SDL_Texture* bg_texture = nullptr;
 
-  void update_texture(SDL_Renderer* renderer);
   void create_bg(SDL_Renderer* renderer);
+  void update_texture(SDL_Renderer* renderer);
+  // so child class can overwrite with custom logic
+  virtual std::string get_display_text() const { return current_text; }
 
 public:
   ValueField(int x, int y, int w, int h, TTF_Font* font);
   virtual ~ValueField();
 
   void set_text(const std::string& text);
-
-  // Standard Widget interface
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override { return false; }
+  const std::string& get_text() const { return current_text; }
 
   void set_position(int new_x, int new_y) {
     x = new_x;
     y = new_y;
   }
   int get_width() const { return w; }
+
+  // Standard Widget interface
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override { return false; }
 };
 
 class RiderValueField : public ValueField {
@@ -259,25 +262,23 @@ public:
 protected:
   bool editing = false;
   std::string buffer;
+
   SDL_Window* window;
   CommitCallback on_commit;
 
   // blinking cursor
   Uint32 last_cursor_blink = 0;
   bool cursor_visible = true;
-  const Uint32 cursor_blink_ms = 500;
+  const Uint32 BLINK_MS = 500;
 
   // hook: validation/acceptance of character input
   virtual bool accept_char(char c, const std::string& before) = 0;
 
   // helper: commit and fire callback
-  void commit() {
-    editing = false;
-    SDL_StopTextInput(window);
-    set_text(buffer);
-    if (on_commit)
-      on_commit(buffer);
-  }
+  void commit();
+
+  // Chooses which text ValueField should render
+  std::string current_display_text() const;
 
 public:
   BaseEditableField(int x, int y, int w, int h, TTF_Font* font, SDL_Window* win,
@@ -297,15 +298,7 @@ public:
   }
 
 protected:
-  bool accept_char(char c, const std::string& before) override {
-    if (c >= '0' && c <= '9')
-      return true;
-    if (c == '.' && before.find('.') == std::string::npos)
-      return true;
-    if (c == '-' && before.empty())
-      return true;
-    return false;
-  }
+  bool accept_char(char c, const std::string& before) override;
 };
 
 class EditableStringField : public BaseEditableField {
@@ -316,9 +309,7 @@ public:
       : BaseEditableField(x, y, w, h, font, win, std::move(cb)) {}
 
 protected:
-  bool accept_char(char c, const std::string&) override {
-    return true; // accept all UTF-8 bytes SDL gives us
-  }
+  bool accept_char(char c, const std::string&) override { return true; }
 };
 
 #endif

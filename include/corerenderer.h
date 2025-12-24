@@ -25,6 +25,8 @@ public:
   SDL_Renderer* sdl() const { return renderer; }
   GameResources* get_resources() const { return resources; }
 
+  bool handle_event(const SDL_Event* e) { return false; }
+
 protected:
   SDL_Renderer* renderer;   // Raw pointer; owned by AppState
   GameResources* resources; // Raw pointer; owned by AppState

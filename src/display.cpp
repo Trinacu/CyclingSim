@@ -90,11 +90,7 @@ void RiderDrawable::render(const RenderContext* ctx) {
     const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
 
     auto [it, inserted] = visuals.try_emplace(id);
-    SDL_Log("id: %d", id);
     RiderVisualState& vis = it->second;
-    SDL_Log("id=%zu inserted=%d vis_ptr=%p last=%.6f interp=%.6f", (size_t)id,
-            inserted ? 1 : 0, (void*)&vis, vis.last_anim_sim_time,
-            ctx->view.interp_sim_time);
 
     if (inserted) {
       vis.last_anim_sim_time = ctx->view.interp_sim_time;
@@ -219,10 +215,6 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     int row = idx / COLS;
     int col = idx % COLS;
-
-    SDL_Log("%.6f", dt);
-    SDL_Log("anim_phase, idx, row, col");
-    SDL_Log("%.2f %d: %d, %d", vis.anim_phase, idx, row, col);
 
     SDL_FRect src{static_cast<float>(col * 512), static_cast<float>(row * 512),
                   512, 512};

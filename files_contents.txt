@@ -74,7 +74,7 @@ public:
   bool has_target() const { return target_uid.has_value(); }
 
   // Update camera position each frame
-  void update(const SnapshotMap& snaps);
+  void update(const InterpolatedFrameView& view);
 
   // --- Manual controls ---
   void pan(double dx, double dy); // screen space delta
@@ -233,6 +233,8 @@ struct RenderContext {
   const FrameSnapshot* prev_frame = nullptr;
   const FrameSnapshot* curr_frame = nullptr;
 
+  InterpolatedFrameView view;
+
   double alpha = 1.0; // 0 ... 1
 
   const RiderSnapshot* get_snapshot(const size_t id) const {
@@ -267,16 +269,15 @@ public:
 };
 
 struct RiderVisualState {
-  double wheel_angle = 0.0; // radians
-  double last_pos = 0.0;    // for calculating wheel angle
-  double anim_phase = 0.0;  // 0..1 for sprite animation
+  double wheel_angle = 0.0;                         // radians
+  double anim_phase = std::rand() * 1.0 / RAND_MAX; // 0..1 for sprite animation
 
-  // timing for spritesheet animation
-  double last_sim_time = 0;
+  double last_pos = std::numeric_limits<double>::quiet_NaN();
+  double last_anim_sim_time = std::numeric_limits<double>::quiet_NaN();
 };
 
 class RiderDrawable : public Drawable {
-  std::unordered_map<size_t, RiderVisualState> visuals;
+  std::unordered_map<int, RiderVisualState> visuals;
   const RiderVisualModel& model = ROAD_BIKE_VISUAL;
 
 public:
@@ -531,7 +532,7 @@ public:
 class SimulationScreen : public IScreen {
 public:
   // DisplayEngine* display = nullptr;
-  int WORLD_WIDTH = 5;
+  int WORLD_WIDTH = 20;
 
   SimulationScreen(AppState* s);
   ~SimulationScreen(); // delete sim_renderer; }
@@ -540,6 +541,8 @@ public:
   void render() override;
 
   bool handle_event(const SDL_Event* e) override;
+
+  void cycle_rider(int direction);
 
 private:
   AppState* state;
@@ -834,6 +837,15 @@ struct FrameSnapshot {
   SnapshotMap riders;
 };
 
+struct InterpolatedFrameView {
+  double interp_sim_time; // optional, but useful
+  double alpha;
+
+  std::unordered_map<int, Vector2d> rider_pos;
+  std::unordered_map<size_t, double> rider_slope;
+  std::unordered_map<size_t, double> rider_effort;
+};
+
 #endif
 ```
 
@@ -1011,7 +1023,7 @@ inline constexpr RiderVisualModel TT_BIKE_VISUAL{
     .front_wheel_offset = {-ROAD_WHEEL_RADIUS, 2 * ROAD_WHEEL_RADIUS},
     .rear_wheel_offset = {-TT_WHEELBASE - TT_WHEEL_RADIUS, 2 * TT_WHEEL_RADIUS},
     .body_offset = {0.5, 0.9},
-    .body_frame_count = 8,
+    .body_frame_count = 24,
     .front_ground_point = {430.0 / 512.0, 407.0 / 512.0}};
 
 inline constexpr RiderVisualModel CLIMB_BIKE_VISUAL{
@@ -1021,7 +1033,7 @@ inline constexpr RiderVisualModel CLIMB_BIKE_VISUAL{
     .rear_wheel_offset = {-ROAD_WHEELBASE - ROAD_WHEEL_RADIUS,
                           2 * ROAD_WHEEL_RADIUS},
     .body_offset = {0.5, 0.9},
-    .body_frame_count = 8,
+    .body_frame_count = 24,
     .front_ground_point = {430.0 / 512.0, 407.0 / 512.0}};
 
 inline const RiderVisualModel& resolve_visual_model(BikeType type) {
@@ -1179,24 +1191,27 @@ protected:
   SDL_Texture* texture = nullptr;
   SDL_Texture* bg_texture = nullptr;
 
-  void update_texture(SDL_Renderer* renderer);
   void create_bg(SDL_Renderer* renderer);
+  void update_texture(SDL_Renderer* renderer);
+  // so child class can overwrite with custom logic
+  virtual std::string get_display_text() const { return current_text; }
 
 public:
   ValueField(int x, int y, int w, int h, TTF_Font* font);
   virtual ~ValueField();
 
   void set_text(const std::string& text);
-
-  // Standard Widget interface
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override { return false; }
+  const std::string& get_text() const { return current_text; }
 
   void set_position(int new_x, int new_y) {
     x = new_x;
     y = new_y;
   }
   int get_width() const { return w; }
+
+  // Standard Widget interface
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override { return false; }
 };
 
 class RiderValueField : public ValueField {
@@ -1302,25 +1317,23 @@ public:
 protected:
   bool editing = false;
   std::string buffer;
+
   SDL_Window* window;
   CommitCallback on_commit;
 
   // blinking cursor
   Uint32 last_cursor_blink = 0;
   bool cursor_visible = true;
-  const Uint32 cursor_blink_ms = 500;
+  const Uint32 BLINK_MS = 500;
 
   // hook: validation/acceptance of character input
   virtual bool accept_char(char c, const std::string& before) = 0;
 
   // helper: commit and fire callback
-  void commit() {
-    editing = false;
-    SDL_StopTextInput(window);
-    set_text(buffer);
-    if (on_commit)
-      on_commit(buffer);
-  }
+  void commit();
+
+  // Chooses which text ValueField should render
+  std::string current_display_text() const;
 
 public:
   BaseEditableField(int x, int y, int w, int h, TTF_Font* font, SDL_Window* win,
@@ -1340,15 +1353,7 @@ public:
   }
 
 protected:
-  bool accept_char(char c, const std::string& before) override {
-    if (c >= '0' && c <= '9')
-      return true;
-    if (c == '.' && before.find('.') == std::string::npos)
-      return true;
-    if (c == '-' && before.empty())
-      return true;
-    return false;
-  }
+  bool accept_char(char c, const std::string& before) override;
 };
 
 class EditableStringField : public BaseEditableField {
@@ -1359,9 +1364,7 @@ public:
       : BaseEditableField(x, y, w, h, font, win, std::move(cb)) {}
 
 protected:
-  bool accept_char(char c, const std::string&) override {
-    return true; // accept all UTF-8 bytes SDL gives us
-  }
+  bool accept_char(char c, const std::string&) override { return true; }
 };
 
 #endif
@@ -1371,6 +1374,7 @@ src/appstate.cpp
 ```
 // src/appstate.cpp
 #include "appstate.h"
+#include "SDL3/SDL_render.h"
 #include "SDL3_ttf/SDL_ttf.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
@@ -1409,6 +1413,7 @@ AppState::AppState() {
   resources = new GameResources(renderer);
 
   // 4. Initialize Simulation
+  // v
   course = new Course(Course::create_endulating());
   sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(0.1);
@@ -1469,23 +1474,16 @@ void Camera::set_target_id(int rider_uid) { target_uid = rider_uid; }
 
 void Camera::clear_target() { target_uid.reset(); }
 
-void Camera::update(const SnapshotMap& snaps) {
-  if (!target_uid.has_value())
+void Camera::update(const InterpolatedFrameView& view) {
+  if (!target_uid)
     return;
-
   int id = *target_uid;
-  auto it = snaps.find(id);
-  if (it == snaps.end())
+
+  auto it = view.rider_pos.find(id);
+  if (it == view.rider_pos.end())
     return;
 
-  const RiderSnapshot& snap = it->second;
-
-  // Target position is rider position
-  Vector2d target_pos = snap.pos2d;
-
-  // Follow altitude using course
-  target_pos.y() = course->get_altitude(target_pos.x());
-
+  Vector2d target_pos = it->second;
   // Smooth interpolation toward target
   pos = pos + follow_strength * (target_pos - pos);
   pos = target_pos;
@@ -1511,15 +1509,15 @@ void Camera::zoom(double amount) {
   scale *= factor;
   if (scale < 0.01)
     scale = 0.01;
-  if (scale > 5.0)
-    scale = 5.0;
+  if (scale > 100.0)
+    scale = 100.0;
 }
 
 // ------------------------
 // TRANSFORMS
 // ------------------------
 Vector2d Camera::world_to_screen(Vector2d world) const {
-  return ((world - pos) * scale).cwiseProduct(Vector2d(1, -vert_scale)) +
+  return ((world - pos) * scale).cwiseProduct(Vector2d(1.0, -vert_scale)) +
          screensize * 0.5;
 }
 
@@ -1729,19 +1727,19 @@ src/display.cpp
 #include <vector>
 
 double effort_to_freq(double effort, double max_effort) {
-  double anim_hz;
+  double anim_rpm;
   double min_rpm = 40.0;
   double max_rpm = 130.0;
 
   if (effort <= 1.0) {
     // 0 → 1  maps to 40 → 100
-    anim_hz = min_rpm + effort * (100.0 - min_rpm);
+    anim_rpm = min_rpm + effort * (100.0 - min_rpm);
   } else {
     // 1 → max_effort maps to 100 → 130
     double t = (effort - 1.0) / (max_effort - 1.0);
-    anim_hz = 100.0 + t * (max_rpm - 100.0);
+    anim_rpm = 100.0 + t * (max_rpm - 100.0);
   }
-  return anim_hz;
+  return anim_rpm / 60;
 }
 
 CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
@@ -1794,26 +1792,28 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
   // for (const auto& [id, snap] : *ctx->rider_snapshots) {
   for (auto& [id, s1] : curr) {
-    auto it0 = prev.find(id);
-    if (it0 == prev.end())
-      continue; // new rider appeared
-    const RiderSnapshot& s0 = it0->second;
+    // auto it0 = prev.find(id);
+    // if (it0 == prev.end())
+    //   continue; // new rider appeared
+    // const RiderSnapshot& s0 = it0->second;
 
-    double a = ctx->alpha;
-
-    Vector2d pos2d = s0.pos2d * (1.0 - a) + s1.pos2d * a;
-
-    double slope = s0.slope * (1.0 - a) + s1.slope * a;
-    double effort = s0.effort * (1.0 - a) + s1.effort * a;
+    Vector2d pos2d = ctx->view.rider_pos.at(id);
+    double slope = ctx->view.rider_slope.at(id);
+    double effort = ctx->view.rider_effort.at(id);
 
     // ---------------------------
     // Resolve visual model
     // ---------------------------
     const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
 
-    RiderVisualState& vis = visuals[s1.uid];
+    auto [it, inserted] = visuals.try_emplace(id);
+    RiderVisualState& vis = it->second;
 
-    // interpolate
+    if (inserted) {
+      vis.last_anim_sim_time = ctx->view.interp_sim_time;
+      vis.anim_phase = 0.0;
+      vis.wheel_angle = 0.0;
+    }
 
     // ---------------------------
     // Camera & orientation
@@ -1848,11 +1848,11 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // ---------------------------
     // Distance-based wheel rotation
     // ---------------------------
-    if (vis.last_pos == 0.0)
-      vis.last_pos = s1.pos;
+    if (std::isnan(vis.last_pos))
+      vis.last_pos = pos2d.x();
 
-    double ds = s1.pos - vis.last_pos;
-    vis.last_pos = s1.pos;
+    double ds = pos2d.x() - vis.last_pos;
+    vis.last_pos = pos2d.x();
 
     vis.wheel_angle += ds / model.wheel_radius;
 
@@ -1909,21 +1909,29 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     SDL_FPoint rider_pivot{anchor_x, anchor_y};
 
-    if (vis.last_sim_time == 0.0)
-      vis.last_sim_time = ctx->curr_frame->sim_time;
+    double prev_sim_time = ctx->prev_frame->sim_time;
+    double curr_sim_time = ctx->curr_frame->sim_time;
 
-    double dt_sim = ctx->curr_frame->sim_time - vis.last_sim_time;
-    vis.last_sim_time = ctx->curr_frame->sim_time;
+    if (std::isnan(vis.last_anim_sim_time))
+      vis.last_anim_sim_time = ctx->view.interp_sim_time;
 
-    double hz = effort_to_freq(effort, s1.max_effort);
-    vis.anim_phase = std::fmod(vis.anim_phase + hz * dt_sim, 1.0);
+    double dt = ctx->view.interp_sim_time - vis.last_anim_sim_time;
 
-    int idx = vis.anim_phase * model.body_frame_count;
+    if (dt > 0.0) {
+      double hz = effort_to_freq(effort, s1.max_effort);
+      vis.anim_phase = std::fmod(vis.anim_phase + hz * dt, 1.0);
+      vis.last_anim_sim_time = ctx->view.interp_sim_time;
+    }
 
-    int row = idx / 6;
-    int col = idx % 6;
+    constexpr int COLS = 6;
+    constexpr int ROWS = 4;
+    constexpr int TOTAL_FRAMES = COLS * ROWS;
 
-    SDL_Log("%d: %d, %d", id, row, col);
+    int idx = static_cast<int>(vis.anim_phase * TOTAL_FRAMES);
+    idx = std::clamp(idx, 0, TOTAL_FRAMES - 1);
+
+    int row = idx / COLS;
+    int col = idx % COLS;
 
     SDL_FRect src{static_cast<float>(col * 512), static_cast<float>(row * 512),
                   512, 512};
@@ -2105,8 +2113,12 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     state->sim->get_engine()->add_rider(r);
 
     Rider* r2 = new Rider("Pedro", 320, 90, 0.3, Bike::create_generic(), team);
-    r2->pos = 20;
+    r2->pos = 2;
     state->sim->get_engine()->add_rider(r2);
+
+    Rider* r3 = new Rider("Marjo", 300, 88, 0.3, Bike::create_generic(), team);
+    r2->pos = 1.5;
+    state->sim->get_engine()->add_rider(r3);
 
     state->physics_thread =
         new std::thread([sim = state->sim]() { sim->start_realtime(); });
@@ -2390,6 +2402,7 @@ void Rider::update(double dt) {
   double ftp = ftp_base;
   // this comes from energymodel
   double effort_limit = 1;
+  effort = target_effort;
   power = std::min(target_effort, effort_limit) * ftp;
   // energy_model.update(power, timestep);
   try {
@@ -2720,17 +2733,56 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
     }
     break;
 
-  case SDL_EVENT_MOUSE_WHEEL:
-    // sim_renderer->get_camera()->zoom(e.wheel.y * 0.1);
-    // return true;
-    break;
+  case SDL_EVENT_MOUSE_WHEEL: {
+    constexpr double ZOOM_SENSITIVITY = 0.1;
+    sim_renderer->get_camera()->zoom(e->wheel.y * ZOOM_SENSITIVITY);
+    return true;
+  }
 
   case SDL_EVENT_KEY_DOWN:
-    if (e->key.key == SDLK_ESCAPE)
+    switch (e->key.key) {
+    case SDLK_LEFT:
+      cycle_rider(-1);
+      return true;
+
+    case SDLK_RIGHT:
+      cycle_rider(+1);
+      return true;
+
+    case SDLK_ESCAPE:
       state->screens->replace(ScreenType::Menu);
+      return true;
+    }
     break;
   }
-  return true;
+  return false;
+}
+
+void SimulationScreen::cycle_rider(int direction) {
+  const auto& riders = sim_renderer->get_frame_pair().curr->riders;
+  if (riders.empty())
+    return;
+
+  // Extract IDs into a sorted list for stable cycling
+  std::vector<int> ids;
+  ids.reserve(riders.size());
+  for (const auto& [id, _] : riders)
+    ids.push_back(id);
+
+  std::sort(ids.begin(), ids.end());
+
+  // Find current index
+  auto it = std::find(ids.begin(), ids.end(), selected_rider_uid);
+  int idx = (it == ids.end()) ? 0 : std::distance(ids.begin(), it);
+
+  // Cycle with wrap-around
+  idx = (idx + direction + ids.size()) % ids.size();
+
+  selected_rider_uid = ids[idx];
+
+  // Apply selection
+  sim_renderer->get_camera()->set_target_id(selected_rider_uid);
+  sim_renderer->get_rider_panel()->set_rider_id(selected_rider_uid);
 }
 
 PlotScreen::PlotScreen(AppState* s) : state(s) {
@@ -2871,6 +2923,13 @@ src/sim.cpp
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
 
 void PhysicsEngine::add_rider(Rider* r) {
+  for (Rider* r0 : riders) {
+    if (r->get_id() == r0->get_id()) {
+      SDL_Log("Tried to add rider who is already in the list! %s",
+              r->name.c_str());
+      return;
+    }
+  }
   std::lock_guard<std::mutex> lock(frame_mtx);
   riders.push_back(r);
   r->set_course(course);
@@ -3104,7 +3163,6 @@ void SimulationRenderer::build_and_swap_snapshots() {
 void SimulationRenderer::update() {
   // First gather snapshots
   build_and_swap_snapshots();
-  camera->update(frame_curr.riders);
 }
 
 void SimulationRenderer::render_frame() {
@@ -3115,27 +3173,51 @@ void SimulationRenderer::render_frame() {
   ctx.renderer = renderer;
   ctx.resources = resources;
   ctx.camera_weak = camera;
-  ctx.prev_frame = &frame_prev;
-  ctx.curr_frame = &frame_curr;
   ctx.sim_time = sim->get_sim_seconds();
 
   double now = SDL_GetTicks() / 1000.0;
 
-  // how much real time has passed since curr frame was captured
-  double real_since_curr = now - frame_curr.real_time;
+  {
+    // IMPORTANT: prevent swap while we compute alpha and set pointers
+    std::scoped_lock lock(snapshot_swap_mtx);
 
-  // estimate what sim-time "now" corresponds to
-  double sim_now =
-      frame_curr.sim_time + real_since_curr * frame_curr.time_factor;
+    ctx.prev_frame = &frame_prev;
+    ctx.curr_frame = &frame_curr;
 
-  // bracket between prev and curr sim times
-  double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
+    const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
 
-  double alpha = 1.0;
-  if (sim_dt > 0.0) {
-    alpha = (sim_now - frame_prev.sim_time) / sim_dt;
+    // time since "curr" was published (real seconds)
+    const double real_since_curr = now - frame_curr.real_time;
+
+    double alpha = 1.0;
+    if (sim_dt > 0.0) {
+      alpha = (real_since_curr * frame_curr.time_factor) / sim_dt;
+    }
+    ctx.alpha = std::clamp(alpha, 0.0, 1.0);
+
+    InterpolatedFrameView view;
+    view.alpha = alpha;
+    view.interp_sim_time =
+        frame_prev.sim_time * (1.0 - alpha) + frame_curr.sim_time * alpha;
+
+    for (const auto& [id, s1] : frame_curr.riders) {
+      auto it0 = frame_prev.riders.find(id);
+      if (it0 == frame_prev.riders.end())
+        continue;
+
+      const RiderSnapshot& s0 = it0->second;
+
+      view.rider_pos[id] = s0.pos2d * (1.0 - alpha) + s1.pos2d * alpha;
+
+      view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
+
+      view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
+    }
+
+    ctx.view = std::move(view);
   }
-  ctx.alpha = std::clamp(alpha, 0.0, 1.0);
+
+  camera->update(ctx.view);
 
   // 1. Draw world-space drawables
   int cnt = 0;
@@ -3186,6 +3268,12 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     return found_id;
   }
   return -1;
+}
+
+FramePairView SimulationRenderer::get_frame_pair() const {
+  std::scoped_lock lock(snapshot_swap_mtx);
+
+  return FramePairView{.prev = &frame_prev, .curr = &frame_curr};
 }
 
 bool SimulationRenderer::handle_event(const SDL_Event* e) {
@@ -3322,6 +3410,7 @@ src/widget.cpp
 
 #include "SDL3/SDL_log.h"
 #include "SDL3/SDL_pixels.h"
+#include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_render.h"
 #include "SDL3/SDL_surface.h"
 #include "display.h"
@@ -3762,15 +3851,18 @@ void ValueField::render(const RenderContext* ctx) {
   if (!texture && !current_text.empty())
     update_texture(renderer);
 
-  float tex_w, tex_h;
-  SDL_GetTextureSize(texture, &tex_w, &tex_h);
-
-  // SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
-  SDL_FRect rect{(float)x, (float)y, (float)tex_w, (float)tex_h};
+  SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
   SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
 
-  if (texture)
+  if (texture) {
+    float tex_w, tex_h;
+    SDL_GetTextureSize(texture, &tex_w, &tex_h);
+
+    rect = SDL_FRect{(float)x + w - tex_w - 4, (float)y + (h - tex_h) * 0.5f,
+                     (float)tex_w, (float)tex_h};
+
     SDL_RenderTexture(renderer, texture, nullptr, &rect);
+  }
 }
 
 RiderValueField::RiderValueField(int x, int y, int w, int h, TTF_Font* font,
@@ -4037,6 +4129,7 @@ bool BaseEditableField::handle_event(const SDL_Event* e) {
     for (char c : std::string(e->text.text)) {
       if (accept_char(c, buffer))
         buffer.push_back(c);
+      SDL_Log("%s", buffer.c_str());
     }
     return true;
   }
@@ -4045,51 +4138,75 @@ bool BaseEditableField::handle_event(const SDL_Event* e) {
 }
 
 void BaseEditableField::render(const RenderContext* ctx) {
-  SDL_Renderer* renderer = ctx->renderer;
-
-  if (!bg_texture)
-    create_bg(renderer);
-
-  // blink update
   if (editing) {
     Uint32 now = SDL_GetTicks();
-    if (now - last_cursor_blink >= cursor_blink_ms) {
+    if (now - last_cursor_blink >= BLINK_MS) {
       cursor_visible = !cursor_visible;
       last_cursor_blink = now;
     }
   }
 
-  std::string displayed;
+  SDL_Renderer* renderer = ctx->renderer;
 
-  if (editing) {
-    displayed = buffer;
-    if (cursor_visible)
-      displayed += "|";
-  } else {
-    displayed = current_text;
-  }
+  // if (!bg_texture)
+  //   create_bg(renderer);
 
-  // regenerate texture every frame while editing
-  if (texture) {
-    SDL_DestroyTexture(texture);
-    texture = nullptr;
-  }
-  if (!displayed.empty()) {
-    SDL_Surface* surf =
-        TTF_RenderText_Blended(font, displayed.c_str(), 0, text_color);
-    texture = SDL_CreateTextureFromSurface(renderer, surf);
-    SDL_DestroySurface(surf);
-  }
+  std::string saved = current_text;
+  ValueField::set_text(current_display_text());
 
-  SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
-  SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+  ValueField::render(ctx);
 
-  if (texture) {
-    float tw, th;
-    SDL_GetTextureSize(texture, &tw, &th);
-    SDL_FRect dst{(float)x, (float)y, tw, th};
-    SDL_RenderTexture(renderer, texture, nullptr, &dst);
-  }
+  current_text = saved;
+  //
+  // // regenerate texture every frame while editing
+  // if (texture) {
+  //   SDL_DestroyTexture(texture);
+  //   texture = nullptr;
+  // }
+  // if (!displayed.empty()) {
+  //   SDL_Surface* surf =
+  //       TTF_RenderText_Blended(font, displayed.c_str(), 0, text_color);
+  //   texture = SDL_CreateTextureFromSurface(renderer, surf);
+  //   SDL_DestroySurface(surf);
+  // }
+  //
+  // SDL_FRect rect{(float)x, (float)y, (float)w, (float)h};
+  // SDL_RenderTexture(renderer, bg_texture, nullptr, &rect);
+  //
+  // if (texture) {
+  //   float tw, th;
+  //   SDL_GetTextureSize(texture, &tw, &th);
+  //   SDL_FRect dst{(float)x, (float)y, tw, th};
+  //   SDL_RenderTexture(renderer, texture, nullptr, &dst);
+  // }
+}
+
+void BaseEditableField::commit() {
+  editing = false;
+  SDL_StopTextInput(window);
+  set_text(buffer);
+  if (on_commit)
+    on_commit(buffer);
+}
+
+std::string BaseEditableField::current_display_text() const {
+  if (!editing)
+    return current_text;
+
+  if (cursor_visible)
+    return buffer + "|";
+
+  return buffer;
+}
+
+bool EditableNumberField::accept_char(char c, const std::string& before) {
+  if (c >= '0' && c <= '9')
+    return true;
+  if (c == '.' && before.find('.') == std::string::npos)
+    return true;
+  if (c == '-' && before.empty())
+    return true;
+  return false;
 }
 ```
 
