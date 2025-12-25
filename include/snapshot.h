@@ -20,7 +20,7 @@ static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
                                                "Grav", "Inert", "Drive"};
 
 struct RiderSnapshot {
-  const size_t uid;
+  const int uid;
   std::string name;
   double pos;
   double slope;

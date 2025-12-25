@@ -29,6 +29,11 @@ public:
   virtual Wind get_wind(double pos) const = 0;
   // virtual bool isCheckpoint(double pos) const = 0;
   virtual ~ICourseView() = default;
+
+  double virtual get_total_length() const { return total_length_; }
+
+protected:
+  double total_length_;
 };
 
 class Course : public ICourseView {
@@ -37,8 +42,6 @@ private:
   std::vector<double> altitudes; // y at each segment start
 
 public:
-  double total_length;
-
   std::vector<Vector2d> visual_points;
 
   Course(const std::vector<std::array<double, 3>> segments);

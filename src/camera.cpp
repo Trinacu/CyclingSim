@@ -50,8 +50,8 @@ void Camera::zoom(double amount) {
   scale *= factor;
   if (scale < 0.01)
     scale = 0.01;
-  if (scale > 100.0)
-    scale = 100.0;
+  if (scale > 200.0)
+    scale = 200.0;
 }
 
 // ------------------------

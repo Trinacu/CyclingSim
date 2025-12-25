@@ -15,6 +15,7 @@ class ScreenManager;
 
 class AppState {
 public:
+  std::vector<RiderConfig> rider_configs;
   // Constants
   const int SCREEN_WIDTH = 1000;
   const int SCREEN_HEIGHT = 640;
@@ -135,6 +136,8 @@ public:
   SDL_Renderer* sdl() const { return renderer; }
   GameResources* get_resources() const { return resources; }
 
+  bool handle_event(const SDL_Event* e) { return false; }
+
 protected:
   SDL_Renderer* renderer;   // Raw pointer; owned by AppState
   GameResources* resources; // Raw pointer; owned by AppState
@@ -177,6 +180,11 @@ public:
   virtual Wind get_wind(double pos) const = 0;
   // virtual bool isCheckpoint(double pos) const = 0;
   virtual ~ICourseView() = default;
+
+  double virtual get_total_length() const { return total_length_; }
+
+protected:
+  double total_length_;
 };
 
 class Course : public ICourseView {
@@ -185,8 +193,6 @@ private:
   std::vector<double> altitudes; // y at each segment start
 
 public:
-  double total_length;
-
   std::vector<Vector2d> visual_points;
 
   Course(const std::vector<std::array<double, 3>> segments);
@@ -328,6 +334,7 @@ include/plotrenderer.h
 #define PLOT_RENDERER_H
 
 #include "corerenderer.h"
+#include "sim.h"
 
 class PlotRenderer : public CoreRenderer {
 public:
@@ -337,8 +344,11 @@ public:
 
   bool handle_event(const SDL_Event* e);
 
+  void set_data(std::vector<PlotSample> samples);
+
 private:
   void render_plot_imgui();
+  std::vector<PlotSample> plot_data;
 };
 
 #endif
@@ -351,6 +361,7 @@ include/rider.h
 #define RIDER_H
 
 #include "course.h"
+#include "pch.hpp"
 #include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
@@ -383,10 +394,23 @@ public:
   static Bike create_generic();
 };
 
+struct RiderConfig {
+  std::string name;
+
+  double ftp_base;
+  double max_effort;
+  double cda;
+  double mass;
+
+  Bike bike;
+  Team team;
+};
+
 class Rider {
 private:
-  static size_t global_id_counter; // declaration
-  const size_t uid;                // unique ID
+  RiderConfig config;
+  static int global_id_counter; // class var
+  const int uid;                // instance unique ID
   double ftp_base;
   double effort;
   double max_effort;
@@ -395,10 +419,10 @@ private:
   double effective_cda;
   double mass;
   double total_mass;
-  double heading = 0;
-  double v_hw;
-  Vector2d _pos2d = Vector2d{0, 0};
 
+  double heading;
+  Vector2d _pos2d;
+  double v_hw;
   double power;
 
   double drag_coeff;
@@ -430,8 +454,7 @@ public:
   double speed;
   const SDL_Texture* image;
 
-  Rider(std::string name_, double ftp_base_, double mass_, double cda_,
-        Bike bike_, Team team_);
+  Rider(RiderConfig config_);
   static Rider* create_generic(Team team_);
 
   void set_course(const ICourseView* cv);
@@ -443,15 +466,20 @@ public:
   void reset();
   void update(double dt);
 
-  size_t get_id() const { return uid; }
+  bool finished() { return pos >= course->get_total_length(); }
+
+  int get_uid() const { return uid; }
 
   void set_effort(double new_effort);
 
   double km() const;
   double km_h() const;
+  double get_power() const { return power; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
+
+  RiderConfig get_config() { return config; }
 
   double pow_speed(double new_speed);
   double pow_speed_prime(double new_speed) const;
@@ -481,6 +509,7 @@ include/screen.h
 
 #include "SDL3/SDL_events.h"
 #include "widget.h"
+#include <future>
 #include <memory>
 
 class AppState;
@@ -567,9 +596,17 @@ public:
   void render() override;
   bool handle_event(const SDL_Event* e) override;
 
+  void run_simulation();
+
 private:
   AppState* state;
+  std::future<PlotResult> future;
+  std::optional<PlotResult> result;
+  bool running = false;
   std::unique_ptr<PlotRenderer> renderer;
+
+  // TODO - how do we choose/cahnge this?
+  int target_uid = 2;
 };
 
 #endif
@@ -634,27 +671,31 @@ include/sim.h
 #include <mutex>
 
 #include <atomic>
+#include <vector>
 
 class PhysicsEngine {
 private:
   const Course* course;
   mutable std::mutex frame_mtx;
-  std::vector<Rider*> riders;
+  std::vector<std::unique_ptr<Rider>> riders;
 
 public:
   explicit PhysicsEngine(const Course* c);
-  void add_rider(Rider* r);
+  void add_rider(const RiderConfig cfg);
   void update(double dt);
 
   const Course* get_course() const { return course; }
-  double get_course_length() const { return course->total_length; }
+  const double get_course_length() const { return course->get_total_length(); }
 
   // do these returns need to/should be const?
-  const std::vector<Rider*>& get_riders() const;
-  Rider* get_rider(int idx) const;
+  const std::vector<std::unique_ptr<Rider>>& get_riders() const;
+  const Rider* get_rider(int idx) const;
+  const Rider* get_rider_by_uid(int uid) const;
   std::mutex* get_frame_mutex() const;
 
-  ~PhysicsEngine();
+  void set_rider_effort(int uid, double effort);
+
+  ~PhysicsEngine() = default;
 };
 
 // forward declare
@@ -676,8 +717,6 @@ private:
 
   const float dt = 0.1; // 100 Hz physics
 
-  void step_fixed(double dt);
-
 public:
   Simulation(const Course* c);
 
@@ -689,6 +728,8 @@ public:
   void resume();
   bool is_paused() const;
   void stop();
+
+  void step_fixed(double dt);
 
   double get_time_factor() { return time_factor; }
   void set_time_factor(double f) { time_factor = f; }
@@ -704,12 +745,134 @@ public:
   std::string physics_error_message;
 };
 
-class SimulationCondition {
+class SimulationObserver {
 public:
-  virtual ~SimulationCondition() = default;
-  virtual bool is_met(const Simulation& sim) const = 0;
+  virtual ~SimulationObserver() = default;
+
+  // Called every fixed step
+  virtual void on_step(const Simulation& sim) = 0;
+
+  // Called once at start (optional)
+  virtual void on_start(const Simulation& sim) {}
+
+  // Called once at end (optional)
+  virtual void on_finish(const Simulation& sim) {}
+
+  // Return true to stop simulation early
+  virtual bool should_stop(const Simulation& sim) const { return false; }
 };
 
+struct PlotSample {
+  double time;
+  double value;
+};
+
+using MetricFn = std::function<double(const Simulation&)>;
+
+class MetricObserver : public SimulationObserver {
+public:
+  MetricObserver(MetricFn fn) : metric(fn) {}
+
+  void on_step(const Simulation& sim) override {
+    samples.push_back({sim.get_sim_seconds(), metric(sim)});
+  }
+
+  const auto& data() const { return samples; }
+
+private:
+  MetricFn metric;
+  std::vector<PlotSample> samples;
+};
+
+struct PlotResult {
+  std::vector<PlotSample> samples;
+};
+
+class RiderValuePlotObserver : public SimulationObserver {
+public:
+  RiderValuePlotObserver(size_t rider_uid_) : rider_uid(rider_uid_) {}
+
+  void on_step(const Simulation& sim) override {
+    const Rider* r = sim.get_engine()->get_rider(rider_uid);
+    samples.push_back({
+        sim.get_sim_seconds(),
+        r->km_h() // or power, cadence, etc.
+    });
+  }
+
+  const std::vector<PlotSample>& data() const { return samples; }
+
+private:
+  size_t rider_uid;
+  std::vector<PlotSample> samples;
+};
+
+class SimulationEndCondition {
+public:
+  virtual ~SimulationEndCondition() = default;
+  virtual bool should_stop(const Simulation& sim) const = 0;
+};
+
+class FinishLineCondition : public SimulationEndCondition {
+public:
+  FinishLineCondition() {}
+
+  bool should_stop(const Simulation& sim) const override {
+    for (const auto& r : sim.get_engine()->get_riders()) {
+      if (!r->finished()) {
+        SDL_Log("%s: %.1f", r->name.c_str(), r->pos);
+        return false;
+      }
+    }
+    SDL_Log("all riders finished");
+    return true;
+  }
+};
+
+class TimeLimitCondition : public SimulationEndCondition {
+public:
+  TimeLimitCondition(double max_time) : t(max_time) {}
+
+  bool should_stop(const Simulation& sim) const override {
+    return sim.get_sim_seconds() >= t;
+  }
+
+private:
+  double t;
+};
+
+class OrEndCondition : public SimulationEndCondition {
+public:
+  OrEndCondition(std::unique_ptr<SimulationEndCondition> a,
+                 std::unique_ptr<SimulationEndCondition> b)
+      : lhs(std::move(a)), rhs(std::move(b)) {}
+
+  bool should_stop(const Simulation& sim) const override {
+    return lhs->should_stop(sim) || rhs->should_stop(sim);
+  }
+
+private:
+  std::unique_ptr<SimulationEndCondition> lhs, rhs;
+};
+
+class OfflineSimulationRunner {
+public:
+  OfflineSimulationRunner(std::unique_ptr<Simulation> sim);
+
+  void add_observer(SimulationObserver* obs);
+  void set_end_condition(std::unique_ptr<SimulationEndCondition> cond);
+
+  void run();
+
+private:
+  std::unique_ptr<Simulation> sim;
+  std::vector<SimulationObserver*> observers;
+  std::unique_ptr<SimulationEndCondition> end_condition;
+};
+
+PlotResult run_plot_simulation(const Course& course,
+                               const std::vector<RiderConfig>& riders,
+                               int target_uid);
 #endif
 ```
 
@@ -808,7 +971,7 @@ static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
                                                "Grav", "Inert", "Drive"};
 
 struct RiderSnapshot {
-  const size_t uid;
+  const int uid;
   std::string name;
   double pos;
   double slope;
@@ -1421,6 +1584,15 @@ AppState::AppState() {
   screens = new ScreenManager(this);
   screens->push(ScreenType::Simulation);
 
+  Team team("Team1");
+  RiderConfig cfg = {"Pedro", 320, 6, 90, 0.3, Bike::create_generic(), team};
+  rider_configs.push_back(cfg);
+  cfg = {"Pedro", 300, 6, 88, 0.3, Bike::create_generic(), team};
+  rider_configs.push_back(cfg);
+
+  for (const RiderConfig& cfg : rider_configs) {
+    sim->get_engine()->add_rider(cfg);
+  }
   // (Optional) Setup default riders here or in Main
 }
 
@@ -1608,8 +1780,8 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
     y += len * slope;
     visual_points.push_back(Vector2d(x, y));
   }
-  total_length = x;
-  SDL_Log("%f", total_length);
+  total_length_ = x;
+  SDL_Log("Total course length: %.1f m", total_length_);
 }
 
 Course
@@ -1624,7 +1796,7 @@ Course Course::create_flat() {
 
 Course Course::create_endulating() {
   std::vector<std::array<double, 3>> v = {
-      {10, 0, 0}, {200, 0.1, 0}, {200, 0, 0}, {500, 0.05, 0}};
+      {100, 0, 0}, {200, 0.1, 0}, {200, 0, 0}, {500, 0.05, 0}};
   return Course(v);
 }
 
@@ -1637,6 +1809,7 @@ double Course::get_slope(double pos) const {
   return segments[find_segment(pos)].slope;
 }
 
+// TODO - fix this to query whatever holds the values?
 Wind Course::get_wind(double pos) const { return Wind{0, 1}; }
 
 MatrixX2d Course::get_points(double x_min, double x_max) const {
@@ -1679,10 +1852,10 @@ MatrixX2d Course::get_points(double x_min, double x_max) const {
 }
 
 int Course::find_segment(double x) const {
-  if (x > total_length) {
+  if (x > total_length_) {
     SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
             "Course::find segment()",
-            x, total_length);
+            x, total_length_);
     return segments.size() - 1;
   }
   int lo = 0, hi = segments.size() - 1;
@@ -2108,18 +2281,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
   try {
     auto* state = new AppState();
 
-    Team team("Team1");
-    Rider* r = Rider::create_generic(team);
-    state->sim->get_engine()->add_rider(r);
-
-    Rider* r2 = new Rider("Pedro", 320, 90, 0.3, Bike::create_generic(), team);
-    r2->pos = 2;
-    state->sim->get_engine()->add_rider(r2);
-
-    Rider* r3 = new Rider("Marjo", 300, 88, 0.3, Bike::create_generic(), team);
-    r2->pos = 1.5;
-    state->sim->get_engine()->add_rider(r3);
-
     state->physics_thread =
         new std::thread([sim = state->sim]() { sim->start_realtime(); });
 
@@ -2208,7 +2369,6 @@ src/plotrenderer.cpp
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "display.h"
 #include "implot.h"
-#include <cmath>
 
 PlotRenderer::PlotRenderer(SDL_Renderer* r, GameResources* res)
     : CoreRenderer(r, res) {}
@@ -2240,20 +2400,32 @@ void PlotRenderer::render_frame() {
 void PlotRenderer::render_plot_imgui() {
   ImGui::Begin("Plot");
 
-  static float xs[100], ys[100];
-  static bool init = false;
+  if (plot_data.empty()) {
+    ImGui::Text("No data yet...");
+  } else {
+    // Build arrays for ImPlot
+    static std::vector<double> xs;
+    static std::vector<double> ys;
 
-  if (!init) {
-    for (int i = 0; i < 100; ++i) {
-      xs[i] = i * 0.1f;
-      ys[i] = sinf(xs[i]);
+    xs.clear();
+    ys.clear();
+    xs.reserve(plot_data.size());
+    ys.reserve(plot_data.size());
+
+    for (const auto& s : plot_data) {
+      xs.push_back(s.time);
+      ys.push_back(s.value);
     }
-    init = true;
-  }
 
-  if (ImPlot::BeginPlot("Example Plot")) {
-    ImPlot::PlotLine("sin(x)", xs, ys, 100);
-    ImPlot::EndPlot();
+    if (ImPlot::BeginPlot("Speed vs Time")) {
+      ImPlot::SetupAxes("Time (s)", "Speed");
+      ImPlot::SetupAxesLimits(
+          xs.front(), xs.back(), *std::min_element(ys.begin(), ys.end()),
+          *std::max_element(ys.begin(), ys.end()), ImPlotCond_Once);
+      ImPlot::PlotLine("Rider", xs.data(), ys.data(),
+                       static_cast<int>(xs.size()));
+      ImPlot::EndPlot();
+    }
   }
 
   ImGui::End();
@@ -2266,6 +2438,10 @@ bool PlotRenderer::handle_event(const SDL_Event* e) {
       return true;
 
   return false;
+}
+
+void PlotRenderer::set_data(std::vector<PlotSample> samples) {
+  plot_data = std::move(samples);
 }
 ```
 
@@ -2283,7 +2459,7 @@ src/rider.cpp
 #include "helpers.h"
 #include "snapshot.h"
 
-size_t Rider::global_id_counter = 0;
+int Rider::global_id_counter = 0;
 
 const double ETOL = 1e-1; // W
 const double ERTOL = 1e-3;
@@ -2292,8 +2468,6 @@ const double PRTOL = 1e-4;
 
 const double RHO = 1.2234;
 const double G = 9.80665;
-
-const double PI = 3.14159265358979323846;
 
 bool is_close(double value, double target, double tol, double rtol) {
   return std::fabs(value - target) <= tol + rtol * std::fabs(target);
@@ -2312,17 +2486,17 @@ Bike Bike::create_generic() {
 
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
-Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
-             Bike bike_, Team team_)
-    : uid(global_id_counter++), name(name_), ftp_base(ftp_base_), mass(mass_),
-      cda(cda_), bike(bike_), team(team_) {
+Rider::Rider(RiderConfig config_)
+    : config(config_), uid(global_id_counter++), name(config_.name),
+      ftp_base(config_.ftp_base), mass(config_.mass), cda(config_.cda),
+      bike(config_.bike), team(config_.team) {
   cda_factor = 1.0;
   target_effort = 0.8;
   pos = 0;
   speed = 0;
   slope = 0;
 
-  heading = PI / 3;
+  heading = M_PI / 3;
 
   set_cda_factor(1);
   change_bike(bike);
@@ -2332,7 +2506,8 @@ Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  return new Rider("Joe Moe", 250, 65, 0.3, bike, team_);
+  RiderConfig cfg = {"Joe Moe", 250, 6, 65, 0.3, bike, team_};
+  return new Rider(cfg);
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
@@ -2664,10 +2839,11 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
+  // TODO - fix this to set the right uid effort, not just fix to uid=0
   auto num = std::make_unique<EditableNumberField>(
       200, 400, 80, 26, default_font, state->window, [&](double v) {
-        Rider* r = state->sim->get_engine()->get_rider(0);
-        r->set_effort(v);
+        state->sim->get_engine()->set_rider_effort(0, v);
+        const Rider* r = state->sim->get_engine()->get_rider_by_uid(0);
         SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       });
 
@@ -2806,7 +2982,24 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
 
 PlotScreen::~PlotScreen() = default;
 
-void PlotScreen::update() { ; }
+void PlotScreen::update() {
+  if (!running && !result.has_value()) {
+    running = true;
+
+    future = std::async(std::launch::async, run_plot_simulation,
+                        std::cref(*state->course),
+                        std::cref(state->rider_configs), target_uid);
+  }
+
+  // Poll completion (non-blocking)
+  if (running && future.wait_for(std::chrono::milliseconds(0)) ==
+                     std::future_status::ready) {
+    result = future.get();
+    running = false;
+
+    renderer->set_data(result->samples);
+  }
+}
 
 void PlotScreen::render() { renderer->render_frame(); }
 
@@ -2814,12 +3007,35 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
   if (renderer->handle_event(e))
     return true;
 
+  // primitive but it prevents changing screen while sim is running
+  if (running) {
+    SDL_Log("can't change screen - sim is runnning.");
+    return true; // consume input
+  }
+
   if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
     state->screens->replace(ScreenType::Simulation);
     return true;
   }
   return false;
 }
+
+// void PlotScreen::run_simulation() {
+//   auto sim = std::make_unique<Simulation>(state->course);
+//
+//   // copy riders/config
+//   for (const auto& cfg : state->rider_configs)
+//     sim->get_engine()->add_rider(cfg);
+//
+//   OfflineSimulationRunner runner(std::move(sim));
+//
+//   auto plot_obs = std::make_unique<RiderValuePlotObserver>(0);
+//   runner.add_observer(plot_obs.get());
+//
+//   runner.run();
+//
+//   renderer->set_data(plot_obs->data());
+// }
 ```
 
 src/screenmanager.cpp
@@ -2917,29 +3133,35 @@ void ScreenManager::render() {
 src/sim.cpp
 ```
 #include "sim.h"
+#include "rider.h"
 #include <chrono>
+#include <memory>
 #include <thread>
 
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
 
-void PhysicsEngine::add_rider(Rider* r) {
-  for (Rider* r0 : riders) {
-    if (r->get_id() == r0->get_id()) {
-      SDL_Log("Tried to add rider who is already in the list! %s",
-              r->name.c_str());
-      return;
-    }
+void PhysicsEngine::add_rider(const RiderConfig cfg) {
+  auto r = std::make_unique<Rider>(cfg);
+
+  for (const auto& r0 : riders) {
+    // now with creating riders here we can't check with uid
+    // maybe add check with name + some stats?
+    // if (r->get_id() == r0->get_id()) {
+    //   SDL_Log("Tried to add rider who is already in the list! %s",
+    //           r->name.c_str());
+    //   return;
+    // }
   }
+
   std::lock_guard<std::mutex> lock(frame_mtx);
-  riders.push_back(r);
+
   r->set_course(course);
+  riders.push_back(std::move(r));
 }
 
 void PhysicsEngine::update(double dt) {
-  for (Rider* r : riders) {
+  for (const auto& r : riders) {
     r->update(dt);
-    // std::cout << "pos: " << r->pos << "\tm\nspeed: " << 3.6 * r->speed <<
-    // "\tkm/h\n" << std::endl;
   }
 }
 
@@ -2948,19 +3170,32 @@ void PhysicsEngine::update(double dt) {
 // state.
 std::mutex* PhysicsEngine::get_frame_mutex() const { return &frame_mtx; }
 
-const std::vector<Rider*>& PhysicsEngine::get_riders() const { return riders; }
+const std::vector<std::unique_ptr<Rider>>& PhysicsEngine::get_riders() const {
+  return riders;
+}
 
 // this is (now) only used to set camera to first rider... kinda useless if
 // fixed
-Rider* PhysicsEngine::get_rider(int idx) const { return riders.at(idx); }
-
-PhysicsEngine::~PhysicsEngine() {
-  // WARNING - if riders have textures or other dependencies
-  // we need to be careful here
-  for (Rider* r : riders) {
-    delete r;
-  }
+const Rider* PhysicsEngine::get_rider(int idx) const {
+  return riders.at(idx).get();
 }
+
+const Rider* PhysicsEngine::get_rider_by_uid(int uid) const {
+  for (auto& r : get_riders()) {
+    SDL_Log("%d", r->get_uid());
+    if (r->get_uid() == uid)
+      return r.get();
+    // TODO - do we just raise error here?
+  }
+  SDL_Log("uid %d did not match any rider!", uid);
+  return nullptr;
+}
+
+void PhysicsEngine::set_rider_effort(int uid, double effort) {
+  riders.at(uid).get()->set_effort(effort);
+}
+
+// SIMULATION
 
 Simulation::Simulation(const Course* c) : engine(c) {}
 
@@ -3023,31 +3258,31 @@ void Simulation::step_fixed(double dt) {
   sim_seconds += dt;
 }
 
-void Simulation::run_max_speed(const SimulationCondition& cond) {
-  using namespace std::chrono;
-
-  const int secs = 180;
-  const auto timeout = seconds(secs);
-  const auto start_time = steady_clock::now();
-  int iteration = 1;
-
-  while (!cond.is_met(*this)) {
-    try {
-      step_fixed(dt);
-    } catch (const std::exception& e) {
-      physics_error = true;
-      physics_error_message = e.what();
-      break;
-    }
-
-    if (++iteration % 100 == 0) {
-      if (steady_clock::now() - start_time > timeout) {
-        SDL_Log("Timeout %d seconds after %d iterations", secs, iteration);
-        break;
-      }
-    }
-  }
-}
+// void Simulation::run_max_speed(const SimulationCondition& cond) {
+//   using namespace std::chrono;
+//
+//   const int secs = 180;
+//   const auto timeout = seconds(secs);
+//   const auto start_time = steady_clock::now();
+//   int iteration = 1;
+//
+//   while (!cond.is_met(*this)) {
+//     try {
+//       step_fixed(dt);
+//     } catch (const std::exception& e) {
+//       physics_error = true;
+//       physics_error_message = e.what();
+//       break;
+//     }
+//
+//     if (++iteration % 100 == 0) {
+//       if (steady_clock::now() - start_time > timeout) {
+//         SDL_Log("Timeout %d seconds after %d iterations", secs, iteration);
+//         break;
+//       }
+//     }
+//   }
+// }
 
 void Simulation::pause() { paused = true; }
 
@@ -3059,37 +3294,86 @@ void Simulation::stop() { running = false; }
 
 const double Simulation::get_sim_seconds() const { return sim_seconds; }
 
-class TimeReached : public SimulationCondition {
-  double limit;
-
-public:
-  explicit TimeReached(double limit_seconds) : limit(limit_seconds) {}
-
-  bool is_met(const Simulation& sim) const override {
-    return sim.get_sim_seconds() >= limit;
-  }
-};
-
-class RiderFinished : public SimulationCondition {
-  int rider_index;
-
-public:
-  RiderFinished(int idx) : rider_index(idx) {}
-
-  bool is_met(const Simulation& sim) const override {
-    std::vector<Rider*> riders = sim.get_engine()->get_riders();
-    bool met = false;
-    for (Rider* r : riders) {
-      if (r->pos >= sim.get_engine()->get_course_length()) {
-        met = true;
-      }
-    }
-    return met;
-  }
-};
+// class TimeReached : public SimulationCondition {
+//   double limit;
+//
+// public:
+//   explicit TimeReached(double limit_seconds) : limit(limit_seconds) {}
+//
+//   bool is_met(const Simulation& sim) const override {
+//     return sim.get_sim_seconds() >= limit;
+//   }
+// };
 
 const PhysicsEngine* Simulation::get_engine() const { return &engine; }
 PhysicsEngine* Simulation::get_engine() { return &engine; }
+
+OfflineSimulationRunner::OfflineSimulationRunner(std::unique_ptr<Simulation> s)
+    : sim(std::move(s)) {}
+
+void OfflineSimulationRunner::add_observer(SimulationObserver* obs) {
+  observers.push_back(obs);
+}
+
+void OfflineSimulationRunner::set_end_condition(
+    std::unique_ptr<SimulationEndCondition> cond) {
+  end_condition = std::move(cond);
+}
+
+void OfflineSimulationRunner::run() {
+  for (auto* o : observers)
+    o->on_start(*sim);
+
+  while (true) {
+    sim->step_fixed(sim->get_dt());
+
+    for (auto* o : observers)
+      o->on_step(*sim);
+
+    // bool stop = false;
+    // for (auto* o : observers) {
+    //   if (o->should_stop(*sim)) {
+    //     stop = true;
+    //     break;
+    //   }
+    // }
+    if (end_condition && end_condition->should_stop(*sim))
+      break;
+  }
+
+  for (auto* o : observers)
+    o->on_finish(*sim);
+}
+
+PlotResult run_plot_simulation(const Course& course,
+                               const std::vector<RiderConfig>& riders,
+                               int target_uid) {
+  auto sim = std::make_unique<Simulation>(&course);
+
+  for (const auto& cfg : riders)
+    sim->get_engine()->add_rider(cfg);
+
+  OfflineSimulationRunner runner(std::move(sim));
+
+  MetricObserver obs([target_uid](const Simulation& s) {
+    const Rider* r = s.get_engine()->get_rider_by_uid(target_uid);
+    return r ? r->km_h() : 0.0;
+  });
+
+  runner.add_observer(&obs);
+  runner.set_end_condition(std::make_unique<FinishLineCondition>());
+  runner.run();
+
+  return PlotResult{obs.data()};
+}
+
+// MetricFn speed = [](const Simulation& sim) {
+//   return sim.get_engine()->get_rider(0)->km_h();
+// };
+//
+// MetricFn power = [](const Simulation& sim) {
+//   return sim.get_engine()->get_rider(0)->get_power();
+// };
 ```
 
 src/simulationrenderer.cpp
@@ -3129,10 +3413,10 @@ void SimulationRenderer::build_and_swap_snapshots() {
     std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
 
     const auto& riders = engine->get_riders();
-    for (const Rider* r : riders) {
-      if (!r)
+    for (const auto& r : riders) {
+      if (!r.get())
         continue;
-      frame_back.riders.emplace(r->get_id(), r->snapshot());
+      frame_back.riders.emplace(r->get_uid(), r->snapshot());
     }
   }
 

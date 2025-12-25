@@ -33,10 +33,10 @@ void SimulationRenderer::build_and_swap_snapshots() {
     std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
 
     const auto& riders = engine->get_riders();
-    for (const Rider* r : riders) {
-      if (!r)
+    for (const auto& r : riders) {
+      if (!r.get())
         continue;
-      frame_back.riders.emplace(r->get_id(), r->snapshot());
+      frame_back.riders.emplace(r->get_uid(), r->snapshot());
     }
   }
 
@@ -158,6 +158,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
     SDL_Log("%s: %.1f", snap.name.c_str(), dist);
+    SDL_Log("%.1f", snap.km_h);
 
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {

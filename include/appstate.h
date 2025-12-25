@@ -13,6 +13,7 @@ class ScreenManager;
 
 class AppState {
 public:
+  std::vector<RiderConfig> rider_configs;
   // Constants
   const int SCREEN_WIDTH = 1000;
   const int SCREEN_HEIGHT = 640;

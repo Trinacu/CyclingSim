@@ -1,0 +1,6 @@
+in Design ImPlot screen, there is something about “Define a generic Metric system for observers”.
+“Make observers composable (filters, downsampling)”
+"Add async / background execution safely"
+
+there seems to be a bit of a bug with the "can't change screen - sim running" because
+it triggers without asking for screen change sometimes

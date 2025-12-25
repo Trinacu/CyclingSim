@@ -90,10 +90,11 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
+  // TODO - fix this to set the right uid effort, not just fix to uid=0
   auto num = std::make_unique<EditableNumberField>(
       200, 400, 80, 26, default_font, state->window, [&](double v) {
-        Rider* r = state->sim->get_engine()->get_rider(0);
-        r->set_effort(v);
+        state->sim->get_engine()->set_rider_effort(0, v);
+        const Rider* r = state->sim->get_engine()->get_rider_by_uid(0);
         SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       });
 
@@ -232,7 +233,24 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
 
 PlotScreen::~PlotScreen() = default;
 
-void PlotScreen::update() { ; }
+void PlotScreen::update() {
+  if (!running && !result.has_value()) {
+    running = true;
+
+    future = std::async(std::launch::async, run_plot_simulation,
+                        std::cref(*state->course),
+                        std::cref(state->rider_configs), target_uid);
+  }
+
+  // Poll completion (non-blocking)
+  if (running && future.wait_for(std::chrono::milliseconds(0)) ==
+                     std::future_status::ready) {
+    result = future.get();
+    running = false;
+
+    renderer->set_data(result->samples);
+  }
+}
 
 void PlotScreen::render() { renderer->render_frame(); }
 
@@ -240,9 +258,32 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
   if (renderer->handle_event(e))
     return true;
 
+  // primitive but it prevents changing screen while sim is running
+  if (running) {
+    SDL_Log("can't change screen - sim is runnning.");
+    return true; // consume input
+  }
+
   if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
     state->screens->replace(ScreenType::Simulation);
     return true;
   }
   return false;
 }
+
+// void PlotScreen::run_simulation() {
+//   auto sim = std::make_unique<Simulation>(state->course);
+//
+//   // copy riders/config
+//   for (const auto& cfg : state->rider_configs)
+//     sim->get_engine()->add_rider(cfg);
+//
+//   OfflineSimulationRunner runner(std::move(sim));
+//
+//   auto plot_obs = std::make_unique<RiderValuePlotObserver>(0);
+//   runner.add_observer(plot_obs.get());
+//
+//   runner.run();
+//
+//   renderer->set_data(plot_obs->data());
+// }

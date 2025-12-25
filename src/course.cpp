@@ -21,8 +21,8 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
     y += len * slope;
     visual_points.push_back(Vector2d(x, y));
   }
-  total_length = x;
-  SDL_Log("%f", total_length);
+  total_length_ = x;
+  SDL_Log("Total course length: %.1f m", total_length_);
 }
 
 Course
@@ -37,7 +37,7 @@ Course Course::create_flat() {
 
 Course Course::create_endulating() {
   std::vector<std::array<double, 3>> v = {
-      {10, 0, 0}, {200, 0.1, 0}, {200, 0, 0}, {500, 0.05, 0}};
+      {100, 0, 0}, {200, 0.1, 0}, {200, 0, 0}, {500, 0.05, 0}};
   return Course(v);
 }
 
@@ -50,6 +50,7 @@ double Course::get_slope(double pos) const {
   return segments[find_segment(pos)].slope;
 }
 
+// TODO - fix this to query whatever holds the values?
 Wind Course::get_wind(double pos) const { return Wind{0, 1}; }
 
 MatrixX2d Course::get_points(double x_min, double x_max) const {
@@ -92,10 +93,10 @@ MatrixX2d Course::get_points(double x_min, double x_max) const {
 }
 
 int Course::find_segment(double x) const {
-  if (x > total_length) {
+  if (x > total_length_) {
     SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
             "Course::find segment()",
-            x, total_length);
+            x, total_length_);
     return segments.size() - 1;
   }
   int lo = 0, hi = segments.size() - 1;

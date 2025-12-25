@@ -4,6 +4,7 @@
 
 #include "SDL3/SDL_events.h"
 #include "widget.h"
+#include <future>
 #include <memory>
 
 class AppState;
@@ -90,9 +91,17 @@ public:
   void render() override;
   bool handle_event(const SDL_Event* e) override;
 
+  void run_simulation();
+
 private:
   AppState* state;
+  std::future<PlotResult> future;
+  std::optional<PlotResult> result;
+  bool running = false;
   std::unique_ptr<PlotRenderer> renderer;
+
+  // TODO - how do we choose/cahnge this?
+  int target_uid = 2;
 };
 
 #endif

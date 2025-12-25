@@ -3,6 +3,7 @@
 #define RIDER_H
 
 #include "course.h"
+#include "pch.hpp"
 #include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
@@ -35,10 +36,23 @@ public:
   static Bike create_generic();
 };
 
+struct RiderConfig {
+  std::string name;
+
+  double ftp_base;
+  double max_effort;
+  double mass;
+  double cda;
+
+  Bike bike;
+  Team team;
+};
+
 class Rider {
 private:
-  static size_t global_id_counter; // declaration
-  const size_t uid;                // unique ID
+  RiderConfig config;
+  static int global_id_counter; // class var
+  const int uid;                // instance unique ID
   double ftp_base;
   double effort;
   double max_effort;
@@ -47,10 +61,10 @@ private:
   double effective_cda;
   double mass;
   double total_mass;
-  double heading = 0;
-  double v_hw;
-  Vector2d _pos2d = Vector2d{0, 0};
 
+  double heading;
+  Vector2d _pos2d;
+  double v_hw;
   double power;
 
   double drag_coeff;
@@ -82,8 +96,7 @@ public:
   double speed;
   const SDL_Texture* image;
 
-  Rider(std::string name_, double ftp_base_, double mass_, double cda_,
-        Bike bike_, Team team_);
+  Rider(RiderConfig config_);
   static Rider* create_generic(Team team_);
 
   void set_course(const ICourseView* cv);
@@ -95,15 +108,20 @@ public:
   void reset();
   void update(double dt);
 
-  size_t get_id() const { return uid; }
+  bool finished() { return pos >= course->get_total_length(); }
+
+  int get_uid() const { return uid; }
 
   void set_effort(double new_effort);
 
   double km() const;
   double km_h() const;
+  double get_power() const { return power; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
+
+  RiderConfig get_config() { return config; }
 
   double pow_speed(double new_speed);
   double pow_speed_prime(double new_speed) const;

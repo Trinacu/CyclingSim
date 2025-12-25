@@ -10,7 +10,7 @@
 #include "helpers.h"
 #include "snapshot.h"
 
-size_t Rider::global_id_counter = 0;
+int Rider::global_id_counter = 0;
 
 const double ETOL = 1e-1; // W
 const double ERTOL = 1e-3;
@@ -19,8 +19,6 @@ const double PRTOL = 1e-4;
 
 const double RHO = 1.2234;
 const double G = 9.80665;
-
-const double PI = 3.14159265358979323846;
 
 bool is_close(double value, double target, double tol, double rtol) {
   return std::fabs(value - target) <= tol + rtol * std::fabs(target);
@@ -39,17 +37,17 @@ Bike Bike::create_generic() {
 
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
-Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
-             Bike bike_, Team team_)
-    : uid(global_id_counter++), name(name_), ftp_base(ftp_base_), mass(mass_),
-      cda(cda_), bike(bike_), team(team_) {
+Rider::Rider(RiderConfig config_)
+    : config(config_), uid(global_id_counter++), name(config_.name),
+      ftp_base(config_.ftp_base), mass(config_.mass), cda(config_.cda),
+      bike(config_.bike), team(config_.team) {
   cda_factor = 1.0;
   target_effort = 0.8;
   pos = 0;
   speed = 0;
   slope = 0;
 
-  heading = PI / 3;
+  heading = M_PI / 3;
 
   set_cda_factor(1);
   change_bike(bike);
@@ -59,7 +57,8 @@ Rider::Rider(std::string name_, double ftp_base_, double mass_, double cda_,
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  return new Rider("Joe Moe", 250, 65, 0.3, bike, team_);
+  RiderConfig cfg = {"Joe Moe", 250, 6, 65, 0.3, bike, team_};
+  return new Rider(cfg);
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }

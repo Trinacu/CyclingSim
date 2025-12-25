@@ -2,7 +2,6 @@
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "display.h"
 #include "implot.h"
-#include <cmath>
 
 PlotRenderer::PlotRenderer(SDL_Renderer* r, GameResources* res)
     : CoreRenderer(r, res) {}
@@ -34,20 +33,32 @@ void PlotRenderer::render_frame() {
 void PlotRenderer::render_plot_imgui() {
   ImGui::Begin("Plot");
 
-  static float xs[100], ys[100];
-  static bool init = false;
+  if (plot_data.empty()) {
+    ImGui::Text("No data yet...");
+  } else {
+    // Build arrays for ImPlot
+    static std::vector<double> xs;
+    static std::vector<double> ys;
 
-  if (!init) {
-    for (int i = 0; i < 100; ++i) {
-      xs[i] = i * 0.1f;
-      ys[i] = sinf(xs[i]);
+    xs.clear();
+    ys.clear();
+    xs.reserve(plot_data.size());
+    ys.reserve(plot_data.size());
+
+    for (const auto& s : plot_data) {
+      xs.push_back(s.time);
+      ys.push_back(s.value);
     }
-    init = true;
-  }
 
-  if (ImPlot::BeginPlot("Example Plot")) {
-    ImPlot::PlotLine("sin(x)", xs, ys, 100);
-    ImPlot::EndPlot();
+    if (ImPlot::BeginPlot("Speed vs Time")) {
+      ImPlot::SetupAxes("Time (s)", "Speed");
+      ImPlot::SetupAxesLimits(
+          xs.front(), xs.back(), *std::min_element(ys.begin(), ys.end()),
+          *std::max_element(ys.begin(), ys.end()), ImPlotCond_Once);
+      ImPlot::PlotLine("Rider", xs.data(), ys.data(),
+                       static_cast<int>(xs.size()));
+      ImPlot::EndPlot();
+    }
   }
 
   ImGui::End();
@@ -60,4 +71,8 @@ bool PlotRenderer::handle_event(const SDL_Event* e) {
       return true;
 
   return false;
+}
+
+void PlotRenderer::set_data(std::vector<PlotSample> samples) {
+  plot_data = std::move(samples);
 }
