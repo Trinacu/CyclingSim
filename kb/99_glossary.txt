@@ -1,0 +1,31 @@
+99_glossary.txt
+
+Snapshot
+Immutable capture of simulation state at a point in time.
+
+InterpolatedFrameView
+Per-frame blended view derived from two snapshots.
+
+Physics timestep (dt)
+Fixed simulation time increment (0.1 s).
+
+Alpha
+Interpolation factor between previous and current snapshot.
+
+Drawable
+Any object that can render itself given a RenderContext.
+
+Offline simulation
+Simulation run without rendering, usually at max speed.
+
+Observer
+Object that passively samples simulation state.
+
+RenderContext
+Struct bundling renderer, camera, snapshots, and timing.
+
+WORLD units
+Meters (simulation space).
+
+SCREEN units
+Pixels (rendering space).

@@ -1,0 +1,36 @@
+Core model
+
+Each rider is modeled as a point mass with:
+  Power input (from effort × FTP)
+  Resistive forces:
+    Aerodynamic drag
+    Rolling resistance
+    Bearing losses
+    Gravity
+    Inertia
+    Drivetrain loss
+
+Speed is solved implicitly from power balance.
+
+Integration strategy
+Fixed timestep: Δt = 0.1 s but can be adjusted
+Position integration:
+  pos += speed * dt
+
+Speed is solved using Newton iteration on the power equation:
+  P_required(v) = P_available
+
+Householder iteration exists but is currently secondary.
+
+Fixed vs variable timestep
+  Physics: fixed timestep
+  Rendering: variable timestep with interpolation
+  Offline simulation: fixed timestep loop without sleeping
+
+This avoids numerical instability and spiral-of-death issues.
+
+Assumptions & invariants
+Course slope is piecewise constant
+Riders never move backward
+Mass, CdA, and bike parameters are constant per rider
+No collisions or drafting yet (future extension point)

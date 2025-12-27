@@ -1,0 +1,43 @@
+Project Overview
+================
+
+This is a C++ physics simulation project using SDL3.
+
+What the project is
+
+This project is a real-time and offline cycling simulation engine with a visual frontend.
+It simulates riders moving along a course under physically motivated forces (aerodynamics, gravity, rolling resistance, inertia), while rendering the result interactively using SDL.
+
+The project intentionally separates:
+  Simulation (physics + time evolution)
+  Visualization (camera, interpolation, rendering)
+  UI & interaction (widgets, ImGui overlays)
+  Offline analysis (metric observers, plotting)
+
+The simulation can run:
+  In real time on a dedicated physics thread
+  In offline / accelerated mode for analysis and plotting
+
+What it is not
+  Not a game engine with gameplay logic, AI opponents, or networking
+  Not a fully validated scientific model or training simulator
+  Not a UI framework — UI code exists only to support simulation inspection
+  Not tied to real-world GPS, maps, or race rules
+  Accuracy is pursued, but architectural clarity and inspectability take priority.
+
+Constraints & philosophy
+Performance
+  Physics runs at a fixed timestep (but it could be changed to be variable later)
+  Rendering runs independently at a display-driven rate (≈60 FPS)
+  Lock contention is minimized by snapshotting
+
+Architecture
+  Clear ownership boundaries
+  One-way dependencies (simulation → snapshot → rendering)
+  No renderer ever mutates simulation state
+
+Philosophy
+  Deterministic simulation
+  Explicit data flow
+  Debuggability over cleverness
+  Prefer simple, inspectable math to opaque optimizations

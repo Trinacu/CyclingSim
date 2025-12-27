@@ -1,0 +1,28 @@
+Threads involved
+Main thread
+  Event handling
+  Screen updates
+  Rendering
+
+Physics thread
+  Fixed-step simulation loop
+
+Async worker threads
+  Offline simulations (plots)
+
+Data handoff
+Physics → Renderer:
+  Via snapshots protected by mutex
+Renderer never blocks physics longer than snapshot copy
+UI → Simulation:
+  Through atomic flags or narrow setter methods
+
+Synchronization points
+Physics update:
+  Locks PhysicsEngine::frame_mtx
+Snapshot swap:
+  Locks SimulationRenderer::snapshot_swap_mtx
+Rendering:
+  Reads immutable snapshot pointers
+
+No lock is held across rendering calls.

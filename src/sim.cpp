@@ -42,7 +42,7 @@ const std::vector<std::unique_ptr<Rider>>& PhysicsEngine::get_riders() const {
 
 // this is (now) only used to set camera to first rider... kinda useless if
 // fixed
-const Rider* PhysicsEngine::get_rider(int idx) const {
+const Rider* PhysicsEngine::get_rider_by_idx(int idx) const {
   return riders.at(idx).get();
 }
 
@@ -118,8 +118,25 @@ void Simulation::start_realtime() {
   }
 }
 
+void Simulation::set_effort_schedule(int rider_uid,
+                                     std::shared_ptr<EffortSchedule> schedule) {
+  effort_schedules[rider_uid] = std::move(schedule);
+}
+
+void Simulation::clear_effort_schedule(int rider_uid) {
+  effort_schedules.erase(rider_uid);
+}
+
 void Simulation::step_fixed(double dt) {
   std::lock_guard<std::mutex> phys_lock(*engine.get_frame_mutex());
+
+  double t = sim_seconds;
+
+  for (auto& [uid, sched] : effort_schedules) {
+    double effort = sched->effort_at(t);
+    engine.set_rider_effort(uid, effort);
+  }
+
   engine.update(dt);
   sim_seconds += dt;
 }
@@ -173,65 +190,6 @@ const double Simulation::get_sim_seconds() const { return sim_seconds; }
 
 const PhysicsEngine* Simulation::get_engine() const { return &engine; }
 PhysicsEngine* Simulation::get_engine() { return &engine; }
-
-OfflineSimulationRunner::OfflineSimulationRunner(std::unique_ptr<Simulation> s)
-    : sim(std::move(s)) {}
-
-void OfflineSimulationRunner::add_observer(SimulationObserver* obs) {
-  observers.push_back(obs);
-}
-
-void OfflineSimulationRunner::set_end_condition(
-    std::unique_ptr<SimulationEndCondition> cond) {
-  end_condition = std::move(cond);
-}
-
-void OfflineSimulationRunner::run() {
-  for (auto* o : observers)
-    o->on_start(*sim);
-
-  while (true) {
-    sim->step_fixed(sim->get_dt());
-
-    for (auto* o : observers)
-      o->on_step(*sim);
-
-    // bool stop = false;
-    // for (auto* o : observers) {
-    //   if (o->should_stop(*sim)) {
-    //     stop = true;
-    //     break;
-    //   }
-    // }
-    if (end_condition && end_condition->should_stop(*sim))
-      break;
-  }
-
-  for (auto* o : observers)
-    o->on_finish(*sim);
-}
-
-PlotResult run_plot_simulation(const Course& course,
-                               const std::vector<RiderConfig>& riders,
-                               int target_uid) {
-  auto sim = std::make_unique<Simulation>(&course);
-
-  for (const auto& cfg : riders)
-    sim->get_engine()->add_rider(cfg);
-
-  OfflineSimulationRunner runner(std::move(sim));
-
-  MetricObserver obs([target_uid](const Simulation& s) {
-    const Rider* r = s.get_engine()->get_rider_by_uid(target_uid);
-    return r ? r->km_h() : 0.0;
-  });
-
-  runner.add_observer(&obs);
-  runner.set_end_condition(std::make_unique<FinishLineCondition>());
-  runner.run();
-
-  return PlotResult{obs.data()};
-}
 
 // MetricFn speed = [](const Simulation& sim) {
 //   return sim.get_engine()->get_rider(0)->km_h();

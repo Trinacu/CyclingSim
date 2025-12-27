@@ -3,6 +3,7 @@
 #define RIDER_H
 
 #include "course.h"
+#include "energymodel.h"
 #include "pch.hpp"
 #include "snapshot.h"
 #include "texturemanager.h"
@@ -43,6 +44,8 @@ struct RiderConfig {
   double max_effort;
   double mass;
   double cda;
+  double w_prime_base;
+  double tau;
 
   Bike bike;
   Team team;
@@ -66,6 +69,8 @@ private:
   Vector2d _pos2d;
   double v_hw;
   double power;
+
+  EnergyModel energymodel;
 
   double drag_coeff;
   double roll_coeff;
@@ -117,6 +122,7 @@ public:
   double km() const;
   double km_h() const;
   double get_power() const { return power; }
+  double get_energy() const;
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

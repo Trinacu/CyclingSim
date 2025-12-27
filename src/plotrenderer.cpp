@@ -36,29 +36,36 @@ void PlotRenderer::render_plot_imgui() {
   if (plot_data.empty()) {
     ImGui::Text("No data yet...");
   } else {
-    // Build arrays for ImPlot
-    static std::vector<double> xs;
-    static std::vector<double> ys;
+    if (!ImPlot::BeginPlot("Metrics")) {
 
-    xs.clear();
-    ys.clear();
-    xs.reserve(plot_data.size());
-    ys.reserve(plot_data.size());
-
-    for (const auto& s : plot_data) {
-      xs.push_back(s.time);
-      ys.push_back(s.value);
-    }
-
-    if (ImPlot::BeginPlot("Speed vs Time")) {
-      ImPlot::SetupAxes("Time (s)", "Speed");
-      ImPlot::SetupAxesLimits(
-          xs.front(), xs.back(), *std::min_element(ys.begin(), ys.end()),
-          *std::max_element(ys.begin(), ys.end()), ImPlotCond_Once);
-      ImPlot::PlotLine("Rider", xs.data(), ys.data(),
-                       static_cast<int>(xs.size()));
       ImPlot::EndPlot();
+      return;
     }
+
+    ImPlot::SetupAxes("Time (s)", "");
+    ImPlot::SetupAxis(ImAxis_Y2, "W'bal", ImPlotAxisFlags_AuxDefault);
+
+    for (const auto& series : plot_data) {
+
+      if (series.samples.empty())
+        continue;
+
+      std::vector<double> xs;
+      std::vector<double> ys;
+      xs.reserve(series.samples.size());
+      ys.reserve(series.samples.size());
+
+      for (const auto& s : series.samples) {
+        xs.push_back(s.x);
+        ys.push_back(s.y);
+      }
+
+      ImPlot::SetAxis(series.y_axis == 1 ? ImAxis_Y2 : ImAxis_Y1);
+
+      ImPlot::PlotLine(series.label.c_str(), xs.data(), ys.data(),
+                       static_cast<int>(xs.size()));
+    }
+    ImPlot::EndPlot();
   }
 
   ImGui::End();
@@ -73,6 +80,6 @@ bool PlotRenderer::handle_event(const SDL_Event* e) {
   return false;
 }
 
-void PlotRenderer::set_data(std::vector<PlotSample> samples) {
-  plot_data = std::move(samples);
+void PlotRenderer::set_data(std::vector<PlotSeries> data) {
+  plot_data = std::move(data);
 }

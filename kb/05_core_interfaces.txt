@@ -1,0 +1,25 @@
+Key abstract / conceptual interfaces
+  ICourseView
+    Read-only view of course geometry
+  SimulationObserver
+    Receives callbacks during simulation
+  SimulationEndCondition
+    Decides when to stop offline runs
+  Drawable
+    Renderable entity (world or UI)
+
+Responsibilities
+  Simulation
+    Time evolution and control
+  PhysicsEngine
+    Rider updates
+  Renderer
+    Visualization only
+  Observers
+    Data extraction without influencing simulation
+
+Lifecycle expectations
+  Simulation outlives renderers
+  Snapshots are valid only within a frame
+  Observers are externally owned
+  UI widgets are recreated per screen

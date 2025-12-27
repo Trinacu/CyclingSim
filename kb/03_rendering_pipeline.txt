@@ -1,0 +1,34 @@
+Render loop overview
+
+Per frame:
+  Collect latest published snapshots
+  Compute interpolation factor alpha
+  Build an InterpolatedFrameView
+  Update camera
+  Render world drawables
+  Render UI drawables
+  Render ImGui overlays
+
+Snapshot & interpolation strategy
+Double-buffered snapshots:
+  prev_frame
+  curr_frame
+Renderer never reads live physics state
+Interpolation is linear per attribute:
+  value = prev * (1 - alpha) + curr * alpha
+
+This guarantees tear-free rendering.
+
+GPU / CPU responsibilities
+CPU
+  Physics
+  Snapshot building
+  Camera transforms
+  UI layout
+
+GPU
+  Sprite rendering
+  Line rendering (course)
+  ImGui / ImPlot drawing
+
+No compute work is delegated to the GPU.

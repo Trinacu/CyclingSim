@@ -3,6 +3,7 @@
 #define SIM_H
 
 #include "course.h"
+#include "effortschedule.h"
 #include "rider.h"
 #include <mutex>
 
@@ -25,10 +26,11 @@ public:
 
   // do these returns need to/should be const?
   const std::vector<std::unique_ptr<Rider>>& get_riders() const;
-  const Rider* get_rider(int idx) const;
+  const Rider* get_rider_by_idx(int idx) const;
   const Rider* get_rider_by_uid(int uid) const;
   std::mutex* get_frame_mutex() const;
 
+  // physicsengine mutates rider state
   void set_rider_effort(int uid, double effort);
 
   ~PhysicsEngine() = default;
@@ -52,6 +54,7 @@ private:
   double interp_alpha = 0.0;
 
   const float dt = 0.1; // 100 Hz physics
+  std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
 
 public:
   Simulation(const Course* c);
@@ -79,68 +82,11 @@ public:
 
   std::atomic<bool> physics_error{false};
   std::string physics_error_message;
-};
 
-class SimulationObserver {
-public:
-  virtual ~SimulationObserver() = default;
-
-  // Called every fixed step
-  virtual void on_step(const Simulation& sim) = 0;
-
-  // Called once at start (optional)
-  virtual void on_start(const Simulation& sim) {}
-
-  // Called once at end (optional)
-  virtual void on_finish(const Simulation& sim) {}
-
-  // Return true to stop simulation early
-  virtual bool should_stop(const Simulation& sim) const { return false; }
-};
-
-struct PlotSample {
-  double time;
-  double value;
-};
-
-using MetricFn = std::function<double(const Simulation&)>;
-
-class MetricObserver : public SimulationObserver {
-public:
-  MetricObserver(MetricFn fn) : metric(fn) {}
-
-  void on_step(const Simulation& sim) override {
-    samples.push_back({sim.get_sim_seconds(), metric(sim)});
-  }
-
-  const auto& data() const { return samples; }
-
-private:
-  MetricFn metric;
-  std::vector<PlotSample> samples;
-};
-
-struct PlotResult {
-  std::vector<PlotSample> samples;
-};
-
-class RiderValuePlotObserver : public SimulationObserver {
-public:
-  RiderValuePlotObserver(size_t rider_uid_) : rider_uid(rider_uid_) {}
-
-  void on_step(const Simulation& sim) override {
-    const Rider* r = sim.get_engine()->get_rider(rider_uid);
-    samples.push_back({
-        sim.get_sim_seconds(),
-        r->km_h() // or power, cadence, etc.
-    });
-  }
-
-  const std::vector<PlotSample>& data() const { return samples; }
-
-private:
-  size_t rider_uid;
-  std::vector<PlotSample> samples;
+  // Simulation decides when and why the mutation happens
+  void set_effort_schedule(int rider_uid,
+                           std::shared_ptr<EffortSchedule> schedule);
+  void clear_effort_schedule(int rider_uid);
 };
 
 class SimulationEndCondition {
@@ -191,22 +137,4 @@ private:
   std::unique_ptr<SimulationEndCondition> lhs, rhs;
 };
 
-class OfflineSimulationRunner {
-public:
-  OfflineSimulationRunner(std::unique_ptr<Simulation> sim);
-
-  void add_observer(SimulationObserver* obs);
-  void set_end_condition(std::unique_ptr<SimulationEndCondition> cond);
-
-  void run();
-
-private:
-  std::unique_ptr<Simulation> sim;
-  std::vector<SimulationObserver*> observers;
-  std::unique_ptr<SimulationEndCondition> end_condition;
-};
-
-PlotResult run_plot_simulation(const Course& course,
-                               const std::vector<RiderConfig>& riders,
-                               int target_uid);
 #endif

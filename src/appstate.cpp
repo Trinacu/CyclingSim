@@ -48,14 +48,25 @@ AppState::AppState() {
   screens->push(ScreenType::Simulation);
 
   Team team("Team1");
-  RiderConfig cfg = {"Pedro", 320, 6, 90, 0.3, Bike::create_generic(), team};
+  RiderConfig cfg = {
+      "Pedro", 320, 6, 90, 0.5, 24000, 400, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {"Mario", 300, 6, 88, 0.3, Bike::create_generic(), team};
+  cfg = {"Mario", 300, 6, 88, 0.5, 24000, 400, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
   for (const RiderConfig& cfg : rider_configs) {
     sim->get_engine()->add_rider(cfg);
   }
+
+  auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
+      {0.0, 60.0, 0.1},    // easy
+      {60.0, 120.0, 1.3},  // hard
+      {120.0, 240.0, 0.8}, // recovery
+      {240.0, 300.0, 1.5}  // sprint
+  });
+
+  sim->set_effort_schedule(0, schedule);
+
   // (Optional) Setup default riders here or in Main
 }
 

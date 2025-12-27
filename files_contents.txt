@@ -399,8 +399,8 @@ struct RiderConfig {
 
   double ftp_base;
   double max_effort;
-  double cda;
   double mass;
+  double cda;
 
   Bike bike;
   Team team;
@@ -1585,9 +1585,9 @@ AppState::AppState() {
   screens->push(ScreenType::Simulation);
 
   Team team("Team1");
-  RiderConfig cfg = {"Pedro", 320, 6, 90, 0.3, Bike::create_generic(), team};
+  RiderConfig cfg = {"Pedro", 320, 6, 90, 0.5, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {"Pedro", 300, 6, 88, 0.3, Bike::create_generic(), team};
+  cfg = {"Mario", 300, 6, 88, 0.5, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
   for (const RiderConfig& cfg : rider_configs) {
@@ -1681,8 +1681,8 @@ void Camera::zoom(double amount) {
   scale *= factor;
   if (scale < 0.01)
     scale = 0.01;
-  if (scale > 100.0)
-    scale = 100.0;
+  if (scale > 200.0)
+    scale = 200.0;
 }
 
 // ------------------------
@@ -3538,6 +3538,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
     SDL_Log("%s: %.1f", snap.name.c_str(), dist);
+    SDL_Log("%.1f", snap.km_h);
 
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {

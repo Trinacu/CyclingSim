@@ -1,0 +1,45 @@
+High-level module graph
+[AppState]
+   |
+   +-- Simulation (physics thread)
+   |      |
+   |      +-- PhysicsEngine
+   |             |
+   |             +-- Rider
+   |             +-- Course
+   |
+   +-- SimulationRenderer (render thread)
+   |      |
+   |      +-- Camera
+   |      +-- FrameSnapshots
+   |      +-- Drawables (Course, Riders, UI)
+   |
+   +-- ScreenManager
+          |
+          +-- Screens (Simulation, Plot, Menu)
+
+Ownership boundaries
+AppState
+  Owns SDL resources, Simulation, Course, ScreenManager
+
+Simulation
+  Owns PhysicsEngine and simulation time
+
+PhysicsEngine
+  Owns Rider instances
+
+SimulationRenderer
+  Owns snapshots, camera, drawables
+
+UI widgets
+  Never own simulation objects
+
+Raw pointers indicate non-ownership by design.
+
+Direction of dependencies
+  Physics does not depend on rendering
+  Rendering depends only on immutable snapshots
+  UI interacts with simulation only via narrow APIs
+  Offline simulation reuses the same Simulation core
+
+There are no circular dependencies between major subsystems.

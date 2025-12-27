@@ -5,6 +5,7 @@
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "imgui.h"
 #include "plotrenderer.h"
+#include "plotting.h"
 #include "screenmanager.h"
 #include "simulationrenderer.h"
 #include "snapshot.h"
@@ -94,7 +95,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   auto num = std::make_unique<EditableNumberField>(
       200, 400, 80, 26, default_font, state->window, [&](double v) {
         state->sim->get_engine()->set_rider_effort(0, v);
-        const Rider* r = state->sim->get_engine()->get_rider_by_uid(0);
+        const Rider* r = state->sim->get_engine()->get_rider_by_idx(0);
         SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       });
 
@@ -248,7 +249,7 @@ void PlotScreen::update() {
     result = future.get();
     running = false;
 
-    renderer->set_data(result->samples);
+    renderer->set_data(result->series);
   }
 }
 

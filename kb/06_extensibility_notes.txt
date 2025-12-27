@@ -1,0 +1,54 @@
+Drafting & group dynamics
+Drafting and group behavior are explicitly not baked into the core physics loop.
+This is intentional.
+
+Recommended extension point:
+  Introduce a group analysis pass after each fixed physics step
+  Groups are derived from snapshot state (positions, speeds), not stored in riders
+  Aerodynamic effects are applied via:
+    A temporary CdA factor modifier
+    Reset every physics step
+
+Key rule:
+  Never let group state become authoritative simulation state.
+
+Groups should be:
+  Ephemeral
+  Recomputed each step
+  Deterministic given rider positions
+This avoids long-lived coupling, hysteresis bugs, and ordering artifacts.
+
+Drafting implementation sketch (future)
+  Build groups using 1D proximity (course position)
+  Assign ordered leader → follower relationships
+  Apply CdA reduction only to followers
+  Clamp maximum benefit to avoid runaway effects
+
+Physics loop remains:
+  update riders
+  → analyze groups
+  → apply modifiers
+  → next step
+
+AI & decision-making hooks
+Rider “intelligence” should not live inside Rider::update().
+
+Instead:
+Introduce a decision layer that:
+  Reads snapshots
+  Outputs intent (effort targets, strategy flags)
+Decisions are applied via:
+  set_effort(uid, value)
+
+This allows:
+  Human input
+  Scripted strategies
+  Learned policies
+  Offline experimentation
+The physics engine remains agnostic.
+
+Extension safety rules
+  AI must be deterministic for a given input sequence
+  No random sampling inside physics
+  No UI callbacks inside simulation threads
+  All modifiers must be reversible each step

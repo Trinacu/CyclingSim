@@ -3,6 +3,7 @@
 #define SCREEN_H
 
 #include "SDL3/SDL_events.h"
+#include "plotrenderer.h"
 #include "widget.h"
 #include <future>
 #include <memory>

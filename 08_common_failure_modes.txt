@@ -1,0 +1,33 @@
+Things that break easily
+  Accessing live physics data from the render thread
+    Rendering must never read Rider, PhysicsEngine, or Simulation state directly.
+    Always go through FrameSnapshot / InterpolatedFrameView. Skipping this causes data races, camera jitter, or crashes.
+  Forgetting to lock frame_mtx when building snapshots
+    Snapshot construction must hold PhysicsEngine::frame_mtx. Partial reads lead to corrupted rider state (NaNs, jumps, invalid positions).
+  Publishing snapshots without time advancement
+    If frame_back.sim_time <= frame_curr.sim_time, swapping frames will break interpolation. This causes riders to “freeze” or flicker.
+  Assuming rider UID == vector index
+    UIDs are globally unique and monotonic. They are not stable indices into riders. Using them as indices silently targets the wrong rider.
+
+Invariants that must hold
+  Snapshots are immutable once published
+    After frame_curr is visible to the renderer, it must never be mutated.
+  Simulation outlives renderers
+    Renderers and widgets assume Simulation and Course remain valid. Destroying them early causes dangling pointers.
+  Camera transforms are pure
+    Camera must not depend on live simulation state — only interpolated data.
+
+“Don’t do X because Y explodes”
+  Don’t render inside physics callbacks → deadlocks & frame stalls
+  Don’t sleep inside the render loop → missed input, jitter
+  Don’t add ImGui calls in physics code → undefined threading behavior
+  Don’t hold snapshot mutex while rendering → instant performance collapse
+  Don’t mutate riders during simulation → iterator invalidation & crashes
+
+Subtle but common gotchas
+  Accumulator runaway
+    If physics falls behind and accumulator exceeds ~0.25s, the sim enters a spiral-of-death. The clamp is intentional — do not remove it.
+  Interpolation alpha > 1.0
+    Always clamp alpha. Overshoot produces temporal inversion (riders jump ahead then snap back).
+  Editable UI fields committing mid-frame
+    UI callbacks that mutate simulation state should be minimal and never block.

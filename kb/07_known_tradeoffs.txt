@@ -1,0 +1,64 @@
+Numerical limits
+  Newton iteration assumes:
+    Reasonable initial speed guess
+    Smooth power curves
+  Extremely steep slopes or near-zero speed can:
+    Slow convergence
+    Produce large inertia terms
+These are monitored but not fully guarded against.
+
+Simplifications by design
+  No lateral dynamics
+  No rider collisions
+  No braking model
+  No fatigue accumulation (yet)
+  No drivetrain dynamics beyond scalar loss
+
+These omissions keep:
+  The state space small
+  The simulation inspectable
+  The math debuggable
+
+They are conscious tradeoffs, not oversights.
+
+Determinism vs realism
+The system favors:
+  Deterministic results
+  Reproducible runs
+  Debug-friendly behavior
+
+Over:
+  Stochastic realism
+  Noisy inputs
+  Emergent chaos
+
+This is especially important for offline analysis and plotting.
+
+Time & precision tradeoffs
+  Fixed timestep simplifies:
+    Integration
+    Interpolation
+    Observer logic
+  Precision is improved by:
+    Smaller dt
+    Substepping
+    Better solvers
+Not by variable dt in the main loop.
+
+Rendering tradeoffs
+  CPU-side interpolation favors clarity over GPU efficiency
+  Sprite-based riders limit pose realism
+  Camera smoothing is intentionally conservative
+
+Visual correctness is secondary to temporal correctness.
+
+Known “good enough” zones
+The simulation behaves best when:
+  Speeds are in realistic cycling ranges
+  Slopes are moderate (<15%)
+  Time acceleration is reasonable (<50×)
+Outside these ranges, results may still be stable, but less meaningful.
+
+Final note
+These tradeoffs are not permanent.
+They are stakes in the ground that allow the project to grow coherently.

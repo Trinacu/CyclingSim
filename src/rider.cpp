@@ -40,7 +40,8 @@ Team::Team(const char* name_) : name(name_) { id = 0; }
 Rider::Rider(RiderConfig config_)
     : config(config_), uid(global_id_counter++), name(config_.name),
       ftp_base(config_.ftp_base), mass(config_.mass), cda(config_.cda),
-      bike(config_.bike), team(config_.team) {
+      bike(config_.bike), team(config_.team),
+      energymodel(config_.w_prime_base, config_.ftp_base, config_.tau) {
   cda_factor = 1.0;
   target_effort = 0.8;
   pos = 0;
@@ -57,7 +58,7 @@ Rider::Rider(RiderConfig config_)
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  RiderConfig cfg = {"Joe Moe", 250, 6, 65, 0.3, bike, team_};
+  RiderConfig cfg = {"Joe Moe", 250, 6, 65, 0.3, 24000, 400, bike, team_};
   return new Rider(cfg);
 }
 
@@ -118,19 +119,20 @@ void Rider::change_bike(Bike new_bike) {
 void Rider::reset() {
   pos = 0;
   speed = 0;
-  // TODO - reset energymodel!
+  energymodel.reset();
 }
 
+// TODO - add limiting effort_limit to EnergyModel so we can't go into
+// negative W'bal. use some sort of sigmoid I think
 void Rider::update(double dt) {
   timestep = dt;
   slope = course->get_slope(pos);
   compute_headwind();
   double ftp = ftp_base;
-  // this comes from energymodel
   double effort_limit = 1;
   effort = target_effort;
   power = std::min(target_effort, effort_limit) * ftp;
-  // energy_model.update(power, timestep);
+  energymodel.update(power, dt);
   try {
     double old_speed = speed;
     speed = newton(power, speed);
@@ -150,6 +152,8 @@ void Rider::set_effort(double new_effort) { target_effort = new_effort; }
 double Rider::km() const { return pos / 1000.0; }
 
 double Rider::km_h() const { return speed * 3.6; }
+
+double Rider::get_energy() const { return energymodel.get_wbal(); }
 
 void Rider::update_power_breakdown(double old_speed) {
   auto [wind_dir, wind_speed] = course->get_wind(pos);

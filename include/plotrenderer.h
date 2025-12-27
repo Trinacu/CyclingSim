@@ -1,8 +1,9 @@
 #ifndef PLOT_RENDERER_H
 #define PLOT_RENDERER_H
 
+#include "analysis.h"
 #include "corerenderer.h"
-#include "sim.h"
+#include <vector>
 
 class PlotRenderer : public CoreRenderer {
 public:
@@ -12,11 +13,11 @@ public:
 
   bool handle_event(const SDL_Event* e);
 
-  void set_data(std::vector<PlotSample> samples);
+  void set_data(std::vector<PlotSeries> data);
 
 private:
   void render_plot_imgui();
-  std::vector<PlotSample> plot_data;
+  std::vector<PlotSeries> plot_data;
 };
 
 #endif
