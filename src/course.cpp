@@ -31,7 +31,12 @@ Course::from_segments(const std::vector<std::array<double, 3>> segments) {
 }
 
 Course Course::create_flat() {
-  std::vector<std::array<double, 3>> v = {{300000, 0, 0}};
+  std::vector<std::array<double, 3>> v = {{30000, 0, 0}};
+  return Course(v);
+}
+
+Course Course::create_flat_short() {
+  std::vector<std::array<double, 3>> v = {{1000, 0, 0}};
   return Course(v);
 }
 

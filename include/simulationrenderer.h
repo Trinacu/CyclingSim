@@ -15,12 +15,19 @@ struct FramePairView {
   const FrameSnapshot* curr;
 };
 
+class ISnapshotSource {
+public:
+  virtual ~ISnapshotSource() = default;
+
+  virtual const FrameSnapshot* latest_snapshot() const = 0;
+};
+
 // This renderer extends CoreRenderer with:
 // - Camera
 // - World-to-screen transform
 // - Automatic SnapshotMap generation
 // - Course + Rider drawing
-class SimulationRenderer : public CoreRenderer {
+class SimulationRenderer : public CoreRenderer, public ISnapshotSource {
 public:
   SimulationRenderer(SDL_Renderer* r, GameResources* resources, Simulation* sim,
                      std::shared_ptr<Camera> camera);
@@ -44,6 +51,7 @@ public:
   // const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
   FramePairView get_frame_pair() const;
   void build_and_swap_snapshots();
+  const FrameSnapshot* latest_snapshot() const override { return &frame_curr; }
 
   bool handle_event(const SDL_Event* e);
 

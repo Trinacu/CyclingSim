@@ -65,5 +65,6 @@ private:
 };
 
 struct PlotResult {
+  std::string title = "";
   std::vector<PlotSeries> series;
 };

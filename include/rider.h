@@ -13,6 +13,12 @@
 
 struct SDL_Texture;
 
+// Semantic, scenario-level identity (UI / plots / configs)
+using RiderId = int;
+
+// Runtime, object-level identity (physics / snapshots)
+using RiderUid = int;
+
 class Team {
 private:
 public:
@@ -38,6 +44,7 @@ public:
 };
 
 struct RiderConfig {
+  RiderId rider_id;
   std::string name;
 
   double ftp_base;
@@ -54,8 +61,9 @@ struct RiderConfig {
 class Rider {
 private:
   RiderConfig config;
-  static int global_id_counter; // class var
-  const int uid;                // instance unique ID
+  static RiderUid global_id_counter; // class var
+  const RiderUid uid;                // instance unique ID
+  const RiderId id;                  // stable config ID - UI must not use uid
   double ftp_base;
   double effort;
   double max_effort;
@@ -70,6 +78,7 @@ private:
   double v_hw;
   double power;
 
+  double effort_limit;
   EnergyModel energymodel;
 
   double drag_coeff;
@@ -115,14 +124,17 @@ public:
 
   bool finished() { return pos >= course->get_total_length(); }
 
-  int get_uid() const { return uid; }
+  RiderUid get_uid() const { return uid; }
+  RiderId get_id() const { return id; }
 
   void set_effort(double new_effort);
 
   double km() const;
-  double km_h() const;
+  double get_km_h() const;
   double get_power() const { return power; }
   double get_energy() const;
+  double get_energy_fraction() const;
+  double get_effort_limit() const { return energymodel.get_effort_limit(); }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

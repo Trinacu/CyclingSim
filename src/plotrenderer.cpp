@@ -32,11 +32,13 @@ void PlotRenderer::render_frame() {
 
 void PlotRenderer::render_plot_imgui() {
   ImGui::Begin("Plot");
+  ImGui::SetWindowSize(ImVec2(800, 600));
 
   if (plot_data.empty()) {
     ImGui::Text("No data yet...");
   } else {
-    if (!ImPlot::BeginPlot("Metrics")) {
+    if (!ImPlot::BeginPlot(("Metrics " + plot_title).c_str(),
+                           ImVec2(780, 550))) {
 
       ImPlot::EndPlot();
       return;
@@ -80,6 +82,7 @@ bool PlotRenderer::handle_event(const SDL_Event* e) {
   return false;
 }
 
-void PlotRenderer::set_data(std::vector<PlotSeries> data) {
-  plot_data = std::move(data);
+void PlotRenderer::set_data(PlotResult result) {
+  plot_title = result.title;
+  plot_data = std::move(result.series);
 }

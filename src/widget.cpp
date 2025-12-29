@@ -13,6 +13,7 @@
 #include "display.h"
 #include "imgui.h"
 #include "implot.h"
+#include "sim.h"
 #include "snapshot.h"
 #include "widget.h"
 // for std::setprecision
@@ -545,9 +546,11 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 
 // ======================= RIDER PANEL =======================
 // WARNING - this assumes the font isnt deallocated
-RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
+RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f,
+                       const IRiderDataSource* data_source_)
+    : x(x_), y(y_), font(f), data_source(data_source_) {}
 
-void RiderPanel::set_rider_id(int uid) { rider_uid = uid; }
+void RiderPanel::set_rider_id(RiderId id_) { id = id_; }
 
 RiderPanel::~RiderPanel() {
   if (title_tex)
@@ -572,8 +575,11 @@ void RiderPanel::add_row(std::string label, std::string unit,
 }
 
 void RiderPanel::render(const RenderContext* ctx) {
+  if (!data_source || id < 0)
+    return;
 
-  const RiderSnapshot* snap = ctx->get_snapshot(rider_uid);
+  const RiderSnapshot* snap = data_source->get_rider_snapshot(id);
+
   if (!snap)
     return;
 
@@ -610,10 +616,13 @@ void RiderPanel::render(const RenderContext* ctx) {
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {
-  if (!visible || rider_uid == -1)
+  if (!data_source || id < 0)
     return;
 
-  const RiderSnapshot* snap = ctx->get_snapshot(rider_uid);
+  const RiderSnapshot* snap = data_source->get_rider_snapshot(id);
+
+  if (!snap)
+    return;
 
   // compute where the plot goes based on panel position
   ImVec2 pos((float)x, (float)y + 140);

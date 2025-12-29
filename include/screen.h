@@ -15,6 +15,11 @@ class SimulationRenderer;
 
 enum class ScreenType { Menu, Simulation, Result, Plot };
 
+struct SelectedRider {
+  RiderUid runtime_uid = -1;
+  RiderId semantic_id = -1;
+};
+
 class IScreen {
 public:
   virtual ~IScreen() {}
@@ -69,11 +74,13 @@ public:
 
   void cycle_rider(int direction);
 
+  void select_rider_by_uid(RiderUid uid);
+
 private:
   AppState* state;
   std::unique_ptr<SimulationRenderer> sim_renderer;
 
-  int selected_rider_uid = 0;
+  SelectedRider selected_rider;
 
   // Camera interaction state
   bool dragging = false;

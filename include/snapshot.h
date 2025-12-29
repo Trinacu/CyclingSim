@@ -6,6 +6,9 @@
 #include <string>
 #include <unordered_map>
 
+using RiderUid = int;
+using RiderId = int;
+
 enum class PowerTerm : int {
   Aerodynamic = 0,
   Rolling,
@@ -20,7 +23,8 @@ static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
                                                "Grav", "Inert", "Drive"};
 
 struct RiderSnapshot {
-  const int uid;
+  const RiderUid uid;
+  RiderId id;
   std::string name;
   double pos;
   double slope;

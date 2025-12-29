@@ -149,7 +149,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
 
   double min_dist = 20.0;
   bool found = false;
-  size_t found_id = 0;
+  RiderUid found_uid = 0;
   SDL_Log("\n%.1f, %.1f", world_pos.x(), world_pos.y());
 
   std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
@@ -163,14 +163,14 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {
       min_dist = dist;
-      found_id = id;
+      found_uid = id;
       found = true;
     }
   }
 
   if (found) {
-    SDL_Log("Selected rider ID: %lu", (unsigned long)found_id);
-    return found_id;
+    SDL_Log("Selected rider ID: %lu", (unsigned long)found_uid);
+    return found_uid;
   }
   return -1;
 }

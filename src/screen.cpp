@@ -7,6 +7,7 @@
 #include "plotrenderer.h"
 #include "plotting.h"
 #include "screenmanager.h"
+#include "sim.h"
 #include "simulationrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -45,6 +46,8 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer = std::make_unique<SimulationRenderer>(s->renderer, s->resources,
                                                       s->sim, cam);
 
+  s->sim->set_snapshot_source(sim_renderer.get());
+
   TTF_Font* default_font =
       state->resources->get_fontManager()->get_font("default");
 
@@ -59,8 +62,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->add_drawable(std::make_unique<TimeControlPanel>(
       400, 20, 40, default_font, state->sim));
 
+  static_assert(std::is_base_of_v<IRiderDataSource, Simulation>);
   // 2. Create the Panel
-  auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
+  auto panel = std::make_unique<RiderPanel>(20, 120, default_font, s->sim);
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
@@ -94,8 +98,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // TODO - fix this to set the right uid effort, not just fix to uid=0
   auto num = std::make_unique<EditableNumberField>(
       200, 400, 80, 26, default_font, state->window, [&](double v) {
-        state->sim->get_engine()->set_rider_effort(0, v);
-        const Rider* r = state->sim->get_engine()->get_rider_by_idx(0);
+        state->sim->get_engine()->set_rider_effort(selected_rider.semantic_id,
+                                                   v);
+        const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
         SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       });
 
@@ -134,13 +139,10 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
   switch (e->type) {
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
     if (e->button.button == SDL_BUTTON_LEFT) {
-      int uid = sim_renderer->pick_rider(e->button.x, e->button.y);
+      RiderUid uid = sim_renderer->pick_rider(e->button.x, e->button.y);
 
       if (uid != -1) {
-        selected_rider_uid = uid;
-        // sim_renderer->get_camera()->set_target(uid);
-        sim_renderer->get_camera()->set_target_id(uid);
-        sim_renderer->get_rider_panel()->set_rider_id(uid);
+        select_rider_by_uid(uid);
         return true;
       }
     }
@@ -191,26 +193,32 @@ void SimulationScreen::cycle_rider(int direction) {
   if (riders.empty())
     return;
 
-  // Extract IDs into a sorted list for stable cycling
-  std::vector<int> ids;
-  ids.reserve(riders.size());
-  for (const auto& [id, _] : riders)
-    ids.push_back(id);
+  std::vector<RiderUid> uids;
+  uids.reserve(riders.size());
 
-  std::sort(ids.begin(), ids.end());
+  for (const auto& [uid, _] : riders)
+    uids.push_back(uid);
+
+  std::sort(uids.begin(), uids.end());
 
   // Find current index
-  auto it = std::find(ids.begin(), ids.end(), selected_rider_uid);
-  int idx = (it == ids.end()) ? 0 : std::distance(ids.begin(), it);
+  auto it = std::find(uids.begin(), uids.end(), selected_rider.runtime_uid);
+  int idx = (it == uids.end()) ? 0 : std::distance(uids.begin(), it);
 
-  // Cycle with wrap-around
-  idx = (idx + direction + ids.size()) % ids.size();
+  idx = (idx + direction + uids.size()) % uids.size();
 
-  selected_rider_uid = ids[idx];
+  select_rider_by_uid(uids[idx]);
+}
 
-  // Apply selection
-  sim_renderer->get_camera()->set_target_id(selected_rider_uid);
-  sim_renderer->get_rider_panel()->set_rider_id(selected_rider_uid);
+void SimulationScreen::select_rider_by_uid(RiderUid uid) {
+  selected_rider.runtime_uid = uid;
+  selected_rider.semantic_id = state->sim->resolve_rider_id(uid);
+
+  sim_renderer->get_camera()->set_target_id(uid);
+
+  if (selected_rider.semantic_id != -1) {
+    sim_renderer->get_rider_panel()->set_rider_id(selected_rider.semantic_id);
+  }
 }
 
 PlotScreen::PlotScreen(AppState* s) : state(s) {
@@ -249,7 +257,8 @@ void PlotScreen::update() {
     result = future.get();
     running = false;
 
-    renderer->set_data(result->series);
+    if (result.has_value())
+      renderer->set_data(*result);
   }
 }
 

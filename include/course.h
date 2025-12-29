@@ -57,6 +57,7 @@ public:
   MatrixX2d get_points(double x_min, double x_max) const;
 
   static Course create_flat();
+  static Course create_flat_short();
   static Course create_endulating();
 
   void print();

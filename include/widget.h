@@ -3,6 +3,7 @@
 #define WIDGET_H
 
 #include "display.h"
+#include "rider.h"
 #include "sim.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -229,7 +230,7 @@ public:
 class RiderPanel : public Widget {
 private:
   int x, y;
-  int rider_uid = 0;
+  RiderId id = -1;
   TTF_Font* font;
 
   std::string title;
@@ -239,12 +240,14 @@ private:
 
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
+  const IRiderDataSource* data_source;
 
 public:
-  RiderPanel(int x, int y, TTF_Font* font);
+  RiderPanel(int x, int y, TTF_Font* font,
+             const IRiderDataSource* data_source_);
   ~RiderPanel();
 
-  void set_rider_id(int uid);
+  void set_rider_id(RiderId id_);
   // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
   void add_row(std::string label, std::string unit,
                RiderValueField::DataGetter getter);

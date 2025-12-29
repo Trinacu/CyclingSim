@@ -6,3 +6,12 @@ in general the chat "Design ImPlot screen" has a lot of stuff that could be adde
 
 there seems to be a bit of a bug with the "can't change screen - sim running" because
 it triggers without asking for screen change sometimes
+
+bug with displaying course when its just flat - or maybe even with any long flat section?
+
+what do we do when riders cross the line? we need to log their times and make them such that they skip updates
+and ideally keep their relative position (first finisher is furthers along? - or is this unnecessary?)
+actually exclude them from sorting also - and group management
+
+"can't change screen - sim is runnning." - triggering when you dont even request to switch
+i think when going back and forth between sim and plot screen

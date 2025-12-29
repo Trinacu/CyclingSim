@@ -13,10 +13,11 @@ public:
 
   bool handle_event(const SDL_Event* e);
 
-  void set_data(std::vector<PlotSeries> data);
+  void set_data(PlotResult result);
 
 private:
   void render_plot_imgui();
+  std::string plot_title;
   std::vector<PlotSeries> plot_data;
 };
 

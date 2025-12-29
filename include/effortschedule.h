@@ -9,24 +9,46 @@ public:
 };
 
 struct EffortBlock {
-  double t_start;
-  double t_end;
+  double duration;
   double effort; // relative (e.g. 0.7, 1.2, 1.5)
 };
 
 class StepEffortSchedule : public EffortSchedule {
 public:
-  StepEffortSchedule(std::vector<EffortBlock> blocks_)
-      : blocks(std::move(blocks_)) {}
+  explicit StepEffortSchedule(std::vector<EffortBlock> segments_)
+      : segments(std::move(segments_)) {
 
-  double effort_at(double t) const override {
-    for (const auto& b : blocks) {
-      if (t >= b.t_start && t < b.t_end)
-        return b.effort;
+    double t = 0.0;
+    for (const auto& s : segments) {
+      ranges.push_back({t, t + s.duration, s.effort});
+      t += s.duration;
     }
-    return blocks.empty() ? 0.0 : blocks.back().effort;
+    total_duration = t;
   }
 
+  double effort_at(double t) const override {
+    if (ranges.empty())
+      return 0.0;
+
+    for (const auto& r : ranges) {
+      if (t < r.t_end)
+        return r.effort;
+    }
+
+    // after schedule ends, hold last effort
+    return ranges.back().effort;
+  }
+
+  double get_total_duration() const { return total_duration; }
+
 private:
-  std::vector<EffortBlock> blocks;
+  struct Range {
+    double t_start;
+    double t_end;
+    double effort;
+  };
+
+  std::vector<EffortBlock> segments;
+  std::vector<Range> ranges;
+  double total_duration = 0.0;
 };

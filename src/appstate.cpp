@@ -40,7 +40,7 @@ AppState::AppState() {
 
   // 4. Initialize Simulation
   // v
-  course = new Course(Course::create_endulating());
+  course = new Course(Course::create_flat());
   sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(0.1);
 
@@ -49,20 +49,18 @@ AppState::AppState() {
 
   Team team("Team1");
   RiderConfig cfg = {
-      "Pedro", 320, 6, 90, 0.5, 24000, 400, Bike::create_generic(), team};
+      0, "Pedro", 320, 6, 90, 0.5, 24000, 400, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {"Mario", 300, 6, 88, 0.5, 24000, 400, Bike::create_generic(), team};
+  cfg = {1, "Mario", 300, 6, 88, 0.5, 24000, 400, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
-  for (const RiderConfig& cfg : rider_configs) {
-    sim->get_engine()->add_rider(cfg);
-  }
+  sim->add_riders(rider_configs);
 
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
-      {0.0, 60.0, 0.1},    // easy
-      {60.0, 120.0, 1.3},  // hard
-      {120.0, 240.0, 0.8}, // recovery
-      {240.0, 300.0, 1.5}  // sprint
+      {0.0, 0.1},   // easy
+      {40.0, 1.3},  // hard
+      {600.0, 0.8}, // recovery
+      {300.0, 0.9}  // sprint
   });
 
   sim->set_effort_schedule(0, schedule);

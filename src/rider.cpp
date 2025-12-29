@@ -1,4 +1,5 @@
 #include "rider.h"
+#include "SDL3/SDL_log.h"
 #include "course.h"
 #include <cmath>
 #include <exception>
@@ -38,10 +39,12 @@ Bike Bike::create_generic() {
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
 Rider::Rider(RiderConfig config_)
-    : config(config_), uid(global_id_counter++), name(config_.name),
-      ftp_base(config_.ftp_base), mass(config_.mass), cda(config_.cda),
-      bike(config_.bike), team(config_.team),
-      energymodel(config_.w_prime_base, config_.ftp_base, config_.tau) {
+    : config(config_), id(config_.rider_id), uid(global_id_counter++),
+      name(config_.name), ftp_base(config_.ftp_base), mass(config_.mass),
+      cda(config_.cda), bike(config_.bike), team(config_.team),
+      effort_limit(config_.max_effort),
+      energymodel(config_.w_prime_base, config_.ftp_base, config_.tau,
+                  config_.max_effort) {
   cda_factor = 1.0;
   target_effort = 0.8;
   pos = 0;
@@ -58,7 +61,7 @@ Rider::Rider(RiderConfig config_)
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  RiderConfig cfg = {"Joe Moe", 250, 6, 65, 0.3, 24000, 400, bike, team_};
+  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000, 400, bike, team_};
   return new Rider(cfg);
 }
 
@@ -129,10 +132,10 @@ void Rider::update(double dt) {
   slope = course->get_slope(pos);
   compute_headwind();
   double ftp = ftp_base;
-  double effort_limit = 1;
   effort = target_effort;
   power = std::min(target_effort, effort_limit) * ftp;
   energymodel.update(power, dt);
+  effort_limit = energymodel.get_effort_limit();
   try {
     double old_speed = speed;
     speed = newton(power, speed);
@@ -151,9 +154,12 @@ void Rider::set_effort(double new_effort) { target_effort = new_effort; }
 // these 2 are a bit odd, no?
 double Rider::km() const { return pos / 1000.0; }
 
-double Rider::km_h() const { return speed * 3.6; }
+double Rider::get_km_h() const { return speed * 3.6; }
 
 double Rider::get_energy() const { return energymodel.get_wbal(); }
+double Rider::get_energy_fraction() const {
+  return energymodel.get_wbal_fraction();
+}
 
 void Rider::update_power_breakdown(double old_speed) {
   auto [wind_dir, wind_speed] = course->get_wind(pos);
@@ -283,6 +289,7 @@ double Rider::householder(double power, double speed_guess,
 RiderSnapshot Rider::snapshot() const {
   return RiderSnapshot{
       .uid = this->uid,
+      .id = this->id,
       .name = this->name,
       .pos = this->pos,
       .slope = this->slope,
@@ -291,7 +298,7 @@ RiderSnapshot Rider::snapshot() const {
       .effort = this->effort,
       .max_effort = this->max_effort,
       .speed = this->speed,
-      .km_h = this->km_h(),
+      .km_h = this->get_km_h(),
       .heading = this->heading,
       .team_id = this->team.id,
       .visual_type = this->bike.type,

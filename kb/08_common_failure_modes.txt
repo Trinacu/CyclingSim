@@ -17,6 +17,22 @@ Invariants that must hold
   Camera transforms are pure
     Camera must not depend on live simulation state — only interpolated data.
 
+
+Identity rules
+  Renderer / Camera → RiderUid
+  UI / Panels / Plots → RiderId
+  Simulation → only place that knows both
+
+Selection rules
+  Selection always enters via select_rider_by_uid()
+  UI never stores a raw uid
+  Cycling never touches UI directly
+
+Access rules
+  UI never calls get_engine()
+  UI reads via snapshots only
+  UI writes via Simulation
+
 “Don’t do X because Y explodes”
   Don’t render inside physics callbacks → deadlocks & frame stalls
   Don’t sleep inside the render loop → missed input, jitter

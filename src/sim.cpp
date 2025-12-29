@@ -6,23 +6,24 @@
 
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
 
-void PhysicsEngine::add_rider(const RiderConfig cfg) {
+RiderUid PhysicsEngine::add_rider(const RiderConfig cfg) {
   auto r = std::make_unique<Rider>(cfg);
 
   for (const auto& r0 : riders) {
-    // now with creating riders here we can't check with uid
-    // maybe add check with name + some stats?
-    // if (r->get_id() == r0->get_id()) {
-    //   SDL_Log("Tried to add rider who is already in the list! %s",
-    //           r->name.c_str());
-    //   return;
-    // }
+    // could even raise here?
+    if (r->get_id() == r0->get_id()) {
+      SDL_Log("Tried to add rider who is already in the list! %s",
+              r->name.c_str());
+      return -1;
+    }
   }
 
   std::lock_guard<std::mutex> lock(frame_mtx);
-
   r->set_course(course);
+  RiderUid uid = r->get_uid();
   riders.push_back(std::move(r));
+
+  return uid;
 }
 
 void PhysicsEngine::update(double dt) {
@@ -42,23 +43,35 @@ const std::vector<std::unique_ptr<Rider>>& PhysicsEngine::get_riders() const {
 
 // this is (now) only used to set camera to first rider... kinda useless if
 // fixed
-const Rider* PhysicsEngine::get_rider_by_idx(int idx) const {
-  return riders.at(idx).get();
-}
-
-const Rider* PhysicsEngine::get_rider_by_uid(int uid) const {
-  for (auto& r : get_riders()) {
-    SDL_Log("%d", r->get_uid());
-    if (r->get_uid() == uid)
+const Rider* PhysicsEngine::get_rider_by_id(RiderId id) const {
+  for (auto& r : riders) {
+    if (r->get_id() == id) {
       return r.get();
-    // TODO - do we just raise error here?
+    }
   }
-  SDL_Log("uid %d did not match any rider!", uid);
+  SDL_Log("id %d did not match any rider!", id);
   return nullptr;
 }
 
+// const Rider* PhysicsEngine::get_rider_by_uid(RiderUid uid) const {
+//   for (auto& r : get_riders()) {
+//     SDL_Log("%d", r->get_uid());
+//     if (r->get_uid() == uid)
+//       return r.get();
+//     // TODO - do we just raise error here?
+//   }
+//   SDL_Log("uid %d did not match any rider!", uid);
+//   return nullptr;
+// }
+
 void PhysicsEngine::set_rider_effort(int uid, double effort) {
-  riders.at(uid).get()->set_effort(effort);
+  for (auto& r : riders) {
+    if (r->get_uid() == uid) {
+      r->set_effort(effort);
+      return;
+    }
+  }
+  SDL_Log("Engine::set_rider_effort: uid %d not found", uid);
 }
 
 // SIMULATION
@@ -118,13 +131,23 @@ void Simulation::start_realtime() {
   }
 }
 
-void Simulation::set_effort_schedule(int rider_uid,
-                                     std::shared_ptr<EffortSchedule> schedule) {
-  effort_schedules[rider_uid] = std::move(schedule);
+void Simulation::add_riders(const std::vector<RiderConfig>& configs) {
+  rider_id_to_uid.clear();
+
+  for (const auto& cfg : configs) {
+    assert(cfg.rider_id >= 0 && "RiderConfig must have a valid rider_id");
+    RiderUid uid = engine.add_rider(cfg);
+    rider_id_to_uid.emplace(cfg.rider_id, uid);
+  }
 }
 
-void Simulation::clear_effort_schedule(int rider_uid) {
-  effort_schedules.erase(rider_uid);
+void Simulation::set_effort_schedule(int rider_id,
+                                     std::shared_ptr<EffortSchedule> schedule) {
+  effort_schedules[rider_id] = std::move(schedule);
+}
+
+void Simulation::clear_effort_schedule(int rider_id) {
+  effort_schedules.erase(rider_id);
 }
 
 void Simulation::step_fixed(double dt) {
@@ -132,40 +155,53 @@ void Simulation::step_fixed(double dt) {
 
   double t = sim_seconds;
 
-  for (auto& [uid, sched] : effort_schedules) {
+  for (auto& [id, sched] : effort_schedules) {
     double effort = sched->effort_at(t);
-    engine.set_rider_effort(uid, effort);
+    set_rider_effort(id, effort);
   }
 
   engine.update(dt);
   sim_seconds += dt;
 }
 
-// void Simulation::run_max_speed(const SimulationCondition& cond) {
-//   using namespace std::chrono;
-//
-//   const int secs = 180;
-//   const auto timeout = seconds(secs);
-//   const auto start_time = steady_clock::now();
-//   int iteration = 1;
-//
-//   while (!cond.is_met(*this)) {
-//     try {
-//       step_fixed(dt);
-//     } catch (const std::exception& e) {
-//       physics_error = true;
-//       physics_error_message = e.what();
-//       break;
-//     }
-//
-//     if (++iteration % 100 == 0) {
-//       if (steady_clock::now() - start_time > timeout) {
-//         SDL_Log("Timeout %d seconds after %d iterations", secs, iteration);
-//         break;
-//       }
-//     }
-//   }
-// }
+void Simulation::set_rider_effort(RiderId rider_id, double effort) {
+  // UI never sees uid, PhysicsEngine never sees rider_id
+  auto it = rider_id_to_uid.find(rider_id);
+  if (it == rider_id_to_uid.end())
+    return;
+
+  engine.set_rider_effort(it->second, effort);
+}
+
+RiderId Simulation::resolve_rider_id(RiderUid uid) const {
+  for (auto& [id, u] : rider_id_to_uid)
+    if (u == uid)
+      return id;
+  return -1;
+}
+
+void Simulation::set_snapshot_source(const ISnapshotSource* src) {
+  snapshot_source = src;
+}
+
+const RiderSnapshot* Simulation::get_rider_snapshot(RiderId id) const {
+  if (!snapshot_source)
+    return nullptr;
+
+  auto it = rider_id_to_uid.find(id);
+  if (it == rider_id_to_uid.end())
+    return nullptr;
+
+  const FrameSnapshot* snap = snapshot_source->latest_snapshot();
+  if (!snap)
+    return nullptr;
+
+  auto it2 = snap->riders.find(it->second);
+  if (it2 == snap->riders.end())
+    return nullptr;
+
+  return &it2->second;
+}
 
 void Simulation::pause() { paused = true; }
 

@@ -5,10 +5,19 @@
 #include "course.h"
 #include "effortschedule.h"
 #include "rider.h"
+#include "simulationrenderer.h"
 #include <mutex>
 
 #include <atomic>
+#include <unordered_map>
 #include <vector>
+
+class IRiderDataSource {
+public:
+  virtual ~IRiderDataSource() = default;
+
+  virtual const RiderSnapshot* get_rider_snapshot(RiderId id) const = 0;
+};
 
 class PhysicsEngine {
 private:
@@ -18,7 +27,7 @@ private:
 
 public:
   explicit PhysicsEngine(const Course* c);
-  void add_rider(const RiderConfig cfg);
+  RiderUid add_rider(const RiderConfig cfg);
   void update(double dt);
 
   const Course* get_course() const { return course; }
@@ -26,12 +35,12 @@ public:
 
   // do these returns need to/should be const?
   const std::vector<std::unique_ptr<Rider>>& get_riders() const;
-  const Rider* get_rider_by_idx(int idx) const;
-  const Rider* get_rider_by_uid(int uid) const;
+  const Rider* get_rider_by_id(RiderId id) const;
+  // const Rider* get_rider_by_uid(RiderUid uid) const;
   std::mutex* get_frame_mutex() const;
 
   // physicsengine mutates rider state
-  void set_rider_effort(int uid, double effort);
+  void set_rider_effort(int id, double effort);
 
   ~PhysicsEngine() = default;
 };
@@ -40,7 +49,7 @@ public:
 class SimulationCondition;
 
 // Your main simulation loop (runs in its own thread or fixed-step driver)
-class Simulation {
+class Simulation : public IRiderDataSource {
 private:
   PhysicsEngine engine;
   // when this is false, we exit and kill the thread
@@ -54,12 +63,18 @@ private:
   double interp_alpha = 0.0;
 
   const float dt = 0.1; // 100 Hz physics
+
   std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
+  std::unordered_map<RiderId, RiderUid> rider_id_to_uid;
+
+  const ISnapshotSource* snapshot_source = nullptr;
 
 public:
   Simulation(const Course* c);
 
   void start_realtime();
+
+  void add_riders(const std::vector<RiderConfig>& configs);
 
   void run_max_speed(const SimulationCondition& cond);
 
@@ -80,13 +95,20 @@ public:
   const PhysicsEngine* get_engine() const;
   PhysicsEngine* get_engine();
 
+  RiderId resolve_rider_id(RiderUid uid) const;
+
   std::atomic<bool> physics_error{false};
   std::string physics_error_message;
 
   // Simulation decides when and why the mutation happens
-  void set_effort_schedule(int rider_uid,
+  void set_effort_schedule(int rider_id,
                            std::shared_ptr<EffortSchedule> schedule);
-  void clear_effort_schedule(int rider_uid);
+  void clear_effort_schedule(int rider_id);
+
+  void set_rider_effort(RiderId rider_id, double effort);
+
+  void set_snapshot_source(const ISnapshotSource* src);
+  const RiderSnapshot* get_rider_snapshot(RiderId id) const override;
 };
 
 class SimulationEndCondition {
