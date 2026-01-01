@@ -5,7 +5,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 cmake_minimum_required(VERSION 3.10)
-project(game LANGUAGES CXX)
+project(game LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,12 +81,37 @@ target_include_directories(implot PUBLIC
 target_link_libraries(implot PRIVATE imgui)
 target_compile_options(implot PUBLIC ${COMMON_COMPILE_OPTS})
 
+file(GLOB_RECURSE CORE_SRC
+    ${CMAKE_SOURCE_DIR}/core/src/*.c
+)
+
+# ADD CORE - pure C library
+add_library(core_lib STATIC ${CORE_SRC})
+
+target_include_directories(core_lib
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/core/include
+)
+
+# Enforce strict C99 for the core only
+set_target_properties(core_lib PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+
+# Warnings for C core (only applied to C files)
+target_compile_options(core_lib PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -Wpedantic>
+)
+
 # 1) Build your code as a static library
 file(GLOB_RECURSE ALL_SRC "${CMAKE_SOURCE_DIR}/src/*.cpp")
 list(FILTER ALL_SRC EXCLUDE REGEX ".*/src/main\\.cpp$")
 set(GAME_SRC ${ALL_SRC})
 
 add_library(game_lib STATIC ${GAME_SRC})
+target_link_libraries(game_lib PUBLIC core_lib)
 target_include_directories(game_lib PUBLIC
   ${COMMON_INCLUDES}
   ${IMGUI_DIR}

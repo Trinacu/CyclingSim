@@ -1,39 +1,31 @@
+#pragma once
+
+#include "sim_core.h"
+
+/*
+ * Thin C++ adapter over the C99 EnergyState.
+ * Owns state, delegates all logic to sim_core.
+ */
+
 class EnergyModel {
 public:
-  EnergyModel(double w_prime_base_, double ftp_base_, double tau_,
-              double max_effort_base_);
+  EnergyModel(double w_prime_base, double ftp_base,
+              double /* tau (deprecated) */, double max_effort_base) {
+    energy_init(&state, ftp_base, w_prime_base, max_effort_base);
+  }
 
-  void reset();
+  void reset() { energy_reset(&state); }
 
-  // call once per physics step
-  void update(double power, double dt);
-  void update2(double power, double dt);
+  void update(double power, double dt) { energy_update(&state, power, dt); }
 
-  double get_wbal() const;
-  double get_wbal_fraction() const;
-  double get_ftp() const;
-  double get_effort_limit() const;
+  double get_wbal() const { return energy_wbal(&state); }
 
-  double get_tau() const { return tau; }
+  double get_wbal_fraction() const { return energy_wbal_fraction(&state); }
 
-private:
-  // parameters
-  double ftp_base; // CP proxy
-  double ftp;
-  double w_prime_base;
-  double w_prime; // total anaerobic capacity
-  double tau;     // recovery time constant
-  double max_effort;
+  double get_effort_limit() const { return energy_effort_limit(&state); }
 
-  double effort_limit;
-
-  void update_effort_limit();
-
-  double calc_tau(double tau);
-
-  // state
-  double I = 0.0; // accumulated "fatigue integral"
+  double get_ftp() const { return state.ftp; }
 
 private:
-  double compute_tau(double dcp) const;
+  EnergyState state;
 };
