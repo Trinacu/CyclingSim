@@ -27,13 +27,13 @@ void OfflineSimulationRunner::run() {
     for (auto* o : observers)
       o->on_step(*sim);
 
-    // bool stop = false;
-    // for (auto* o : observers) {
-    //   if (o->should_stop(*sim)) {
-    //     stop = true;
-    //     break;
-    //   }
-    // }
+    bool stop = false;
+    for (auto* o : observers) {
+      if (o->should_stop(*sim)) {
+        stop = true;
+        break;
+      }
+    }
     if (end_condition && end_condition->should_stop(*sim))
       break;
   }

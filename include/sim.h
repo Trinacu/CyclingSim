@@ -62,7 +62,7 @@ private:
 
   double interp_alpha = 0.0;
 
-  const float dt = 0.1; // 100 Hz physics
+  const float dt = 0.0001; // 100 Hz physics
 
   std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
   std::unordered_map<RiderId, RiderUid> rider_id_to_uid;
@@ -124,7 +124,7 @@ public:
   bool should_stop(const Simulation& sim) const override {
     for (const auto& r : sim.get_engine()->get_riders()) {
       if (!r->finished()) {
-        SDL_Log("%s: %.1f", r->name.c_str(), r->pos);
+        // SDL_Log("%s: %.1f", r->name.c_str(), r->pos);
         return false;
       }
     }

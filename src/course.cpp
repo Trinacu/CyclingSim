@@ -99,9 +99,9 @@ MatrixX2d Course::get_points(double x_min, double x_max) const {
 
 int Course::find_segment(double x) const {
   if (x > total_length_) {
-    SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
-            "Course::find segment()",
-            x, total_length_);
+    // SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
+    //         "Course::find segment()",
+    //         x, total_length_);
     return segments.size() - 1;
   }
   int lo = 0, hi = segments.size() - 1;

@@ -25,7 +25,7 @@ PlotResult run_plot_simulation(const Course& course,
 
   MetricObserver effort_obs([target_uid, rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
-    return r ? r->target_effort : 0.0;
+    return r ? r->get_target_effort() : 0.0;
   });
 
   MetricObserver effortlimit_obs([target_uid, rider_id](const Simulation& s) {

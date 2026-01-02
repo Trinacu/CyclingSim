@@ -7,6 +7,9 @@ endif()
 cmake_minimum_required(VERSION 3.10)
 project(game LANGUAGES C CXX)
 
+# CTest
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -87,6 +90,8 @@ file(GLOB_RECURSE CORE_SRC
 
 # ADD CORE - pure C library
 add_library(core_lib STATIC ${CORE_SRC})
+# make core_lib export its math dependency
+target_link_libraries(core_lib PUBLIC m)
 
 target_include_directories(core_lib
     PUBLIC
@@ -135,6 +140,9 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 # 3) Tests: one executable per test, also link game_lib
+# # -------------------------
+# C++ tests (integration)
+# -------------------------
 file(GLOB TEST_SOURCES "${CMAKE_SOURCE_DIR}/tests/*.cpp")
 foreach(test_src IN LISTS TEST_SOURCES)
   get_filename_component(test_name ${test_src} NAME_WE)
@@ -144,5 +152,39 @@ foreach(test_src IN LISTS TEST_SOURCES)
   target_link_libraries(${test_name}
     PRIVATE game_lib ${COMMON_LIBS}
   )
+  add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 
+# -------------------------
+# C tests (core-only)
+# -------------------------
+file(GLOB TEST_C_SOURCES
+    "${CMAKE_SOURCE_DIR}/tests/core/*.c"
+)
+
+foreach(test_src IN LISTS TEST_C_SOURCES)
+    get_filename_component(test_name ${test_src} NAME_WE)
+
+    add_executable(${test_name} ${test_src})
+
+    target_include_directories(${test_name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/core/include
+    )
+
+    target_link_libraries(${test_name}
+        PRIVATE core_lib
+    )
+
+    # Enforce strict C99 on tests too
+    set_target_properties(${test_name} PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED YES
+        C_EXTENSIONS NO
+    )
+
+    target_compile_options(${test_name} PRIVATE
+        -Wall -Wextra -Wpedantic
+    )
+
+    add_test(NAME ${test_name} COMMAND ${test_name})
+endforeach()

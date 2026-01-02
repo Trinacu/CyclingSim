@@ -80,7 +80,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   // DISTANCE
   panel->add_row("Dist", "km", [](const RiderSnapshot& s) {
-    return format_number(s.pos / 1000.0);
+    return format_number(s.pos / 1000.0, 3);
   });
 
   // GRADIENT (Custom logic inside lambda!)

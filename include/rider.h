@@ -5,6 +5,7 @@
 #include "course.h"
 #include "energymodel.h"
 #include "pch.hpp"
+#include "sim_core.h"
 #include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
@@ -52,7 +53,6 @@ struct RiderConfig {
   double mass;
   double cda;
   double w_prime_base;
-  double tau;
 
   Bike bike;
   Team team;
@@ -79,7 +79,7 @@ private:
   double power;
 
   double effort_limit;
-  EnergyModel energymodel;
+  // EnergyModel energymodel;
 
   double drag_coeff;
   double roll_coeff;
@@ -102,15 +102,18 @@ private:
 
   std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 
+  // C core
+  RiderState state;
+  EnvState env;
+
 public:
   std::string name;
-  double target_effort;
-  double pos = 0.0;
-  double altitude = 0.0;
-  double speed;
+  // double pos = 0.0;
+  // double altitude = 0.0;
+  // double speed;
   const SDL_Texture* image;
 
-  Rider(RiderConfig config_);
+  explicit Rider(RiderConfig config_);
   static Rider* create_generic(Team team_);
 
   void set_course(const ICourseView* cv);
@@ -122,7 +125,9 @@ public:
   void reset();
   void update(double dt);
 
-  bool finished() { return pos >= course->get_total_length(); }
+  bool finished() {
+    printf("%s %.1f / %.1f\n", name.c_str(), state.pos, course->get_total_length());
+        return state.pos >= course->get_total_length(); }
 
   RiderUid get_uid() const { return uid; }
   RiderId get_id() const { return id; }
@@ -134,7 +139,8 @@ public:
   double get_power() const { return power; }
   double get_energy() const;
   double get_energy_fraction() const;
-  double get_effort_limit() const { return energymodel.get_effort_limit(); }
+  double get_effort_limit() const { return energy_effort_limit(&state.energy); }
+  double get_target_effort() const { return state.target_effort; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

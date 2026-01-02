@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <numeric>
 
+#include "sim_core.h"
+
 #include "helpers.h"
 #include "snapshot.h"
 
@@ -42,262 +44,224 @@ Rider::Rider(RiderConfig config_)
     : config(config_), id(config_.rider_id), uid(global_id_counter++),
       name(config_.name), ftp_base(config_.ftp_base), mass(config_.mass),
       cda(config_.cda), bike(config_.bike), team(config_.team),
-      effort_limit(config_.max_effort),
-      energymodel(config_.w_prime_base, config_.ftp_base, config_.tau,
-                  config_.max_effort) {
-  cda_factor = 1.0;
-  target_effort = 0.8;
-  pos = 0;
-  speed = 0;
-  slope = 0;
+      effort_limit(config_.max_effort) {
+  rider_state_init(&state, config_.ftp_base, config_.w_prime_base,
+                   config_.max_effort, config_.mass, config_.cda);
 
-  heading = M_PI / 3;
+  state.mass_bike = config_.bike.mass;
+  state.wheel_i = config.bike.wheel_i;
+  state.wheel_r = config_.bike.wheel_r;
+  state.crr = config_.bike.crr;
+  state.drivetrain_loss = config_.bike.dt_loss;
 
-  set_cda_factor(1);
-  change_bike(bike);
+  if (config_.name == "Mario2")
+    state.solver = SIM_SOLVER_ACCEL_ENERGY;
+  if (config_.name == "Mario3")
+    state.solver = SIM_SOLVER_ACCEL_FORCE;
 
-  timestep = 1;
+  state.cda_wheel_drag = config_.bike.wheel_drag_factor;
 }
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000, 400, bike, team_};
+  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000,  bike, team_};
   return new Rider(cfg);
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
 
-std::ostream& operator<<(std::ostream& os, const Rider& r) {
-  os << std::fixed << std::setprecision(1) << r.name << ":\t" << r.ftp_base
-     << " W\t" << r.mass << " kg\npos: " << r.pos
-     << "m\tspeed: " << r.speed * 3.6 << " km/h" << std::endl;
-  return os;
-}
-
 Vector2d Rider::get_pos2d() const { return _pos2d; }
 
 void Rider::set_pos2d(Vector2d pos) { _pos2d = pos; }
 
-void Rider::set_cda_factor(double cda_factor_) {
-  cda_factor = cda_factor_;
-  effective_cda = cda_factor * cda;
-  compute_drag();
-}
-
-void Rider::set_mass(double rider_mass) {
-  mass = rider_mass;
-  total_mass = rider_mass + bike.mass;
-  compute_coeff();
-}
-
-void Rider::compute_headwind() {
-  Wind wind = course->get_wind(pos);
-  v_hw = wind.speed * cos(wind.heading - this->heading);
-}
-
-void Rider::compute_drag() {
-  drag_coeff = 0.5 * RHO * (effective_cda + bike.wheel_drag_factor);
-}
-
-void Rider::compute_roll() { roll_coeff = bike.crr * total_mass * G; }
-
-void Rider::compute_inertia() {
-  mass_ir = total_mass + bike.wheel_i / pow(bike.wheel_r, 2);
-  inertia_coeff = 0.5 * mass_ir;
-}
-
-void Rider::compute_coeff() {
-  compute_drag();
-  compute_roll();
-  compute_inertia();
-}
-
-void Rider::change_bike(Bike new_bike) {
-  bike = new_bike;
-  total_mass = mass + bike.mass;
-  f_grav = total_mass * G;
-  compute_coeff();
-}
 
 void Rider::reset() {
-  pos = 0;
-  speed = 0;
-  energymodel.reset();
+  rider_reset(&state);
+  // pos = 0;
+  // speed = 0;
+  // energymodel.reset();
 }
 
-// TODO - add limiting effort_limit to EnergyModel so we can't go into
-// negative W'bal. use some sort of sigmoid I think
 void Rider::update(double dt) {
-  timestep = dt;
-  slope = course->get_slope(pos);
-  compute_headwind();
-  double ftp = ftp_base;
-  effort = target_effort;
-  power = std::min(target_effort, effort_limit) * ftp;
-  energymodel.update(power, dt);
-  effort_limit = energymodel.get_effort_limit();
-  try {
-    double old_speed = speed;
-    speed = newton(power, speed);
-    update_power_breakdown(old_speed);
-  } catch (std::exception& e) {
-    SDL_Log("oops! %s", e.what());
-    // TODO -  what here?
+  if (!course)
+    return;
+
+  env.rho = 1.2234;
+  env.g = 9.80665;
+
+  env.slope = course->get_slope(state.pos);
+
+  auto [wind_dir, wind_speed] = course->get_wind(state.pos);
+  env.headwind = wind_speed * std::cos(wind_dir - heading);
+
+  env.bearing_c0 = 0.091;
+  env.bearing_c1 = 0.0087;
+
+  /* --- step physics in C --- */
+  StepDiagnostics diag{};
+  sim_step_rider(&state, &env, dt, &diag);
+
+  if ((state.solver == SIM_SOLVER_POWER_BALANCE) && !diag.converged) {
+    SDL_Log("Rider %d: Newton did not converge (residual %.3f W)", id,
+            diag.residual_power);
   }
-  pos += timestep * speed;
-  altitude = course->get_altitude(pos);
-  set_pos2d(Vector2d{pos, altitude});
+
+  /* --- sync UI-facing state --- */
+  double altitude = course->get_altitude(state.pos);
+  _pos2d = Vector2d{state.pos, altitude};
 }
 
-void Rider::set_effort(double new_effort) { target_effort = new_effort; }
+void Rider::set_effort(double new_effort) { 
+  state.target_effort = new_effort;
+}
 
 // these 2 are a bit odd, no?
-double Rider::km() const { return pos / 1000.0; }
+double Rider::km() const { return state.pos / 1000.0; }
 
-double Rider::get_km_h() const { return speed * 3.6; }
+double Rider::get_km_h() const { return state.speed * 3.6; }
 
-double Rider::get_energy() const { return energymodel.get_wbal(); }
+double Rider::get_energy() const { return energy_wbal(&state.energy); }
 double Rider::get_energy_fraction() const {
-  return energymodel.get_wbal_fraction();
+  return energy_wbal_fraction(&state.energy);
 }
 
 void Rider::update_power_breakdown(double old_speed) {
-  auto [wind_dir, wind_speed] = course->get_wind(pos);
-  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
-
-  double v_air = speed + v_rel_wind;
-
-  power_breakdown[(int)PowerTerm::Aerodynamic] =
-      drag_coeff * pow(v_air, 2) * speed;
-  power_breakdown[(int)PowerTerm::Rolling] = roll_coeff * speed;
-  power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) * speed;
-  power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope)) * speed;
-  power_breakdown[(int)PowerTerm::Inertia] =
-      inertia_coeff * (pow(speed, 2) - pow(old_speed, 2)) / timestep;
-  // sum without Drivetrain loss
-  double sum_raw = std::accumulate(
-      power_breakdown.begin(),
-      power_breakdown.begin() + (int)PowerTerm::Drivetrain, 0.0);
-
-  power_breakdown[(int)PowerTerm::Drivetrain] = sum_raw * bike.dt_loss;
-
-  double total =
-      std::accumulate(power_breakdown.begin(), power_breakdown.end(), 0.0);
-  if (std::abs(total - power) > 0.2) {
-    SDL_Log("%.2f", total - power);
-    SDL_Log("%.2f", sum_raw);
-    SDL_Log("%.2f", total);
-  }
+  // auto [wind_dir, wind_speed] = course->get_wind(pos);
+  // double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+  //
+  // double v_air = speed + v_rel_wind;
+  //
+  // power_breakdown[(int)PowerTerm::Aerodynamic] =
+  //     drag_coeff * pow(v_air, 2) * speed;
+  // power_breakdown[(int)PowerTerm::Rolling] = roll_coeff * speed;
+  // power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) * speed;
+  // power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope)) * speed;
+  // power_breakdown[(int)PowerTerm::Inertia] =
+  //     inertia_coeff * (pow(speed, 2) - pow(old_speed, 2)) / timestep;
+  // // sum without Drivetrain loss
+  // double sum_raw = std::accumulate(
+  //     power_breakdown.begin(),
+  //     power_breakdown.begin() + (int)PowerTerm::Drivetrain, 0.0);
+  //
+  // power_breakdown[(int)PowerTerm::Drivetrain] = sum_raw * bike.dt_loss;
+  //
+  // double total =
+  //     std::accumulate(power_breakdown.begin(), power_breakdown.end(), 0.0);
+  // if (std::abs(total - power) > 0.2) {
+  //   SDL_Log("%.2f", total - power);
+  //   SDL_Log("%.2f", sum_raw);
+  //   SDL_Log("%.2f", total);
+  // }
 }
 
-double Rider::pow_speed(double new_speed) {
-  auto [wind_dir, wind_speed] = course->get_wind(pos);
-  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
-
-  double v_air = new_speed + v_rel_wind;
-
-  return (drag_coeff * pow(v_air, 2) * new_speed + roll_coeff * new_speed +
-          (0.091 + 0.0087 * new_speed) * new_speed +
-          f_grav * sin(atan(slope)) * new_speed +
-          inertia_coeff * (pow(new_speed, 2) - pow(speed, 2)) / timestep) /
-         (1 - bike.dt_loss);
-}
-
-double Rider::pow_speed_prime(double new_speed) const {
-  auto [wind_dir, wind_speed] = course->get_wind(pos);
-  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
-
-  double v_air = new_speed + v_rel_wind;
-  return (drag_coeff * (2 * v_air * new_speed + pow(v_air, 2)) + roll_coeff +
-          0.091 + 0.0174 * new_speed + f_grav * sin(atan(slope)) +
-          inertia_coeff * 2 * new_speed / timestep) /
-         (1 - bike.dt_loss);
-}
-
-double Rider::pow_speed_double_prime(double new_speed) const {
-  auto [wind_dir, wind_speed] = course->get_wind(pos);
-  double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
-
-  double v_air = new_speed + v_rel_wind;
-  return (drag_coeff * (2 * new_speed + 4 * v_air) + 0.0174 +
-          inertia_coeff * 2 / timestep) /
-         (1 - bike.dt_loss);
-}
-
-double Rider::newton(double power, double speed_guess, int max_iterations) {
-  double x = speed_guess;
-  double x_next;
-  double f, f_prime;
-
-  for (int i = 0; i < max_iterations; ++i) {
-    f = pow_speed(x) - power;
-    f_prime = pow_speed_prime(x);
-
-    if (std::abs(f_prime) < 1e-12) {
-      throw std::runtime_error("Derivative too small.");
-    }
-
-    x_next = x - f / f_prime;
-
-    // std::cout << "error: " << f << "\tprecision: " << x_next - x <<
-    // std::endl;
-
-    if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
-      return x_next;
-    }
-
-    x = x_next;
-  }
-
-  throw std::runtime_error("Did not converge. Reached max iterations: " +
-                           std::to_string(max_iterations));
-}
-
-double Rider::householder(double power, double speed_guess,
-                          int max_iterations) {
-  double x = speed_guess;
-  double x_next;
-  double f, f_prime, f_double_prime;
-
-  for (int i = 0; i < max_iterations; ++i) {
-    f = pow_speed(x) - power;
-    f_prime = pow_speed_prime(x);
-    f_double_prime = pow_speed_double_prime(x); // must define this
-
-    if (std::abs(f_prime) < 1e-12) {
-      throw std::runtime_error("Derivative too small.");
-    }
-
-    double correction = (f / f_prime);
-    correction *= (1.0 + (f * f_double_prime) / (2.0 * f_prime * f_prime));
-
-    x_next = x - correction;
-
-    std::cout << "error: " << f << "\tprecision: " << x_next - x << std::endl;
-
-    if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
-      return x_next;
-    }
-
-    x = x_next;
-  }
-
-  throw std::runtime_error("Did not converge. Reached max iterations: " +
-                           std::to_string(max_iterations));
-}
+// double Rider::pow_speed(double new_speed) {
+//   auto [wind_dir, wind_speed] = course->get_wind(pos);
+//   double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+//
+//   double v_air = new_speed + v_rel_wind;
+//
+//   return (drag_coeff * pow(v_air, 2) * new_speed + roll_coeff * new_speed +
+//           (0.091 + 0.0087 * new_speed) * new_speed +
+//           f_grav * sin(atan(slope)) * new_speed +
+//           inertia_coeff * (pow(new_speed, 2) - pow(speed, 2)) / timestep) /
+//          (1 - bike.dt_loss);
+// }
+//
+// double Rider::pow_speed_prime(double new_speed) const {
+//   auto [wind_dir, wind_speed] = course->get_wind(pos);
+//   double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+//
+//   double v_air = new_speed + v_rel_wind;
+//   return (drag_coeff * (2 * v_air * new_speed + pow(v_air, 2)) + roll_coeff +
+//           0.091 + 0.0174 * new_speed + f_grav * sin(atan(slope)) +
+//           inertia_coeff * 2 * new_speed / timestep) /
+//          (1 - bike.dt_loss);
+// }
+//
+// double Rider::pow_speed_double_prime(double new_speed) const {
+//   auto [wind_dir, wind_speed] = course->get_wind(pos);
+//   double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
+//
+//   double v_air = new_speed + v_rel_wind;
+//   return (drag_coeff * (2 * new_speed + 4 * v_air) + 0.0174 +
+//           inertia_coeff * 2 / timestep) /
+//          (1 - bike.dt_loss);
+// }
+//
+// double Rider::newton(double power, double speed_guess, int max_iterations) {
+//   double x = speed_guess;
+//   double x_next;
+//   double f, f_prime;
+//
+//   for (int i = 0; i < max_iterations; ++i) {
+//     f = pow_speed(x) - power;
+//     f_prime = pow_speed_prime(x);
+//
+//     if (std::abs(f_prime) < 1e-12) {
+//       throw std::runtime_error("Derivative too small.");
+//     }
+//
+//     x_next = x - f / f_prime;
+//
+//     // std::cout << "error: " << f << "\tprecision: " << x_next - x <<
+//     // std::endl;
+//
+//     if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
+//       return x_next;
+//     }
+//
+//     x = x_next;
+//   }
+//
+//   throw std::runtime_error("Did not converge. Reached max iterations: " +
+//                            std::to_string(max_iterations));
+// }
+//
+// double Rider::householder(double power, double speed_guess,
+//                           int max_iterations) {
+//   double x = speed_guess;
+//   double x_next;
+//   double f, f_prime, f_double_prime;
+//
+//   for (int i = 0; i < max_iterations; ++i) {
+//     f = pow_speed(x) - power;
+//     f_prime = pow_speed_prime(x);
+//     f_double_prime = pow_speed_double_prime(x); // must define this
+//
+//     if (std::abs(f_prime) < 1e-12) {
+//       throw std::runtime_error("Derivative too small.");
+//     }
+//
+//     double correction = (f / f_prime);
+//     correction *= (1.0 + (f * f_double_prime) / (2.0 * f_prime * f_prime));
+//
+//     x_next = x - correction;
+//
+//     std::cout << "error: " << f << "\tprecision: " << x_next - x << std::endl;
+//
+//     if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
+//       return x_next;
+//     }
+//
+//     x = x_next;
+//   }
+//
+//   throw std::runtime_error("Did not converge. Reached max iterations: " +
+//                            std::to_string(max_iterations));
+// }
 
 RiderSnapshot Rider::snapshot() const {
   return RiderSnapshot{
       .uid = this->uid,
       .id = this->id,
       .name = this->name,
-      .pos = this->pos,
-      .slope = this->slope,
+      .pos = this->state.pos,
+      .slope = this->state.slope,
       .pos2d = this->_pos2d,
-      .power = this->power,
-      .effort = this->effort,
+      .power = this->state.power,
+      .effort = this->state.effort,
       .max_effort = this->max_effort,
-      .speed = this->speed,
+      .speed = this->state.speed,
       .km_h = this->get_km_h(),
       .heading = this->heading,
       .team_id = this->team.id,
