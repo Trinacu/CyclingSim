@@ -35,6 +35,7 @@ struct RiderSnapshot {
   double speed;
   double km_h;
   double heading;
+  double lateral_offset;
   int team_id;
 
   BikeType visual_type;
@@ -60,6 +61,7 @@ struct InterpolatedFrameView {
   std::unordered_map<int, Vector2d> rider_pos;
   std::unordered_map<size_t, double> rider_slope;
   std::unordered_map<size_t, double> rider_effort;
+  std::unordered_map<size_t, double> rider_lateral;
 };
 
 #endif

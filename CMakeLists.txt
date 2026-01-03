@@ -28,33 +28,44 @@ set(VENDOR_DIR ${CMAKE_SOURCE_DIR}/vendor)
 set(IMGUI_DIR ${VENDOR_DIR}/imgui)
 set(IMPLOT_DIR ${VENDOR_DIR}/implot)
 
+# non-buildable target: no sources, output, just usage reqs
+add_library(common_deps INTERFACE)
 
-# Common settings
-set(COMMON_INCLUDES
+
+target_include_directories(common_deps INTERFACE
     ${SDL3_INCLUDE_DIRS}
     ${SDL3_TTF_INCLUDE_DIRS}
     ${SDL3_IMAGE_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include
 )
 
-set(COMMON_COMPILE_OPTS
-    ${SDL3_CFLAGS_OTHER}
-    ${SDL3_TTF_CFLAGS_OTHER}
-    ${SDL3_IMAGE_CFLAGS_OTHER}
+target_compile_options(common_deps INTERFACE
+    $<$<COMPILE_LANGUAGE:C>:${SDL3_CFLAGS_OTHER}>
+    $<$<COMPILE_LANGUAGE:C>:${SDL3_TTF_CFLAGS_OTHER}>
+    $<$<COMPILE_LANGUAGE:C>:${SDL3_IMAGE_CFLAGS_OTHER}>
+
+    $<$<COMPILE_LANGUAGE:CXX>:${SDL3_CFLAGS_OTHER}>
+    $<$<COMPILE_LANGUAGE:CXX>:${SDL3_TTF_CFLAGS_OTHER}>
+    $<$<COMPILE_LANGUAGE:CXX>:${SDL3_IMAGE_CFLAGS_OTHER}>
 )
 set(COMMON_LINK_DIRS
     ${SDL3_LIBRARY_DIRS}
     ${SDL3_TTF_LIBRARY_DIRS}
     ${SDL3_IMAGE_LIBRARY_DIRS}
 )
-set(COMMON_LIBS
+# set(COMMON_LIBS
+#     ${SDL3_LIBRARIES}
+#     ${SDL3_TTF_LIBRARIES}
+#     ${SDL3_IMAGE_LIBRARIES}
+# )
+
+target_link_libraries(common_deps INTERFACE
     ${SDL3_LIBRARIES}
     ${SDL3_TTF_LIBRARIES}
     ${SDL3_IMAGE_LIBRARIES}
 )
 
-set(CMAKE_CXX_FLAGS_DEBUG "-g")
-
+# imgui
 
 file(GLOB IMGUI_SRC
      ${IMGUI_DIR}/*.cpp
@@ -65,9 +76,9 @@ file(GLOB IMGUI_SRC
 add_library(imgui STATIC ${IMGUI_SRC})
 target_include_directories(imgui PUBLIC
      ${IMGUI_DIR}
+     ${IMGUI_DIR}/backends
      ${SDL3_INCLUDE_DIRS}
 )
-target_compile_options(imgui PUBLIC ${COMMON_COMPILE_OPTS})
 
 
 # --- IMPLOT integration ---
@@ -80,13 +91,14 @@ add_library(implot STATIC ${IMPLOT_SRC})
 target_include_directories(implot PUBLIC 
     ${IMPLOT_DIR}
     ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
 )
-target_link_libraries(implot PRIVATE imgui)
-target_compile_options(implot PUBLIC ${COMMON_COMPILE_OPTS})
+target_link_libraries(implot PUBLIC imgui)
 
-file(GLOB_RECURSE CORE_SRC
-    ${CMAKE_SOURCE_DIR}/core/src/*.c
-)
+set(CORE_SRC
+    core/src/sim_core.c
+    core/include/sim_core.h
+  )
 
 # ADD CORE - pure C library
 add_library(core_lib STATIC ${CORE_SRC})
@@ -100,6 +112,7 @@ target_include_directories(core_lib
 
 # Enforce strict C99 for the core only
 set_target_properties(core_lib PROPERTIES
+    LINKER_LANGUAGE C
     C_STANDARD 99
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS NO
@@ -108,7 +121,9 @@ set_target_properties(core_lib PROPERTIES
 # Warnings for C core (only applied to C files)
 target_compile_options(core_lib PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -Wpedantic>
+    $<$<COMPILE_LANGUAGE:CXX>:-Werror> # should never trigger
 )
+
 
 # 1) Build your code as a static library
 file(GLOB_RECURSE ALL_SRC "${CMAKE_SOURCE_DIR}/src/*.cpp")
@@ -116,27 +131,24 @@ list(FILTER ALL_SRC EXCLUDE REGEX ".*/src/main\\.cpp$")
 set(GAME_SRC ${ALL_SRC})
 
 add_library(game_lib STATIC ${GAME_SRC})
-target_link_libraries(game_lib PUBLIC core_lib)
-target_include_directories(game_lib PUBLIC
-  ${COMMON_INCLUDES}
-  ${IMGUI_DIR}
-  ${IMPLOT_DIR})
-target_compile_options(game_lib PUBLIC ${COMMON_COMPILE_OPTS})
+target_link_libraries(game_lib
+  PUBLIC
+    core_lib
+    common_deps
+    imgui
+    implot
+)
+
+target_compile_options(game_lib PRIVATE $<$<CONFIG:Debug>:-g>)
+
 
 # 2) Main executable just needs main.cpp + link to game_lib
 add_executable(${PROJECT_NAME} src/main.cpp)
 
-# Also ensure main executable has the includes for its own calls
-target_include_directories(${PROJECT_NAME} PRIVATE 
-    ${COMMON_INCLUDES}
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends # <--- CRITICAL FIX: For backend headers called in main.cpp
-    ${IMPLOT_DIR}
-)
-
 target_link_directories(${PROJECT_NAME} PRIVATE ${COMMON_LINK_DIRS})
 target_link_libraries(${PROJECT_NAME}
-    PRIVATE game_lib imgui implot ${COMMON_LIBS}
+  PRIVATE
+    game_lib
 )
 
 # 3) Tests: one executable per test, also link game_lib
@@ -149,8 +161,11 @@ foreach(test_src IN LISTS TEST_SOURCES)
 
   add_executable(${test_name} ${test_src})
   target_link_directories(${test_name} PRIVATE ${COMMON_LINK_DIRS})
+  # target_link_libraries(${test_name}
   target_link_libraries(${test_name}
-    PRIVATE game_lib ${COMMON_LIBS}
+    PRIVATE
+      game_lib
+      common_deps
   )
   add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
@@ -177,6 +192,7 @@ foreach(test_src IN LISTS TEST_C_SOURCES)
 
     # Enforce strict C99 on tests too
     set_target_properties(${test_name} PROPERTIES
+        LINKER_LANGUAGE C
         C_STANDARD 99
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS NO
@@ -188,3 +204,7 @@ foreach(test_src IN LISTS TEST_C_SOURCES)
 
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
+add_custom_target(run_tests
+    COMMAND ctest --output-on-failure
+  )

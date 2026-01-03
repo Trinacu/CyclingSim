@@ -72,14 +72,12 @@ private:
   double effective_cda;
   double mass;
   double total_mass;
+  double lateral_offset;
 
-  double heading;
+  double heading; // can we remove this?
   Vector2d _pos2d;
   double v_hw;
   double power;
-
-  double effort_limit;
-  // EnergyModel energymodel;
 
   double drag_coeff;
   double roll_coeff;
@@ -108,9 +106,6 @@ private:
 
 public:
   std::string name;
-  // double pos = 0.0;
-  // double altitude = 0.0;
-  // double speed;
   const SDL_Texture* image;
 
   explicit Rider(RiderConfig config_);
@@ -125,9 +120,7 @@ public:
   void reset();
   void update(double dt);
 
-  bool finished() {
-    printf("%s %.1f / %.1f\n", name.c_str(), state.pos, course->get_total_length());
-        return state.pos >= course->get_total_length(); }
+  bool finished() { return state.pos >= course->get_total_length(); }
 
   RiderUid get_uid() const { return uid; }
   RiderId get_id() const { return id; }

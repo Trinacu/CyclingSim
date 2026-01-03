@@ -1,5 +1,6 @@
 from pathlib import Path
 
+
 def read_file_contents(filepath: Path) -> str:
     """Read and return the contents of a file"""
     try:
@@ -9,6 +10,7 @@ def read_file_contents(filepath: Path) -> str:
             return filepath.read_text(encoding="latin-1")
         except Exception:
             return "[Binary file or unable to read]"
+
 
 def find_and_process_files():
     """
@@ -20,11 +22,13 @@ def find_and_process_files():
     root = Path(__file__).resolve().parents[1]
 
     src_dirs = [
-        root / "src",
+        root / "core" / "include",
+        root / "core" / "src",
         root / "include",
+        root / "src"
     ]
 
-    kb_dir = root 
+    kb_dir = root
     kb_dir.mkdir(exist_ok=True)
 
     output_path = kb_dir / "files_contents.txt"
@@ -67,6 +71,6 @@ def find_and_process_files():
     print(f"Successfully processed {len(all_files)} files")
     print(f"Output written to: {output_path}")
 
+
 if __name__ == "__main__":
     find_and_process_files()
-

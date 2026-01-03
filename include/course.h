@@ -16,6 +16,7 @@ struct Segment {
   double slope;
   double end_x;
   double heading;
+  double road_width;
 
   double altitude_at(double x) const { return slope * (x - start_x); }
 };
@@ -44,9 +45,9 @@ private:
 public:
   std::vector<Vector2d> visual_points;
 
-  Course(const std::vector<std::array<double, 3>> segments);
+  Course(const std::vector<std::array<double, 4>> segments);
   static Course
-  from_segments(const std::vector<std::array<double, 3>> segments);
+  from_segments(const std::vector<std::array<double, 4>> segments);
 
   double get_altitude(double pos) const override;
   double get_slope(double pos) const override;

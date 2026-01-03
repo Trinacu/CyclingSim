@@ -116,6 +116,9 @@ void SimulationRenderer::render_frame() {
       view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
 
       view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
+
+      view.rider_lateral[id] =
+          s0.lateral_offset * (1.0 - alpha) + s1.lateral_offset * alpha;
     }
 
     ctx.view = std::move(view);

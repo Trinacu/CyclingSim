@@ -6,6 +6,8 @@ PlotResult run_plot_simulation(const Course& course,
                                int target_uid) {
   auto sim = std::make_unique<Simulation>(&course);
 
+  sim->set_dt(0.1);
+
   sim->add_riders(riders);
 
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
@@ -46,8 +48,8 @@ PlotResult run_plot_simulation(const Course& course,
 
   runner.add_observer(&effort_obs);
   runner.add_observer(&effortlimit_obs);
-  runner.add_observer(&speed_obs);
   runner.add_observer(&wbal_fraction_obs);
+  runner.add_observer(&speed_obs);
   runner.set_end_condition(std::make_unique<FinishLineCondition>());
   runner.run();
 

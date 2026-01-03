@@ -9,12 +9,12 @@ std::ostream& operator<<(std::ostream& os, const Segment& cs) {
   return os;
 }
 
-Course::Course(const std::vector<std::array<double, 3>> segments_) {
+Course::Course(const std::vector<std::array<double, 4>> segments_) {
   double x = 0.0, y = 0.0;
   visual_points.push_back(Vector2d(x, y));
 
-  for (auto [len, slope, heading] : segments_) {
-    segments.push_back({x, len, slope, x + len, heading});
+  for (auto [len, slope, heading, road_width] : segments_) {
+    segments.push_back({x, len, slope, x + len, heading, road_width});
     altitudes.push_back(y);
 
     x += len;
@@ -26,23 +26,23 @@ Course::Course(const std::vector<std::array<double, 3>> segments_) {
 }
 
 Course
-Course::from_segments(const std::vector<std::array<double, 3>> segments) {
+Course::from_segments(const std::vector<std::array<double, 4>> segments) {
   return Course(segments);
 }
 
 Course Course::create_flat() {
-  std::vector<std::array<double, 3>> v = {{30000, 0, 0}};
+  std::vector<std::array<double, 4>> v = {{30000, 0, 0, 8}};
   return Course(v);
 }
 
 Course Course::create_flat_short() {
-  std::vector<std::array<double, 3>> v = {{1000, 0, 0}};
+  std::vector<std::array<double, 4>> v = {{1000, 0, 0, 8}};
   return Course(v);
 }
 
 Course Course::create_endulating() {
-  std::vector<std::array<double, 3>> v = {
-      {100, 0, 0}, {200, 0.1, 0}, {200, 0, 0}, {500, 0.05, 0}};
+  std::vector<std::array<double, 4>> v = {
+      {100, 0, 0, 8}, {200, 0.1, 0, 8}, {200, 0, 0, 8}, {500, 0.05, 0, 8}};
   return Course(v);
 }
 
@@ -125,7 +125,7 @@ void Course::print() {
   for (int i = 0; i < segments.size(); i++) {
     std::cout << segments[i].start_x << ", " << altitudes[i] << std::endl;
   }
-  // for (const std::array<double, 3> &seg_range : segment_ranges) {
+  // for (const std::array<double, 4> &seg_range : segment_ranges) {
   //   std::cout << "x_start: " << seg_range[0] << ",\tx_end:" << seg_range[1]
   //             << ",\tslope: " << seg_range[2] * 100 << "%" << std::endl;
   // }

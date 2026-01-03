@@ -62,7 +62,7 @@ private:
 
   double interp_alpha = 0.0;
 
-  const float dt = 0.0001; // 100 Hz physics
+  float dt = 0.01; // 100 Hz physics
 
   std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
   std::unordered_map<RiderId, RiderUid> rider_id_to_uid;
@@ -89,6 +89,7 @@ public:
   void set_time_factor(double f) { time_factor = f; }
 
   double get_dt() { return dt; }
+  void set_dt(double dt_) { dt = dt_; }
   double get_interp_alpha() { return interp_alpha; }
 
   const double get_sim_seconds() const;

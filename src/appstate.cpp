@@ -52,9 +52,9 @@ AppState::AppState() {
   rider_configs.push_back(cfg);
   cfg = {1, "Mario", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {2, "Mario2", 300, 6, 99, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {2, "Mario2", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {3, "Mario3", 300, 6, 99, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {3, "Mario3", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
   sim->add_riders(rider_configs);

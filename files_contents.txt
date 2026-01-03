@@ -1,3 +1,548 @@
+core/include/sim_core.h
+```
+#pragma once
+
+/*
+ * sim_core.h
+ *
+ * Pure C99 simulation core.
+ * C / C++ ABI stable.
+ */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    SIM_SOLVER_POWER_BALANCE = 0,  /* Newton */
+    SIM_SOLVER_ACCEL_FORCE  = 1,   /* Explicit ODE */
+    SIM_SOLVER_ACCEL_ENERGY = 2   /* explicit energy based */
+} SimSolverType;
+
+
+/* ================================
+ * Energy model (W' balance)
+ * ================================ */
+
+typedef struct {
+  /* --- base parameters --- */
+  double ftp_base;        /* Functional threshold power (W) */
+  double ftp;             /* actual ftp that degrades */
+  double w_prime;         /* Total anaerobic capacity (J) */
+  double w_expended;      /* total W' expended - used for ftp degradation */
+  double max_effort_base; /* Max relative effort when fresh */
+
+  /* --- recovery parameters --- */
+  double tau_base;   /* Baseline tau (s) */
+  double tau_slope;  /* Exponential sensitivity */
+  double tau_offset; /* constant part */
+
+  /* --- state --- */
+  double fatigue_I;    /* accumulated fatigue integral (J) */
+  double effort_limit; /* current effort cap */
+} EnergyState;
+
+/* Initialization / reset */
+void energy_init(EnergyState* e, double ftp, double w_prime,
+                 double max_effort_base);
+
+void energy_reset(EnergyState* e);
+
+/* Update once per physics step */
+void energy_update(EnergyState* e, double power, double dt);
+
+/* Queries */
+double energy_wbal(const EnergyState* e);
+double energy_wbal_fraction(const EnergyState* e);
+double energy_effort_limit(const EnergyState* e);
+
+double piecewise(double x, double threshold);
+
+/* ================================
+ * Environment (inputs)
+ * ================================ */
+
+typedef struct {
+    double rho;        /* air density (kg/m^3) */
+    double g;          /* gravity (m/s^2) */
+
+    double slope;      /* road grade (rise/run) */
+    double headwind;   /* signed headwind component (m/s) */
+
+    /* bearing loss model */
+    double bearing_c0; /* 0.091 */
+    double bearing_c1; /* 0.0087 */
+} EnvState;
+
+
+/* ================================
+ * Rider physics state
+ * ================================ */
+
+typedef struct {
+    /* kinematics */
+    double pos;
+    double speed;
+
+    double altitude;
+    double slope;
+
+    /* masses */
+    double mass_rider;
+    double mass_bike;
+    double wheel_i;
+    double wheel_r;
+
+    /* resistance / losses */
+    double crr;
+    double drivetrain_loss; /* fraction */
+
+    /* aerodynamics */
+    double cda_rider;       /* already includes cda_factor */
+    double cda_wheel_drag;  /* wheel / frame */
+
+    /* control */
+    double ftp;
+    double target_effort;
+    double effort;
+    double power;
+
+    double heading;
+
+    /* energy system */
+    EnergyState energy;
+
+    SimSolverType solver;
+} RiderState;
+
+
+/* diagnostics (optional) */
+typedef struct {
+    int converged;
+    int iterations;
+    double residual_power;
+} StepDiagnostics;
+
+void rider_state_init(RiderState* r, double ft, double w_prime, double max_effort, double mass, double cda);
+
+void rider_reset(RiderState* r);
+
+// SOLVERS
+
+/* core step */
+void sim_step_rider(
+    RiderState* r,
+    const EnvState* env,
+    double dt,
+    StepDiagnostics* diag /* may be NULL */
+);
+
+static void step_acceleration(RiderState* r, const EnvState* env, double dt);
+
+
+static void step_energy_accel(RiderState* r, const EnvState* env, double dt);
+
+
+#ifdef __cplusplus
+}
+#endif
+```
+
+core/src/sim_core.c
+```
+#include "sim_core.h"
+
+#include <math.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+
+/* ------------------------------
+ * Internal helpers
+ * ------------------------------ */
+
+static double clamp(double x, double lo, double hi) {
+  if (x < lo)
+    return lo;
+  if (x > hi)
+    return hi;
+  return x;
+}
+
+/* Skiba-style tau formulation */
+static double compute_tau(const EnergyState* e, double power) {
+  double dcp = e->ftp - power;
+  // return 546 * exp(-0.01 * dcp) + 316;
+  return e->tau_base * exp(-e->tau_slope * dcp) + e->tau_offset;
+}
+
+double piecewise(double x, double threshold) {
+  if (threshold <= 0.0) {
+    printf("Threshold passed into piecewise should be 0-1\n");
+    return -1.0;
+  }
+
+  if (x <= 0.0) {
+    return 0.0;
+  }
+  else if (x >= threshold) {
+    return 1.0;
+  }
+  else {
+    return x / threshold;
+  }
+}
+
+#define ETOL   1e-1   /* W */
+#define ERTOL  1e-3
+#define PTOL   2e-3   /* m/s */
+#define PRTOL  1e-4
+
+
+static int is_close(double value, double target,
+                    double tol, double rtol)
+{
+    return fabs(value - target) <= tol + rtol * fabs(target);
+}
+
+/* RIDER helpers */
+static double equivalent_mass(const RiderState* r)
+{
+    double total_mass = r->mass_rider + r->mass_bike;
+    return total_mass + r->wheel_i / (r->wheel_r * r->wheel_r);
+}
+
+
+/* ------------------------------
+ * Public API
+ * ------------------------------ */
+
+void energy_init(EnergyState* e, double ftp, double w_prime,
+                 double max_effort_base) {
+  if (!e)
+    return;
+
+  e->ftp_base = ftp;
+  e->ftp = ftp;
+  e->w_prime = w_prime;
+  e->max_effort_base = max_effort_base;
+
+  /* Tuned to match your C++ defaults */
+  e->tau_base = 546.0;
+  e->tau_slope = 0.01;
+  e->tau_offset = 316.0;
+
+  e->fatigue_I = 0.0;
+  e->effort_limit = max_effort_base;
+}
+
+void energy_reset(EnergyState* e) {
+  if (!e)
+    return;
+
+  e->fatigue_I = 0.0;
+  e->w_expended = 0.0;
+  e->effort_limit = e->max_effort_base;
+  e->ftp = e->ftp_base;
+}
+
+void energy_update(EnergyState* e, double power, double dt) {
+  if (!e || dt <= 0.0)
+    return;
+
+  // TODO - degrade ftp
+  e->w_expended += power * dt;
+
+  if (power > e->ftp) {
+    /* Linear depletion above FTP */
+    e->fatigue_I += (power - e->ftp) * dt;
+  } else {
+    /* Exponential recovery */
+    double tau = compute_tau(e, power);
+    double alpha = exp(-dt / tau);
+    e->fatigue_I *= alpha;
+  }
+
+  e->fatigue_I = clamp(e->fatigue_I, 0.0, e->w_prime);
+
+  double wbal_frac = energy_wbal_fraction(e);
+
+  // double s = sigmoid(wbal_frac, SIGMOID_K, SIGMOID_X0);
+  double s = piecewise(wbal_frac, 0.2);
+
+  // offset by 1 so it scales from max_effort_base to 1
+  // ftp is effort_limit when empty
+  // actually 0.8 so it reaches 0 when it's still somewhat steep
+  e->effort_limit = 0.8 + (e->max_effort_base - 0.8) * s;
+
+  // if (wbal_frac < 0.01)
+  //   printf("wbal fraction: %.6f\neffort limit: %.2f", wbal_frac, e->effort_limit);
+
+}
+
+double energy_wbal(const EnergyState* e) {
+  if (!e)
+    return 0.0;
+  return e->w_prime - e->fatigue_I;
+}
+
+double energy_wbal_fraction(const EnergyState* e) {
+  if (!e || e->w_prime <= 0.0)
+    return 0.0;
+  return energy_wbal(e) / e->w_prime;
+}
+
+double energy_effort_limit(const EnergyState* e) {
+  if (!e)
+    return 0.0;
+  return e->effort_limit;
+}
+
+/* ================================
+ * RiderState helpers
+ * ================================ */
+
+void rider_state_init(RiderState* r, double ftp, double w_prime,
+                      double max_effort, double mass, double cda) {
+  if (!r)
+    return;
+
+  memset(r, 0, sizeof(*r));
+
+  r->pos = 0.0;
+  r->speed = 0.0;
+  r->slope = 0.0;
+
+  r->target_effort = 0.5;
+  r->power = 0.0;
+
+  r->mass_rider = mass;
+  r->cda_rider = cda;
+  r->ftp = ftp;
+
+  r->heading = 0.0;
+
+  energy_init(&r->energy, ftp, w_prime, max_effort);
+
+  r->solver = SIM_SOLVER_POWER_BALANCE;
+
+  printf("%.1f %.2f %.1f %.2f %.1f %.1f %.2f %.1f %.1f\n", r->pos, r->speed, r->slope, r->target_effort, r->power, r->mass_rider, r->cda_rider, r->ftp, r->heading);
+  printf("INIT RiderState ptr=%p target=%.3f\n", (void*)r, r->target_effort);
+}
+
+void rider_reset(RiderState* r) {
+  r->pos = 0.0;
+  r->speed = 0.0;
+
+  energy_reset(&r->energy);
+}
+
+static double pow_speed(
+    double v_new,
+    double v_old,
+    double dt,
+    const RiderState* r,
+    const EnvState* env
+) {
+    double v_air = v_new + env->headwind;
+
+    double cda_total = r->cda_rider + r->cda_wheel_drag;
+    double drag_coeff = 0.5 * env->rho * cda_total;
+
+    double total_mass = r->mass_rider + r->mass_bike;
+    double mass_ir = equivalent_mass(r);
+
+    double P_aero = drag_coeff * v_air * v_air * v_new;
+    double P_roll = r->crr * total_mass * env->g * v_new;
+    double P_bear = (env->bearing_c0 + env->bearing_c1 * v_new) * v_new;
+    double P_grav = total_mass * env->g * sin(atan(env->slope)) * v_new;
+
+    double P_inertia =
+        0.5 * mass_ir * (v_new * v_new - v_old * v_old) / dt;
+
+    double P_raw =
+        P_aero + P_roll + P_bear + P_grav + P_inertia;
+
+    return P_raw / (1.0 - r->drivetrain_loss);
+}
+
+static double pow_speed_prime(
+    double v,
+    double dt,
+    const RiderState* r,
+    const EnvState* env
+) {
+    double v_air = v + env->headwind;
+
+    double cda_total = r->cda_rider + r->cda_wheel_drag;
+    double drag_coeff = 0.5 * env->rho * cda_total;
+
+    double total_mass = r->mass_rider + r->mass_bike;
+    double mass_ir = equivalent_mass(r);
+
+    double dP =
+        drag_coeff * (2.0 * v_air * v + v_air * v_air) +
+        r->crr * total_mass * env->g +
+        env->bearing_c0 + 2.0 * env->bearing_c1 * v +
+        total_mass * env->g * sin(atan(env->slope)) +
+        mass_ir * v / dt;
+
+    return dP / (1.0 - r->drivetrain_loss);
+}
+
+static int solve_speed_newton(
+    double power,
+    double* speed_io,
+    double dt,
+    const RiderState* r,
+    const EnvState* env,
+    StepDiagnostics* diag
+) {
+    double x = (*speed_io > 0.1) ? *speed_io : 0.1;
+
+    for (int i = 0; i < 25; ++i) {
+        double f = pow_speed(x, r->speed, dt, r, env) - power;
+        double fp = pow_speed_prime(x, dt, r, env);
+
+        if (fabs(fp) < 1e-12)
+            break;
+
+        double x_next = x - f / fp;
+        if (x_next < 0.0)
+            x_next = 0.0;
+
+        if (is_close(f, 0.0, ETOL, ERTOL) ||
+            is_close(x_next, x, PTOL, PRTOL)) {
+            *speed_io = x_next;
+            if (diag) {
+                diag->converged = 1;
+                diag->iterations = i + 1;
+                diag->residual_power = f;
+            }
+            return 1;
+        }
+
+        x = x_next;
+    }
+
+    if (diag) {
+        diag->converged = 0;
+        diag->iterations = 25;
+        diag->residual_power =
+            pow_speed(x, r->speed, dt, r, env) - power;
+    }
+
+    *speed_io = x;
+    return 0;
+}
+
+static double resistive_force(
+    double v,
+    const RiderState* r,
+    const EnvState* env
+) {
+    double v_air = v + env->headwind;
+
+    double cda = r->cda_rider + r->cda_wheel_drag;
+    double drag = 0.5 * env->rho * cda * v_air * v_air;
+
+    double total_mass = r->mass_rider + r->mass_bike;
+    double roll = r->crr * total_mass * env->g;
+
+    double grav = total_mass * env->g * sin(atan(env->slope));
+
+    double bear = env->bearing_c0 + env->bearing_c1 * v;
+
+    return drag + roll + grav + bear;
+}
+
+void sim_step_rider(
+    RiderState* r,
+    const EnvState* env,
+    double dt,
+    StepDiagnostics* diag
+) {
+    if (!r || !env || dt <= 0.0)
+        return;
+
+    /* 1. Effort limiting */
+    double effort_cap = energy_effort_limit(&r->energy);
+    double effort = r->target_effort;
+    if (effort > effort_cap) effort = effort_cap;
+    if (effort < 0.0) effort = 0.0;
+
+    r->power = effort * r->ftp;
+
+  if (r->solver == SIM_SOLVER_ACCEL_FORCE) {
+    step_acceleration(r, env, dt);
+  }
+  else if (r->solver == SIM_SOLVER_ACCEL_ENERGY) {
+    step_energy_accel(r, env, dt);
+  } else {
+    solve_speed_newton(
+        r->power,
+        &r->speed,
+        dt,
+        r,
+        env,
+        diag
+    );
+    /* 3. Integrate position */
+    r->pos += r->speed * dt;
+  }
+
+    /* 4. Energy update */
+    energy_update(&r->energy, r->power, dt);
+}
+
+static void step_acceleration(
+  RiderState* r,
+  const EnvState* env,
+  double dt) {
+    double v = r->speed;
+    if (v < 0.1) v = 0.1;
+
+    double mass_eq =
+        r->mass_rider + r->mass_bike +
+        r->wheel_i / (r->wheel_r * r->wheel_r);
+
+    /* propulsion force */
+    double F_prop = r->power * (1.0 - r->drivetrain_loss) / v;
+
+    /* resistive forces */
+    double F_res = resistive_force(v, r, env);
+
+    double a = (F_prop - F_res) / mass_eq;
+
+    r->speed += a * dt;
+    if (r->speed < 0.0)
+        r->speed = 0.0;
+
+    r->pos += r->speed * dt;
+}
+
+static void step_energy_accel(
+    RiderState* r,
+    const EnvState* env,
+    double dt
+) {
+    double v = r->speed;
+    double m_eq = equivalent_mass(r);
+
+    double P_res =
+        resistive_force(v, r, env) * v;
+
+    // double dE = (r->power - P_res) * dt;
+    double dE = (r->power * (1.0 - r->drivetrain_loss) - P_res) * dt;
+
+    double v2 = v*v + 2.0 * dE / m_eq;
+    if (v2 < 0.0) v2 = 0.0;
+
+    r->speed = sqrt(v2);
+    r->pos += r->speed * dt;
+}
+```
+
 include/analysis.h
 ```
 #include <functional>
@@ -594,7 +1139,6 @@ struct RiderConfig {
   double mass;
   double cda;
   double w_prime_base;
-  double tau;
 
   Bike bike;
   Team team;
@@ -619,9 +1163,6 @@ private:
   Vector2d _pos2d;
   double v_hw;
   double power;
-
-  double effort_limit;
-  EnergyModel energymodel;
 
   double drag_coeff;
   double roll_coeff;
@@ -650,10 +1191,6 @@ private:
 
 public:
   std::string name;
-  double target_effort;
-  // double pos = 0.0;
-  // double altitude = 0.0;
-  // double speed;
   const SDL_Texture* image;
 
   explicit Rider(RiderConfig config_);
@@ -668,7 +1205,11 @@ public:
   void reset();
   void update(double dt);
 
-  bool finished() { return state.pos >= course->get_total_length(); }
+  bool finished() {
+    printf("%s %.1f / %.1f\n", name.c_str(), state.pos,
+           course->get_total_length());
+    return state.pos >= course->get_total_length();
+  }
 
   RiderUid get_uid() const { return uid; }
   RiderId get_id() const { return id; }
@@ -680,7 +1221,8 @@ public:
   double get_power() const { return power; }
   double get_energy() const;
   double get_energy_fraction() const;
-  double get_effort_limit() const { return energymodel.get_effort_limit(); }
+  double get_effort_limit() const { return energy_effort_limit(&state.energy); }
+  double get_target_effort() const { return state.target_effort; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
@@ -940,7 +1482,7 @@ private:
 
   double interp_alpha = 0.0;
 
-  const float dt = 0.1; // 100 Hz physics
+  const float dt = 0.01; // 100 Hz physics
 
   std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
   std::unordered_map<RiderId, RiderUid> rider_id_to_uid;
@@ -1802,25 +2344,28 @@ AppState::AppState() {
   resources = new GameResources(renderer);
 
   // 4. Initialize Simulation
-  // v
   course = new Course(Course::create_flat());
   sim = new Simulation(course); // Sim now owns the course
-  sim->set_time_factor(0.1);
+  sim->set_time_factor(0.2);
 
   screens = new ScreenManager(this);
   screens->push(ScreenType::Simulation);
 
   Team team("Team1");
   RiderConfig cfg = {
-      0, "Pedro", 320, 6, 90, 0.5, 24000, 400, Bike::create_generic(), team};
+      0, "Pedro", 320, 6, 90, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {1, "Mario", 300, 6, 88, 0.5, 24000, 400, Bike::create_generic(), team};
+  cfg = {1, "Mario", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  rider_configs.push_back(cfg);
+  cfg = {2, "Mario2", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  rider_configs.push_back(cfg);
+  cfg = {3, "Mario3", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
   sim->add_riders(rider_configs);
 
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
-      {0.0, 0.1},   // easy
+      {20.0, 0.1},  // easy
       {40.0, 1.3},  // hard
       {600.0, 0.8}, // recovery
       {300.0, 0.9}  // sprint
@@ -2724,7 +3269,7 @@ PlotResult run_plot_simulation(const Course& course,
 
   MetricObserver effort_obs([target_uid, rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
-    return r ? r->target_effort : 0.0;
+    return r ? r->get_target_effort() : 0.0;
   });
 
   MetricObserver effortlimit_obs([target_uid, rider_id](const Simulation& s) {
@@ -2777,11 +3322,6 @@ src/rider.cpp
 #include "SDL3/SDL_log.h"
 #include "course.h"
 #include <cmath>
-#include <exception>
-#include <iostream>
-// for std::setprecision
-#include <iomanip>
-#include <numeric>
 
 #include "sim_core.h"
 
@@ -2818,10 +3358,7 @@ Team::Team(const char* name_) : name(name_) { id = 0; }
 Rider::Rider(RiderConfig config_)
     : config(config_), id(config_.rider_id), uid(global_id_counter++),
       name(config_.name), ftp_base(config_.ftp_base), mass(config_.mass),
-      cda(config_.cda), bike(config_.bike), team(config_.team),
-      effort_limit(config_.max_effort),
-      energymodel(config_.w_prime_base, config_.ftp_base, config_.tau,
-                  config_.max_effort) {
+      cda(config_.cda), bike(config_.bike), team(config_.team) {
   rider_state_init(&state, config_.ftp_base, config_.w_prime_base,
                    config_.max_effort, config_.mass, config_.cda);
 
@@ -2831,12 +3368,17 @@ Rider::Rider(RiderConfig config_)
   state.crr = config_.bike.crr;
   state.drivetrain_loss = config_.bike.dt_loss;
 
+  if (config_.name == "Mario2")
+    state.solver = SIM_SOLVER_ACCEL_ENERGY;
+  if (config_.name == "Mario3")
+    state.solver = SIM_SOLVER_ACCEL_FORCE;
+
   state.cda_wheel_drag = config_.bike.wheel_drag_factor;
 }
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000, 400, bike, team_};
+  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000, bike, team_};
   return new Rider(cfg);
 }
 
@@ -2846,47 +3388,6 @@ Vector2d Rider::get_pos2d() const { return _pos2d; }
 
 void Rider::set_pos2d(Vector2d pos) { _pos2d = pos; }
 
-void Rider::set_cda_factor(double cda_factor_) {
-  cda_factor = cda_factor_;
-  effective_cda = cda_factor * cda;
-  compute_drag();
-}
-
-void Rider::set_mass(double rider_mass) {
-  mass = rider_mass;
-  total_mass = rider_mass + bike.mass;
-  compute_coeff();
-}
-
-void Rider::compute_headwind() {
-  Wind wind = course->get_wind(state.pos);
-  v_hw = wind.speed * cos(wind.heading - this->heading);
-}
-
-void Rider::compute_drag() {
-  drag_coeff = 0.5 * RHO * (effective_cda + bike.wheel_drag_factor);
-}
-
-void Rider::compute_roll() { roll_coeff = bike.crr * total_mass * G; }
-
-void Rider::compute_inertia() {
-  mass_ir = total_mass + bike.wheel_i / pow(bike.wheel_r, 2);
-  inertia_coeff = 0.5 * mass_ir;
-}
-
-void Rider::compute_coeff() {
-  compute_drag();
-  compute_roll();
-  compute_inertia();
-}
-
-void Rider::change_bike(Bike new_bike) {
-  bike = new_bike;
-  total_mass = mass + bike.mass;
-  f_grav = total_mass * G;
-  compute_coeff();
-}
-
 void Rider::reset() {
   rider_reset(&state);
   // pos = 0;
@@ -2894,14 +3395,9 @@ void Rider::reset() {
   // energymodel.reset();
 }
 
-// TODO - add limiting effort_limit to EnergyModel so we can't go into
-// negative W'bal. use some sort of sigmoid I think
 void Rider::update(double dt) {
   if (!course)
     return;
-
-  /* --- gather environment --- */
-  state.target_effort = target_effort;
 
   env.rho = 1.2234;
   env.g = 9.80665;
@@ -2918,7 +3414,7 @@ void Rider::update(double dt) {
   StepDiagnostics diag{};
   sim_step_rider(&state, &env, dt, &diag);
 
-  if (!diag.converged) {
+  if ((state.solver == SIM_SOLVER_POWER_BALANCE) && !diag.converged) {
     SDL_Log("Rider %d: Newton did not converge (residual %.3f W)", id,
             diag.residual_power);
   }
@@ -2928,7 +3424,7 @@ void Rider::update(double dt) {
   _pos2d = Vector2d{state.pos, altitude};
 }
 
-void Rider::set_effort(double new_effort) { target_effort = new_effort; }
+void Rider::set_effort(double new_effort) { state.target_effort = new_effort; }
 
 // these 2 are a bit odd, no?
 double Rider::km() const { return state.pos / 1000.0; }
@@ -2949,9 +3445,9 @@ void Rider::update_power_breakdown(double old_speed) {
   // power_breakdown[(int)PowerTerm::Aerodynamic] =
   //     drag_coeff * pow(v_air, 2) * speed;
   // power_breakdown[(int)PowerTerm::Rolling] = roll_coeff * speed;
-  // power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) * speed;
-  // power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope)) * speed;
-  // power_breakdown[(int)PowerTerm::Inertia] =
+  // power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) *
+  // speed; power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope))
+  // * speed; power_breakdown[(int)PowerTerm::Inertia] =
   //     inertia_coeff * (pow(speed, 2) - pow(old_speed, 2)) / timestep;
   // // sum without Drivetrain loss
   // double sum_raw = std::accumulate(
@@ -3052,7 +3548,8 @@ void Rider::update_power_breakdown(double old_speed) {
 //
 //     x_next = x - correction;
 //
-//     std::cout << "error: " << f << "\tprecision: " << x_next - x << std::endl;
+//     std::cout << "error: " << f << "\tprecision: " << x_next - x <<
+//     std::endl;
 //
 //     if (is_close(f, 0, ETOL, ERTOL) || is_close(x_next, x, PTOL, PRTOL)) {
 //       return x_next;
@@ -3170,7 +3667,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   // DISTANCE
   panel->add_row("Dist", "km", [](const RiderSnapshot& s) {
-    return format_number(s.pos / 1000.0);
+    return format_number(s.pos / 1000.0, 3);
   });
 
   // GRADIENT (Custom logic inside lambda!)

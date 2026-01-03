@@ -101,7 +101,11 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // ---------------------------
     // Camera & orientation
     // ---------------------------
+    double lateral_offset = ctx->view.rider_lateral.at(id);
     Vector2d front_ground_world = pos2d;
+    Vector2d laterally_offset = Vector2d{front_ground_world.x(),
+                 front_ground_world.y() + lateral_offset * 0.1};
+    front_ground_world = laterally_offset;
     Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
 
     double tilt_rad = std::atan(slope);
