@@ -57,13 +57,20 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
     case SDLK_S:
       state->screens->replace(ScreenType::Simulation);
       return SDL_APP_CONTINUE;
+
+    case SDLK_T:
+      state->screens->replace(ScreenType::TimeTrial);
+      return SDL_APP_CONTINUE;
+
+    case SDLK_R: 
+      state->start_realtime_tt();
+      return SDL_APP_CONTINUE;
     }
   }
-
   // Pass event to current screen
   state->screens->handle_event(event);
 
-  return SDL_APP_CONTINUE; /* carry on with the program! */
+  return SDL_APP_CONTINUE;
 }
 
 /* This function runs once per frame, and is the heart of the program. */

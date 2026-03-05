@@ -132,6 +132,10 @@ void SimulationScreen::render() {
   SDL_RenderPresent(state->renderer);
 }
 
+void SimulationScreen::reset() {
+  sim_renderer->reset();
+}
+
 bool SimulationScreen::handle_event(const SDL_Event* e) {
   if (sim_renderer->handle_event(e))
     return true;
@@ -297,3 +301,120 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
 //
 //   renderer->set_data(plot_obs->data());
 // }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static std::string fmt_time(double seconds) {
+  int total_tenths = static_cast<int>(round(seconds * 10));
+  int tenths = total_tenths % 10;
+  int total_secs = total_tenths / 10;
+  int secs = total_secs % 60;
+  int total_mins = total_secs / 60;
+  int mins = total_mins % 60;
+  int hours = total_mins / 60;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
+  return buf;
+}
+
+static void log_results(const TimeTrialResult& r) {
+  SDL_Log("=== TIME TRIAL RESULTS ===");
+
+  // Header: checkpoints as distances in km
+  std::string header = "Rank  Name                ";
+  for (double d : r.checkpoint_distances) {
+    char col[16];
+    snprintf(col, sizeof(col), "  %5.1f km", d / 1000.0);
+    header += col;
+  }
+  SDL_Log("%s", header.c_str());
+
+  // One row per rider (already sorted by finish time)
+  for (int i = 0; i < (int)r.riders.size(); ++i) {
+    const auto& rider = r.riders[i];
+
+    std::string row;
+    char rank_name[32];
+    snprintf(rank_name, sizeof(rank_name), "%-4d  %-20s", i + 1,
+             rider.name.c_str());
+    row += rank_name;
+
+    // Build a map of checkpoint_distance -> race_time for quick lookup
+    std::unordered_map<double, double> splits;
+    for (const auto& entry : rider.timeline)
+      splits[entry.checkpoint_distance] = entry.race_time;
+
+    for (double d : r.checkpoint_distances) {
+      auto it = splits.find(d);
+      if (it != splits.end()) {
+        row += "  " + fmt_time(it->second);
+      } else {
+        row += "       DNF  ";
+      }
+    }
+
+    // Gap to leader at finish line (last checkpoint)
+    if (i > 0 && !r.riders[0].timeline.empty() && !rider.timeline.empty()) {
+      double leader_finish = r.riders[0].timeline.back().race_time;
+      double my_finish = rider.timeline.back().race_time;
+      double gap = my_finish - leader_finish;
+      char gap_buf[16];
+      snprintf(gap_buf, sizeof(gap_buf), "  +%.1fs", gap);
+      row += gap_buf;
+    } else if (i == 0) {
+      row += "  LEADER";
+    }
+
+    SDL_Log("%s", row.c_str());
+  }
+
+  SDL_Log("==========================");
+}
+
+// ---------------------------------------------------------------------------
+// TimeTrialScreen
+// ---------------------------------------------------------------------------
+
+TimeTrialScreen::TimeTrialScreen(AppState* s) : state(s) {}
+
+void TimeTrialScreen::update() {
+  // Kick off the async run once
+  if (!running && !result.has_value()) {
+    running = true;
+    future = std::async(
+        std::launch::async, run_time_trial, std::cref(*state->course),
+        std::cref(state->rider_configs), 60.0 /* start gap seconds */);
+  }
+
+  // Poll for completion (non-blocking)
+  if (running && future.wait_for(std::chrono::milliseconds(0)) ==
+                     std::future_status::ready) {
+    result = future.get();
+    running = false;
+    log_results(*result);
+  }
+}
+
+void TimeTrialScreen::render() {
+  // Placeholder — just clear the screen while running / after logging
+  SDL_SetRenderDrawColor(state->renderer, 20, 20, 20, 255);
+  SDL_RenderClear(state->renderer);
+
+  // TODO: replace with ImGui results table
+}
+
+bool TimeTrialScreen::handle_event(const SDL_Event* e) {
+  if (running) {
+    SDL_Log("Time trial running, please wait...");
+    return true;
+  }
+
+  if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
+    state->screens->replace(ScreenType::Simulation);
+    return true;
+  }
+
+  return false;
+}

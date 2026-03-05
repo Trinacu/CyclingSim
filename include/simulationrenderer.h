@@ -36,6 +36,9 @@ public:
 
   // Main render function: adds simulation info + world drawables.
   void render_frame() override;
+
+  void reset();
+
   void update();
 
   RiderPanel* get_rider_panel() const { return rider_panel; }

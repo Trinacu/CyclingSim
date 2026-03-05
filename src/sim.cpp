@@ -211,6 +211,21 @@ bool Simulation::is_paused() const { return paused; }
 
 void Simulation::stop() { running = false; }
 
+// Must be called only while the physics thread is stopped (after sim->stop()
+// and thread join). No locking needed because there's no concurrent access.
+void Simulation::reset() {
+  sim_seconds = 0.0;
+  paused = false;
+  physics_error = false;
+  physics_error_message.clear();
+  effort_schedules.clear();
+
+  // get_riders() returns const ref, but unique_ptr<Rider> still lets us
+  // call non-const methods on the Rider through the pointer.
+  for (const auto& r : engine.get_riders())
+    r->reset();
+}
+
 const double Simulation::get_sim_seconds() const { return sim_seconds; }
 
 // class TimeReached : public SimulationCondition {

@@ -24,15 +24,22 @@ int main(void) {
   SimSolverType solvers[3] = {SIM_SOLVER_POWER_BALANCE, SIM_SOLVER_ACCEL_FORCE,
                               SIM_SOLVER_ACCEL_ENERGY};
 
+  RiderInitParams p = {0};
+  p.ftp_base = 300.0;
+  p.w_prime = 20000.0;
+  p.max_effort = 6.0;
+  p.max_drive_force = 700.0;
+  p.mass_rider = 80.0;
+  p.cda = 0.3;
+  p.mass_bike = 7.0;
+  p.wheel_i = 0.14;
+  p.wheel_r = 0.311;
+  p.wheel_drag_factor = 0.02;
+  p.crr = 0.006;
+  p.drivetrain_loss = 0.02;
+
   for (int i = 0; i < 3; ++i) {
-    rider_state_init(&riders[i], 300.0, 20000.0, 1.5, 75.0, 0.30);
-    riders[i].mass_bike = 8.0;
-    riders[i].wheel_i = 0.14;
-    riders[i].wheel_r = 0.311;
-    riders[i].crr = 0.006;
-    riders[i].drivetrain_loss = 0.02;
-    riders[i].cda_rider = 0.30;
-    riders[i].cda_wheel_drag = 0.02;
+    rider_state_init(&riders[i], &p);
     riders[i].solver = solvers[i];
     riders[i].target_effort = power / riders[i].ftp;
   }

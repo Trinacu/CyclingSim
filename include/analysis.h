@@ -1,4 +1,6 @@
+#include "rider.h"
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -67,4 +69,28 @@ private:
 struct PlotResult {
   std::string title = "";
   std::vector<PlotSeries> series;
+};
+
+struct RiderTimelineEntry {
+  double
+      checkpoint_distance; // which gate (0.0 = start, course_length = finish)
+  double race_time;        // sim_time - rider's start_offset
+};
+
+class TimelineObserver : public SimulationObserver {
+public:
+  // checkpoint_distances: sorted list of positions to record, including finish
+  // start_offsets: map of rider_id -> sim_time when that rider was released
+  TimelineObserver(std::vector<double> checkpoints,
+                   std::map<RiderId, double> start_offsets);
+
+  void on_step(const Simulation& sim) override;
+
+  const std::map<RiderId, std::vector<RiderTimelineEntry>>& data() const;
+
+private:
+  std::vector<double> checkpoints;
+  std::map<RiderId, double> start_offsets;
+  std::map<RiderId, int> next_checkpoint_idx; // tracks progress per rider
+  std::map<RiderId, std::vector<RiderTimelineEntry>> timeline;
 };

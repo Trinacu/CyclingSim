@@ -39,28 +39,33 @@ Rider::Rider(RiderConfig config_)
     : config(config_), id(config_.rider_id), uid(global_id_counter++),
       name(config_.name), ftp_base(config_.ftp_base), mass(config_.mass),
       cda(config_.cda), bike(config_.bike), team(config_.team) {
-  rider_state_init(&state, config_.ftp_base, config_.w_prime_base,
-                   config_.max_effort, config_.mass, config_.cda);
+  RiderInitParams p{};
+  p.ftp_base = config_.ftp_base;
+  p.w_prime = config_.w_prime_base;
+  p.max_effort = config_.max_effort;
+  p.max_drive_force = config_.max_drive_force;
+  p.mass_rider = config_.mass;
+  p.cda = config_.cda;
+  p.mass_bike = config_.bike.mass;
+  p.wheel_i = config_.bike.wheel_i;
+  p.wheel_r = config_.bike.wheel_r;
+  p.wheel_drag_factor = config_.bike.wheel_drag_factor;
+  p.crr = config_.bike.crr;
+  p.drivetrain_loss = config_.bike.dt_loss;
 
-  state.mass_bike = config_.bike.mass;
-  state.wheel_i = config.bike.wheel_i;
-  state.wheel_r = config_.bike.wheel_r;
-  state.crr = config_.bike.crr;
-  state.drivetrain_loss = config_.bike.dt_loss;
+  rider_state_init(&state, &p);
 
-  if (config_.name == "Mario2")
+  if (config_.name == "Power")
+    state.solver = SIM_SOLVER_POWER_BALANCE;
+  if (config_.name == "AccelEnergy")
     state.solver = SIM_SOLVER_ACCEL_ENERGY;
-  if (config_.name == "Mario3")
+  if (config_.name == "AccelForce")
     state.solver = SIM_SOLVER_ACCEL_FORCE;
-
-  lateral_offset = config_.rider_id;
-
-  state.cda_wheel_drag = config_.bike.wheel_drag_factor;
 }
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000, bike, team_};
+  RiderConfig cfg = {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, bike, team_};
   return new Rider(cfg);
 }
 
@@ -85,6 +90,7 @@ void Rider::update(double dt) {
   env.g = 9.80665;
 
   env.slope = course->get_slope(state.pos);
+  state.slope = env.slope;
 
   auto [wind_dir, wind_speed] = course->get_wind(state.pos);
   env.headwind = wind_speed * std::cos(wind_dir - heading);
@@ -109,9 +115,9 @@ void Rider::update(double dt) {
 void Rider::set_effort(double new_effort) { state.target_effort = new_effort; }
 
 // these 2 are a bit odd, no?
-double Rider::km() const { return state.pos / 1000.0; }
+double Rider::get_pos() const { return state.pos; }
 
-double Rider::get_km_h() const { return state.speed * 3.6; }
+double Rider::get_speed() const { return state.speed; }
 
 double Rider::get_energy() const { return energy_wbal(&state.energy); }
 double Rider::get_energy_fraction() const {
@@ -159,9 +165,8 @@ RiderSnapshot Rider::snapshot() const {
       .effort = this->state.effort,
       .max_effort = this->max_effort,
       .speed = this->state.speed,
-      .km_h = this->get_km_h(),
+      .km_h = this->get_speed() * 3.6,
       .heading = this->heading,
-      .lateral_offset = this->lateral_offset,
       .team_id = this->team.id,
       .visual_type = this->bike.type,
       .power_breakdown = this->power_breakdown,

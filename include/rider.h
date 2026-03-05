@@ -3,7 +3,6 @@
 #define RIDER_H
 
 #include "course.h"
-#include "energymodel.h"
 #include "pch.hpp"
 #include "sim_core.h"
 #include "snapshot.h"
@@ -50,6 +49,7 @@ struct RiderConfig {
 
   double ftp_base;
   double max_effort;
+  double max_drive_force;
   double mass;
   double cda;
   double w_prime_base;
@@ -72,7 +72,7 @@ private:
   double effective_cda;
   double mass;
   double total_mass;
-  double lateral_offset;
+  double lateral_speed;
 
   double heading; // can we remove this?
   Vector2d _pos2d;
@@ -127,13 +127,18 @@ public:
 
   void set_effort(double new_effort);
 
-  double km() const;
-  double get_km_h() const;
-  double get_power() const { return power; }
+  double lateral_pos;
+
+  double get_pos() const;
+  double get_speed() const;
+  double get_power() const { return state.power; }
   double get_energy() const;
   double get_energy_fraction() const;
   double get_effort_limit() const { return energy_effort_limit(&state.energy); }
   double get_target_effort() const { return state.target_effort; }
+  double get_total_mass() const { return state.mass_rider + state.mass_bike; }
+
+  double get_lateral_pos() const { return lateral_pos; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
@@ -143,12 +148,6 @@ public:
   double pow_speed(double new_speed);
   double pow_speed_prime(double new_speed) const;
   double pow_speed_double_prime(double new_speed) const;
-
-  void compute_drag();
-  void compute_roll();
-  void compute_inertia();
-  void compute_coeff();
-  void compute_headwind();
 
   double newton(double power, double speed_guess, int max_iterations = 1000);
   double householder(double power, double speed_guess, int max_iterations = 20);

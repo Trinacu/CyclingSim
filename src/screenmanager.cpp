@@ -1,6 +1,7 @@
 #include "screenmanager.h"
 #include "appstate.h"
 #include "screen.h"
+#include <memory>
 
 ScreenManager::ScreenManager(AppState* state) : app(state) {}
 
@@ -14,6 +15,8 @@ std::unique_ptr<IScreen> ScreenManager::create_screen(ScreenType type) {
     return std::make_unique<ResultsScreen>(app);
   case ScreenType::Plot:
     return std::make_unique<PlotScreen>(app);
+  case ScreenType::TimeTrial:
+    return std::make_unique<TimeTrialScreen>(app);
   }
   return nullptr;
 }

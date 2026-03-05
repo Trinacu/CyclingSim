@@ -4,6 +4,7 @@
 
 #include "SDL3/SDL_events.h"
 #include "plotrenderer.h"
+#include "timetrial.h"
 #include "widget.h"
 #include <future>
 #include <memory>
@@ -13,7 +14,7 @@ class TTF_Font;
 class PlotRenderer;
 class SimulationRenderer;
 
-enum class ScreenType { Menu, Simulation, Result, Plot };
+enum class ScreenType { Menu, Simulation, Result, Plot, TimeTrial };
 
 struct SelectedRider {
   RiderUid runtime_uid = -1;
@@ -70,6 +71,8 @@ public:
   void update() override;
   void render() override;
 
+  void reset();
+
   bool handle_event(const SDL_Event* e) override;
 
   void cycle_rider(int direction);
@@ -110,6 +113,21 @@ private:
 
   // TODO - how do we choose/cahnge this?
   int target_uid = 2;
+};
+
+class TimeTrialScreen : public IScreen {
+public:
+  TimeTrialScreen(AppState* s);
+
+  void update() override;
+  void render() override;
+  bool handle_event(const SDL_Event* e) override;
+
+private:
+  AppState* state;
+  std::future<TimeTrialResult> future;
+  std::optional<TimeTrialResult> result;
+  bool running = false;
 };
 
 #endif

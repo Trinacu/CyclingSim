@@ -39,7 +39,7 @@ AppState::AppState() {
   resources = new GameResources(renderer);
 
   // 4. Initialize Simulation
-  course = new Course(Course::create_flat());
+  course = new Course(Course::create_endulating());
   sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(0.2);
 
@@ -48,19 +48,21 @@ AppState::AppState() {
 
   Team team("Team1");
   RiderConfig cfg = {
-      0, "Pedro", 320, 6, 90, 0.5, 24000, Bike::create_generic(), team};
+      0, "Pedro", 320, 6, 700, 90, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {1, "Mario", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {1, "Power", 300, 6, 700, 88, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {2, "Mario2", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {2,     "AccelForce",           300, 6, 700, 88, 0.5,
+         24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {3, "Mario3", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {3,     "AccelEnergy",          300, 6, 700, 88, 0.5,
+         24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
   sim->add_riders(rider_configs);
 
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
-      {20.0, 0.1},  // easy
+      {20.0, 0.0},  // easy
       {40.0, 1.3},  // hard
       {600.0, 0.8}, // recovery
       {300.0, 0.9}  // sprint
@@ -99,4 +101,23 @@ AppState::~AppState() {
 
 bool AppState::load_image(const char* id, const char* filename) {
   return resources->get_textureManager()->load_texture(id, filename);
+}
+
+void AppState::start_realtime_tt(double gap_seconds) {
+  sim->stop();
+  if (physics_thread) {
+    physics_thread->join();
+    delete physics_thread;
+    physics_thread = nullptr;
+  }
+  sim->reset();
+
+  if (auto* s = dynamic_cast<SimulationScreen*>(screens->top()))
+    s->reset();
+  else
+    screens->replace(ScreenType::Simulation);
+
+  auto offsets = build_start_offsets(rider_configs, gap_seconds);
+  setup_tt_schedules(sim, rider_configs, offsets);
+  physics_thread = new std::thread([this]() { sim->start_realtime(); });
 }

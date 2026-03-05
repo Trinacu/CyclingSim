@@ -37,7 +37,7 @@ PlotResult run_plot_simulation(const Course& course,
 
   MetricObserver speed_obs([target_uid, rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
-    return r ? r->get_km_h() : 0.0;
+    return r ? r->get_speed() * 3.6 : 0.0;
   });
 
   MetricObserver wbal_fraction_obs(

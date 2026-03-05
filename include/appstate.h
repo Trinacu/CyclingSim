@@ -35,6 +35,9 @@ public:
   // View State
   ScreenManager* screens;
 
+  // this can be done more elegantly
+  void start_realtime_tt(double gap_seconds = 10.0);
+
   AppState();
   ~AppState();
 

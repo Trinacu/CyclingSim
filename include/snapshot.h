@@ -35,7 +35,6 @@ struct RiderSnapshot {
   double speed;
   double km_h;
   double heading;
-  double lateral_offset;
   int team_id;
 
   BikeType visual_type;

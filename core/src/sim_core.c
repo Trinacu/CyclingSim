@@ -74,6 +74,7 @@ void energy_init(EnergyState* e, double ftp, double w_prime,
   e->tau_offset = 316.0;
 
   e->fatigue_I = 0.0;
+  e->w_expended = 0.0;
   e->effort_limit = max_effort_base;
 }
 
@@ -143,8 +144,7 @@ double energy_effort_limit(const EnergyState* e) {
  * RiderState helpers
  * ================================ */
 
-void rider_state_init(RiderState* r, double ftp, double w_prime,
-                      double max_effort, double mass, double cda) {
+void rider_state_init(RiderState* r, const RiderInitParams* params) {
   if (!r)
     return;
 
@@ -157,13 +157,23 @@ void rider_state_init(RiderState* r, double ftp, double w_prime,
   r->target_effort = 0.5;
   r->power = 0.0;
 
-  r->mass_rider = mass;
-  r->cda_rider = cda;
-  r->ftp = ftp;
+  r->mass_rider = params->mass_rider;
+  r->cda_rider = params->cda;
+  r->ftp = params->ftp_base;
+
+  r->max_drive_force = params->max_drive_force;
+
+  r->mass_bike = params->mass_bike;
+  r->wheel_i = params->wheel_i;
+  r->wheel_r = params->wheel_r;
+  r->cda_wheel_drag = params->wheel_drag_factor;
+  r->crr = params->crr;
+  r->drivetrain_loss = params->drivetrain_loss;
 
   r->heading = 0.0;
 
-  energy_init(&r->energy, ftp, w_prime, max_effort);
+  energy_init(&r->energy, params->ftp_base, params->w_prime,
+              params->max_effort);
 
   r->solver = SIM_SOLVER_POWER_BALANCE;
 
@@ -220,6 +230,61 @@ static double pow_speed_prime(double v, double dt, const RiderState* r,
   return dP / (1.0 - r->drivetrain_loss);
 }
 
+static double resistive_force(double v, const RiderState* r,
+                              const EnvState* env) {
+  double v_air = v + env->headwind;
+
+  double cda = r->cda_rider + r->cda_wheel_drag;
+  double drag = 0.5 * env->rho * cda * v_air * v_air;
+
+  double total_mass = r->mass_rider + r->mass_bike;
+  double roll = r->crr * total_mass * env->g;
+
+  double grav = total_mass * env->g * sin(atan(env->slope));
+
+  double bear = env->bearing_c0 + env->bearing_c1 * v;
+
+  return drag + roll + grav + bear;
+}
+
+static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
+  double v = r->speed;
+
+  double P_eff = r->power * (1.0 - r->drivetrain_loss);
+  double F_prop = 0.0;
+  if (P_eff > 0.0) {
+    double F_power = (v > 0.0) ? P_eff / v : INFINITY;
+    F_prop = fmin(F_power, r->max_drive_force);
+  }
+
+  /* resistive forces */
+  double F_res = resistive_force(v, r, env);
+
+  double mass_eq = equivalent_mass(r);
+
+  double a = (F_prop - F_res) / mass_eq;
+
+  r->speed += a * dt;
+  if (r->speed < 0.0)
+    r->speed = 0.0;
+}
+
+static void step_energy_accel(RiderState* r, const EnvState* env, double dt) {
+  double v = r->speed;
+  double m_eq = equivalent_mass(r);
+
+  double P_res = resistive_force(v, r, env) * v;
+
+  // double dE = (r->power - P_res) * dt;
+  double dE = (r->power * (1.0 - r->drivetrain_loss) - P_res) * dt;
+
+  double v2 = v * v + 2.0 * dE / m_eq;
+  if (v2 < 0.0)
+    v2 = 0.0;
+
+  r->speed = sqrt(v2);
+}
+
 static int solve_speed_newton(double power, double* speed_io, double dt,
                               const RiderState* r, const EnvState* env,
                               StepDiagnostics* diag) {
@@ -259,23 +324,6 @@ static int solve_speed_newton(double power, double* speed_io, double dt,
   return 0;
 }
 
-static double resistive_force(double v, const RiderState* r,
-                              const EnvState* env) {
-  double v_air = v + env->headwind;
-
-  double cda = r->cda_rider + r->cda_wheel_drag;
-  double drag = 0.5 * env->rho * cda * v_air * v_air;
-
-  double total_mass = r->mass_rider + r->mass_bike;
-  double roll = r->crr * total_mass * env->g;
-
-  double grav = total_mass * env->g * sin(atan(env->slope));
-
-  double bear = env->bearing_c0 + env->bearing_c1 * v;
-
-  return drag + roll + grav + bear;
-}
-
 void sim_step_rider(RiderState* r, const EnvState* env, double dt,
                     StepDiagnostics* diag) {
   if (!r || !env || dt <= 0.0)
@@ -296,49 +344,14 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
     step_acceleration(r, env, dt);
   } else if (r->solver == SIM_SOLVER_ACCEL_ENERGY) {
     step_energy_accel(r, env, dt);
-  } else {
+  } else if (r->solver == SIM_SOLVER_POWER_BALANCE) {
     solve_speed_newton(r->power, &r->speed, dt, r, env, diag);
+  } else {
+    printf("oops! no valid solver set?\n");
   }
   /* 3. Integrate position */
   r->pos += r->speed * dt;
 
   /* 4. Energy update */
   energy_update(&r->energy, r->power, dt);
-}
-
-static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
-  double v = r->speed;
-  if (v < 0.1)
-    v = 0.1;
-
-  double mass_eq =
-      r->mass_rider + r->mass_bike + r->wheel_i / (r->wheel_r * r->wheel_r);
-
-  /* propulsion force */
-  double F_prop = r->power * (1.0 - r->drivetrain_loss) / v;
-
-  /* resistive forces */
-  double F_res = resistive_force(v, r, env);
-
-  double a = (F_prop - F_res) / mass_eq;
-
-  r->speed += a * dt;
-  if (r->speed < 0.0)
-    r->speed = 0.0;
-}
-
-static void step_energy_accel(RiderState* r, const EnvState* env, double dt) {
-  double v = r->speed;
-  double m_eq = equivalent_mass(r);
-
-  double P_res = resistive_force(v, r, env) * v;
-
-  // double dE = (r->power - P_res) * dt;
-  double dE = (r->power * (1.0 - r->drivetrain_loss) - P_res) * dt;
-
-  double v2 = v * v + 2.0 * dE / m_eq;
-  if (v2 < 0.0)
-    v2 = 0.0;
-
-  r->speed = sqrt(v2);
 }

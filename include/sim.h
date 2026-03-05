@@ -12,6 +12,23 @@
 #include <unordered_map>
 #include <vector>
 
+struct CollisionParams {
+  double rider_radius = 0.5; // m
+  double x_lookahead = 2.2;  // m, how far ahead counts as "blocking"
+  double x_contact = 1.2;    // m, when we consider 2D overlap / projection
+
+  double v_min = 1.0;       // m/s for safe division
+  double F_max = 300.0;     // N clamp on blocking resist force
+  double k_t = 1.0;         // scaling for tightness->force
+  double tight_gamma = 2.0; // exponent on tightness
+
+  double shove_kJ = 0.002; // converts (W * dt) to lateral impulse-ish
+  double J_max = 30.0;     // clamp shove impulse proxy
+
+  double lat_damping = 8.0;         // 1/s strong damping
+  double max_lat_correction = 0.10; // m per step cap in projection
+};
+
 class IRiderDataSource {
 public:
   virtual ~IRiderDataSource() = default;
@@ -24,6 +41,8 @@ private:
   const Course* course;
   mutable std::mutex frame_mtx;
   std::vector<std::unique_ptr<Rider>> riders;
+
+  CollisionParams params;
 
 public:
   explicit PhysicsEngine(const Course* c);
@@ -82,6 +101,8 @@ public:
   void resume();
   bool is_paused() const;
   void stop();
+
+  void reset();
 
   void step_fixed(double dt);
 
