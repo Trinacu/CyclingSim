@@ -238,7 +238,7 @@ static double resistive_force(double v, const RiderState* r,
   double drag = 0.5 * env->rho * cda * v_air * v_air;
 
   double total_mass = r->mass_rider + r->mass_bike;
-  double roll = r->crr * total_mass * env->g;
+  double roll = (r->crr + env->crr) * total_mass * env->g;
 
   double grav = total_mass * env->g * sin(atan(env->slope));
 

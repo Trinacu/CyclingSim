@@ -14,6 +14,7 @@ struct Segment {
   double start_x;
   double length;
   double slope;
+  double crr;
   double end_x;
   double heading;
   double road_width;
@@ -27,6 +28,7 @@ class ICourseView {
 public:
   virtual double get_slope(double pos) const = 0;
   virtual double get_altitude(double pos) const = 0;
+  virtual double get_crr(double pos) const = 0;
   virtual Wind get_wind(double pos) const = 0;
   // virtual bool isCheckpoint(double pos) const = 0;
   virtual ~ICourseView() = default;
@@ -45,12 +47,13 @@ private:
 public:
   std::vector<Vector2d> visual_points;
 
-  Course(const std::vector<std::array<double, 4>> segments);
+  Course(const std::vector<std::array<double, 5>> segments);
   static Course
-  from_segments(const std::vector<std::array<double, 4>> segments);
+  from_segments(const std::vector<std::array<double, 5>> segments);
 
   double get_altitude(double pos) const override;
   double get_slope(double pos) const override;
+  double get_crr(double pos) const override;
   Wind get_wind(double pos) const override;
 
   int find_segment(double pos) const;

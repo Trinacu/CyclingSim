@@ -105,7 +105,7 @@ typedef struct {
   double effort;
   double power;
 
-  double ext_resist_force; /* extra resforce (N), set by outer engine */
+  double max_drive_force;
 
   double heading;
 
@@ -115,15 +115,29 @@ typedef struct {
   SimSolverType solver;
 } RiderState;
 
+typedef struct {
+  double ftp_base;
+  double w_prime;
+  double max_effort;
+  double max_drive_force; // 500 - 1000 N
+  double mass_rider;
+  double cda;
+  double mass_bike;
+  double wheel_i;
+  double wheel_r;
+  double wheel_drag_factor;
+  double crr;
+  double drivetrain_loss;
+} RiderInitParams;
+
+void rider_state_init(RiderState* r, const RiderInitParams* p);
+
 /* diagnostics (optional) */
 typedef struct {
   int converged;
   int iterations;
   double residual_power;
 } StepDiagnostics;
-
-void rider_state_init(RiderState* r, double ft, double w_prime,
-                      double max_effort, double mass, double cda);
 
 void rider_reset(RiderState* r);
 
@@ -133,10 +147,6 @@ void rider_reset(RiderState* r);
 void sim_step_rider(RiderState* r, const EnvState* env, double dt,
                     StepDiagnostics* diag /* may be NULL */
 );
-
-static void step_acceleration(RiderState* r, const EnvState* env, double dt);
-
-static void step_energy_accel(RiderState* r, const EnvState* env, double dt);
 
 #ifdef __cplusplus
 }
@@ -221,6 +231,7 @@ void energy_init(EnergyState* e, double ftp, double w_prime,
   e->tau_offset = 316.0;
 
   e->fatigue_I = 0.0;
+  e->w_expended = 0.0;
   e->effort_limit = max_effort_base;
 }
 
@@ -290,8 +301,7 @@ double energy_effort_limit(const EnergyState* e) {
  * RiderState helpers
  * ================================ */
 
-void rider_state_init(RiderState* r, double ftp, double w_prime,
-                      double max_effort, double mass, double cda) {
+void rider_state_init(RiderState* r, const RiderInitParams* params) {
   if (!r)
     return;
 
@@ -304,13 +314,23 @@ void rider_state_init(RiderState* r, double ftp, double w_prime,
   r->target_effort = 0.5;
   r->power = 0.0;
 
-  r->mass_rider = mass;
-  r->cda_rider = cda;
-  r->ftp = ftp;
+  r->mass_rider = params->mass_rider;
+  r->cda_rider = params->cda;
+  r->ftp = params->ftp_base;
+
+  r->max_drive_force = params->max_drive_force;
+
+  r->mass_bike = params->mass_bike;
+  r->wheel_i = params->wheel_i;
+  r->wheel_r = params->wheel_r;
+  r->cda_wheel_drag = params->wheel_drag_factor;
+  r->crr = params->crr;
+  r->drivetrain_loss = params->drivetrain_loss;
 
   r->heading = 0.0;
 
-  energy_init(&r->energy, ftp, w_prime, max_effort);
+  energy_init(&r->energy, params->ftp_base, params->w_prime,
+              params->max_effort);
 
   r->solver = SIM_SOLVER_POWER_BALANCE;
 
@@ -367,6 +387,61 @@ static double pow_speed_prime(double v, double dt, const RiderState* r,
   return dP / (1.0 - r->drivetrain_loss);
 }
 
+static double resistive_force(double v, const RiderState* r,
+                              const EnvState* env) {
+  double v_air = v + env->headwind;
+
+  double cda = r->cda_rider + r->cda_wheel_drag;
+  double drag = 0.5 * env->rho * cda * v_air * v_air;
+
+  double total_mass = r->mass_rider + r->mass_bike;
+  double roll = r->crr * total_mass * env->g;
+
+  double grav = total_mass * env->g * sin(atan(env->slope));
+
+  double bear = env->bearing_c0 + env->bearing_c1 * v;
+
+  return drag + roll + grav + bear;
+}
+
+static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
+  double v = r->speed;
+
+  double P_eff = r->power * (1.0 - r->drivetrain_loss);
+  double F_prop = 0.0;
+  if (P_eff > 0.0) {
+    double F_power = (v > 0.0) ? P_eff / v : INFINITY;
+    F_prop = fmin(F_power, r->max_drive_force);
+  }
+
+  /* resistive forces */
+  double F_res = resistive_force(v, r, env);
+
+  double mass_eq = equivalent_mass(r);
+
+  double a = (F_prop - F_res) / mass_eq;
+
+  r->speed += a * dt;
+  if (r->speed < 0.0)
+    r->speed = 0.0;
+}
+
+static void step_energy_accel(RiderState* r, const EnvState* env, double dt) {
+  double v = r->speed;
+  double m_eq = equivalent_mass(r);
+
+  double P_res = resistive_force(v, r, env) * v;
+
+  // double dE = (r->power - P_res) * dt;
+  double dE = (r->power * (1.0 - r->drivetrain_loss) - P_res) * dt;
+
+  double v2 = v * v + 2.0 * dE / m_eq;
+  if (v2 < 0.0)
+    v2 = 0.0;
+
+  r->speed = sqrt(v2);
+}
+
 static int solve_speed_newton(double power, double* speed_io, double dt,
                               const RiderState* r, const EnvState* env,
                               StepDiagnostics* diag) {
@@ -406,23 +481,6 @@ static int solve_speed_newton(double power, double* speed_io, double dt,
   return 0;
 }
 
-static double resistive_force(double v, const RiderState* r,
-                              const EnvState* env) {
-  double v_air = v + env->headwind;
-
-  double cda = r->cda_rider + r->cda_wheel_drag;
-  double drag = 0.5 * env->rho * cda * v_air * v_air;
-
-  double total_mass = r->mass_rider + r->mass_bike;
-  double roll = r->crr * total_mass * env->g;
-
-  double grav = total_mass * env->g * sin(atan(env->slope));
-
-  double bear = env->bearing_c0 + env->bearing_c1 * v;
-
-  return drag + roll + grav + bear + r->ext_resist_force;
-}
-
 void sim_step_rider(RiderState* r, const EnvState* env, double dt,
                     StepDiagnostics* diag) {
   if (!r || !env || dt <= 0.0)
@@ -443,8 +501,10 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
     step_acceleration(r, env, dt);
   } else if (r->solver == SIM_SOLVER_ACCEL_ENERGY) {
     step_energy_accel(r, env, dt);
-  } else {
+  } else if (r->solver == SIM_SOLVER_POWER_BALANCE) {
     solve_speed_newton(r->power, &r->speed, dt, r, env, diag);
+  } else {
+    printf("oops! no valid solver set?\n");
   }
   /* 3. Integrate position */
   r->pos += r->speed * dt;
@@ -452,48 +512,13 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
   /* 4. Energy update */
   energy_update(&r->energy, r->power, dt);
 }
-
-static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
-  double v = r->speed;
-  if (v < 0.1)
-    v = 0.1;
-
-  double mass_eq =
-      r->mass_rider + r->mass_bike + r->wheel_i / (r->wheel_r * r->wheel_r);
-
-  /* propulsion force */
-  double F_prop = r->power * (1.0 - r->drivetrain_loss) / v;
-
-  /* resistive forces */
-  double F_res = resistive_force(v, r, env);
-
-  double a = (F_prop - F_res) / mass_eq;
-
-  r->speed += a * dt;
-  if (r->speed < 0.0)
-    r->speed = 0.0;
-}
-
-static void step_energy_accel(RiderState* r, const EnvState* env, double dt) {
-  double v = r->speed;
-  double m_eq = equivalent_mass(r);
-
-  double P_res = resistive_force(v, r, env) * v;
-
-  // double dE = (r->power - P_res) * dt;
-  double dE = (r->power * (1.0 - r->drivetrain_loss) - P_res) * dt;
-
-  double v2 = v * v + 2.0 * dE / m_eq;
-  if (v2 < 0.0)
-    v2 = 0.0;
-
-  r->speed = sqrt(v2);
-}
 ```
 
 include/analysis.h
 ```
+#include "rider.h"
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -563,6 +588,30 @@ struct PlotResult {
   std::string title = "";
   std::vector<PlotSeries> series;
 };
+
+struct RiderTimelineEntry {
+  double
+      checkpoint_distance; // which gate (0.0 = start, course_length = finish)
+  double race_time;        // sim_time - rider's start_offset
+};
+
+class TimelineObserver : public SimulationObserver {
+public:
+  // checkpoint_distances: sorted list of positions to record, including finish
+  // start_offsets: map of rider_id -> sim_time when that rider was released
+  TimelineObserver(std::vector<double> checkpoints,
+                   std::map<RiderId, double> start_offsets);
+
+  void on_step(const Simulation& sim) override;
+
+  const std::map<RiderId, std::vector<RiderTimelineEntry>>& data() const;
+
+private:
+  std::vector<double> checkpoints;
+  std::map<RiderId, double> start_offsets;
+  std::map<RiderId, int> next_checkpoint_idx; // tracks progress per rider
+  std::map<RiderId, std::vector<RiderTimelineEntry>> timeline;
+};
 ```
 
 include/appstate.h
@@ -603,6 +652,9 @@ public:
 
   // View State
   ScreenManager* screens;
+
+  // this can be done more elegantly
+  void start_realtime_tt(double gap_seconds = 10.0);
 
   AppState();
   ~AppState();
@@ -1038,7 +1090,6 @@ include/rider.h
 #define RIDER_H
 
 #include "course.h"
-#include "energymodel.h"
 #include "pch.hpp"
 #include "sim_core.h"
 #include "snapshot.h"
@@ -1085,6 +1136,7 @@ struct RiderConfig {
 
   double ftp_base;
   double max_effort;
+  double max_drive_force;
   double mass;
   double cda;
   double w_prime_base;
@@ -1171,9 +1223,9 @@ public:
   double get_energy_fraction() const;
   double get_effort_limit() const { return energy_effort_limit(&state.energy); }
   double get_target_effort() const { return state.target_effort; }
-  double get_total_mass() const { return state.total_mass; }
+  double get_total_mass() const { return state.mass_rider + state.mass_bike; }
 
-  double get_lateral_pos() const { return lateral_pos;}
+  double get_lateral_pos() const { return lateral_pos; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
@@ -1183,8 +1235,6 @@ public:
   double pow_speed(double new_speed);
   double pow_speed_prime(double new_speed) const;
   double pow_speed_double_prime(double new_speed) const;
-
-  void set_ext_resist_force(double f);
 
   double newton(double power, double speed_guess, int max_iterations = 1000);
   double householder(double power, double speed_guess, int max_iterations = 20);
@@ -1204,6 +1254,7 @@ include/screen.h
 
 #include "SDL3/SDL_events.h"
 #include "plotrenderer.h"
+#include "timetrial.h"
 #include "widget.h"
 #include <future>
 #include <memory>
@@ -1213,7 +1264,7 @@ class TTF_Font;
 class PlotRenderer;
 class SimulationRenderer;
 
-enum class ScreenType { Menu, Simulation, Result, Plot };
+enum class ScreenType { Menu, Simulation, Result, Plot, TimeTrial };
 
 struct SelectedRider {
   RiderUid runtime_uid = -1;
@@ -1270,6 +1321,8 @@ public:
   void update() override;
   void render() override;
 
+  void reset();
+
   bool handle_event(const SDL_Event* e) override;
 
   void cycle_rider(int direction);
@@ -1310,6 +1363,21 @@ private:
 
   // TODO - how do we choose/cahnge this?
   int target_uid = 2;
+};
+
+class TimeTrialScreen : public IScreen {
+public:
+  TimeTrialScreen(AppState* s);
+
+  void update() override;
+  void render() override;
+  bool handle_event(const SDL_Event* e) override;
+
+private:
+  AppState* state;
+  std::future<TimeTrialResult> future;
+  std::optional<TimeTrialResult> result;
+  bool running = false;
 };
 
 #endif
@@ -1411,8 +1479,6 @@ private:
 
   CollisionParams params;
 
-  void check_collisions(double dt);
-
 public:
   explicit PhysicsEngine(const Course* c);
   RiderUid add_rider(const RiderConfig cfg);
@@ -1470,6 +1536,8 @@ public:
   void resume();
   bool is_paused() const;
   void stop();
+
+  void reset();
 
   void step_fixed(double dt);
 
@@ -1591,6 +1659,9 @@ public:
 
   // Main render function: adds simulation info + world drawables.
   void render_frame() override;
+
+  void reset();
+
   void update();
 
   RiderPanel* get_rider_panel() const { return rider_panel; }
@@ -1669,7 +1740,6 @@ struct RiderSnapshot {
   double speed;
   double km_h;
   double heading;
-  double lateral_pos;
   int team_id;
 
   BikeType visual_type;
@@ -1809,6 +1879,56 @@ private:
   TextureManager textureManager;
   FontManager fontManager;
 };
+
+#endif
+```
+
+include/timetrial.h
+```
+#ifndef TIMETRIAL_H
+#define TIMETRIAL_H
+
+#include <map>
+#include <string>
+#include <vector>
+
+class Simulation;
+
+// Forward declarations — keep sim.h out of the header
+class Course;
+struct RiderConfig;
+struct RiderTimelineEntry;
+using RiderId = int;
+
+// Per-rider result: their timeline entries at each checkpoint + finish
+struct RiderTimeTrialResult {
+  RiderId rider_id;
+  std::string name;
+  std::vector<RiderTimelineEntry> timeline; // ordered: chk1, chk2, ..., finish
+};
+
+struct TimeTrialResult {
+  std::vector<RiderTimeTrialResult> riders; // sorted by finish time, DNFs last
+  std::vector<double> checkpoint_distances; // the distances that were measured
+};
+
+// Builds start offsets map: rider[i] starts at i * gap_seconds.
+std::map<RiderId, double>
+build_start_offsets(const std::vector<RiderConfig>& riders, double gap_seconds);
+
+// Applies staggered effort schedules to an already-populated Simulation.
+// Each rider gets effort=0 during their wait, then effort=1 for the race.
+// The sim must already have the riders added before calling this.
+void setup_tt_schedules(Simulation* sim, const std::vector<RiderConfig>& riders,
+                        const std::map<RiderId, double>& start_offsets);
+
+// Runs a time trial offline.
+// Riders are staggered by `start_gap_seconds` in order of their position in
+// the configs vector. Checkpoints are auto-generated at 25/50/75/100% of the
+// course length (finish line is always the last checkpoint).
+TimeTrialResult run_time_trial(const Course& course,
+                               const std::vector<RiderConfig>& riders,
+                               double start_gap_seconds = 60.0);
 
 #endif
 ```
@@ -2230,10 +2350,6 @@ src/analysis.cpp
 #include "analysis.h"
 #include "sim.h"
 
-void MetricObserver::on_step(const Simulation& sim) {
-  samples.push_back({sim.get_sim_seconds(), metric(sim)});
-}
-
 OfflineSimulationRunner::OfflineSimulationRunner(std::unique_ptr<Simulation> s)
     : sim(std::move(s)) {}
 
@@ -2269,6 +2385,48 @@ void OfflineSimulationRunner::run() {
 
   for (auto* o : observers)
     o->on_finish(*sim);
+}
+
+void MetricObserver::on_step(const Simulation& sim) {
+  samples.push_back({sim.get_sim_seconds(), metric(sim)});
+}
+
+TimelineObserver::TimelineObserver(std::vector<double> checkpoints,
+                                   std::map<RiderId, double> offsets)
+    : checkpoints(std::move(checkpoints)), start_offsets(std::move(offsets)) {
+  // prime the next_checkpoint index to 0 for every rider
+  for (const auto& [id, _] : start_offsets)
+    next_checkpoint_idx[id] = 0;
+}
+
+void TimelineObserver::on_step(const Simulation& sim) {
+  double sim_time = sim.get_sim_seconds();
+  for (const auto& rider : sim.get_engine()->get_riders()) {
+    RiderId id = rider->get_id();
+
+    // lazy init
+    if (next_checkpoint_idx.find(id) == next_checkpoint_idx.end())
+      next_checkpoint_idx[id] = 0;
+
+    int& idx = next_checkpoint_idx[id];
+    if (idx >= (int)checkpoints.size())
+      continue;
+
+    if (rider->get_pos() >= checkpoints[idx]) {
+      double offset = 0.0;
+      auto it = start_offsets.find(id);
+      if (it != start_offsets.end())
+        offset = it->second;
+
+      timeline[id].push_back({checkpoints[idx], sim_time - offset});
+      ++idx;
+    }
+  }
+}
+
+const std::map<RiderId, std::vector<RiderTimelineEntry>>&
+TimelineObserver::data() const {
+  return timeline;
 }
 ```
 
@@ -2315,7 +2473,7 @@ AppState::AppState() {
   resources = new GameResources(renderer);
 
   // 4. Initialize Simulation
-  course = new Course(Course::create_flat());
+  course = new Course(Course::create_endulating());
   sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(0.2);
 
@@ -2324,19 +2482,21 @@ AppState::AppState() {
 
   Team team("Team1");
   RiderConfig cfg = {
-      0, "Pedro", 320, 6, 90, 0.5, 24000, Bike::create_generic(), team};
+      0, "Pedro", 320, 6, 700, 90, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {1, "Mario", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {1, "Power", 300, 6, 700, 88, 0.5, 24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {2, "Mario2", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {2,     "AccelForce",           300, 6, 700, 88, 0.5,
+         24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
-  cfg = {3, "Mario3", 300, 6, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {3,     "AccelEnergy",          300, 6, 700, 88, 0.5,
+         24000, Bike::create_generic(), team};
   rider_configs.push_back(cfg);
 
   sim->add_riders(rider_configs);
 
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
-      {20.0, 0.1},  // easy
+      {20.0, 0.0},  // easy
       {40.0, 1.3},  // hard
       {600.0, 0.8}, // recovery
       {300.0, 0.9}  // sprint
@@ -2375,6 +2535,25 @@ AppState::~AppState() {
 
 bool AppState::load_image(const char* id, const char* filename) {
   return resources->get_textureManager()->load_texture(id, filename);
+}
+
+void AppState::start_realtime_tt(double gap_seconds) {
+  sim->stop();
+  if (physics_thread) {
+    physics_thread->join();
+    delete physics_thread;
+    physics_thread = nullptr;
+  }
+  sim->reset();
+
+  if (auto* s = dynamic_cast<SimulationScreen*>(screens->top()))
+    s->reset();
+  else
+    screens->replace(ScreenType::Simulation);
+
+  auto offsets = build_start_offsets(rider_configs, gap_seconds);
+  setup_tt_schedules(sim, rider_configs, offsets);
+  physics_thread = new std::thread([this]() { sim->start_realtime(); });
 }
 ```
 
@@ -2747,11 +2926,7 @@ void RiderDrawable::render(const RenderContext* ctx) {
     // ---------------------------
     // Camera & orientation
     // ---------------------------
-    double lateral_offset = ctx->view.rider_lateral.at(id);
     Vector2d front_ground_world = pos2d;
-    Vector2d laterally_offset = Vector2d{front_ground_world.x(),
-                 front_ground_world.y() + lateral_offset * 0.1};
-    front_ground_world = laterally_offset;
     Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
 
     double tilt_rad = std::atan(slope);
@@ -3079,13 +3254,20 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
     case SDLK_S:
       state->screens->replace(ScreenType::Simulation);
       return SDL_APP_CONTINUE;
+
+    case SDLK_T:
+      state->screens->replace(ScreenType::TimeTrial);
+      return SDL_APP_CONTINUE;
+
+    case SDLK_R: 
+      state->start_realtime_tt();
+      return SDL_APP_CONTINUE;
     }
   }
-
   // Pass event to current screen
   state->screens->handle_event(event);
 
-  return SDL_APP_CONTINUE; /* carry on with the program! */
+  return SDL_APP_CONTINUE;
 }
 
 /* This function runs once per frame, and is the heart of the program. */
@@ -3256,7 +3438,7 @@ PlotResult run_plot_simulation(const Course& course,
 
   MetricObserver speed_obs([target_uid, rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
-    return r ? r->get_km_h() : 0.0;
+    return r ? r->get_speed() * 3.6 : 0.0;
   });
 
   MetricObserver wbal_fraction_obs(
@@ -3336,28 +3518,33 @@ Rider::Rider(RiderConfig config_)
     : config(config_), id(config_.rider_id), uid(global_id_counter++),
       name(config_.name), ftp_base(config_.ftp_base), mass(config_.mass),
       cda(config_.cda), bike(config_.bike), team(config_.team) {
-  rider_state_init(&state, config_.ftp_base, config_.w_prime_base,
-                   config_.max_effort, config_.mass, config_.cda);
+  RiderInitParams p{};
+  p.ftp_base = config_.ftp_base;
+  p.w_prime = config_.w_prime_base;
+  p.max_effort = config_.max_effort;
+  p.max_drive_force = config_.max_drive_force;
+  p.mass_rider = config_.mass;
+  p.cda = config_.cda;
+  p.mass_bike = config_.bike.mass;
+  p.wheel_i = config_.bike.wheel_i;
+  p.wheel_r = config_.bike.wheel_r;
+  p.wheel_drag_factor = config_.bike.wheel_drag_factor;
+  p.crr = config_.bike.crr;
+  p.drivetrain_loss = config_.bike.dt_loss;
 
-  state.mass_bike = config_.bike.mass;
-  state.wheel_i = config.bike.wheel_i;
-  state.wheel_r = config_.bike.wheel_r;
-  state.crr = config_.bike.crr;
-  state.drivetrain_loss = config_.bike.dt_loss;
+  rider_state_init(&state, &p);
 
-  if (config_.name == "Mario2")
+  if (config_.name == "Power")
+    state.solver = SIM_SOLVER_POWER_BALANCE;
+  if (config_.name == "AccelEnergy")
     state.solver = SIM_SOLVER_ACCEL_ENERGY;
-  if (config_.name == "Mario3")
+  if (config_.name == "AccelForce")
     state.solver = SIM_SOLVER_ACCEL_FORCE;
-
-  lateral_pos = config_.rider_id;
-
-  state.cda_wheel_drag = config_.bike.wheel_drag_factor;
 }
 
 Rider* Rider::create_generic(Team team_) {
   Bike bike = Bike::create_generic();
-  RiderConfig cfg = {0, "Joe Moe", 250, 6, 65, 0.3, 24000, bike, team_};
+  RiderConfig cfg = {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, bike, team_};
   return new Rider(cfg);
 }
 
@@ -3382,6 +3569,7 @@ void Rider::update(double dt) {
   env.g = 9.80665;
 
   env.slope = course->get_slope(state.pos);
+  state.slope = env.slope;
 
   auto [wind_dir, wind_speed] = course->get_wind(state.pos);
   env.headwind = wind_speed * std::cos(wind_dir - heading);
@@ -3413,10 +3601,6 @@ double Rider::get_speed() const { return state.speed; }
 double Rider::get_energy() const { return energy_wbal(&state.energy); }
 double Rider::get_energy_fraction() const {
   return energy_wbal_fraction(&state.energy);
-}
-
-void Rider::set_ext_resist_force(double f) {
-  state.set_ext_resist_force = f;
 }
 
 void Rider::update_power_breakdown(double old_speed) {
@@ -3460,9 +3644,8 @@ RiderSnapshot Rider::snapshot() const {
       .effort = this->state.effort,
       .max_effort = this->max_effort,
       .speed = this->state.speed,
-      .km_h = this->get_km_h(),
+      .km_h = this->get_speed() * 3.6,
       .heading = this->heading,
-      .lateral_pos = this->lateral_pos,
       .team_id = this->team.id,
       .visual_type = this->bike.type,
       .power_breakdown = this->power_breakdown,
@@ -3604,6 +3787,10 @@ void SimulationScreen::render() {
 
   // 4) Finally present
   SDL_RenderPresent(state->renderer);
+}
+
+void SimulationScreen::reset() {
+  sim_renderer->reset();
 }
 
 bool SimulationScreen::handle_event(const SDL_Event* e) {
@@ -3771,6 +3958,123 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
 //
 //   renderer->set_data(plot_obs->data());
 // }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static std::string fmt_time(double seconds) {
+  int total_tenths = static_cast<int>(round(seconds * 10));
+  int tenths = total_tenths % 10;
+  int total_secs = total_tenths / 10;
+  int secs = total_secs % 60;
+  int total_mins = total_secs / 60;
+  int mins = total_mins % 60;
+  int hours = total_mins / 60;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
+  return buf;
+}
+
+static void log_results(const TimeTrialResult& r) {
+  SDL_Log("=== TIME TRIAL RESULTS ===");
+
+  // Header: checkpoints as distances in km
+  std::string header = "Rank  Name                ";
+  for (double d : r.checkpoint_distances) {
+    char col[16];
+    snprintf(col, sizeof(col), "  %5.1f km", d / 1000.0);
+    header += col;
+  }
+  SDL_Log("%s", header.c_str());
+
+  // One row per rider (already sorted by finish time)
+  for (int i = 0; i < (int)r.riders.size(); ++i) {
+    const auto& rider = r.riders[i];
+
+    std::string row;
+    char rank_name[32];
+    snprintf(rank_name, sizeof(rank_name), "%-4d  %-20s", i + 1,
+             rider.name.c_str());
+    row += rank_name;
+
+    // Build a map of checkpoint_distance -> race_time for quick lookup
+    std::unordered_map<double, double> splits;
+    for (const auto& entry : rider.timeline)
+      splits[entry.checkpoint_distance] = entry.race_time;
+
+    for (double d : r.checkpoint_distances) {
+      auto it = splits.find(d);
+      if (it != splits.end()) {
+        row += "  " + fmt_time(it->second);
+      } else {
+        row += "       DNF  ";
+      }
+    }
+
+    // Gap to leader at finish line (last checkpoint)
+    if (i > 0 && !r.riders[0].timeline.empty() && !rider.timeline.empty()) {
+      double leader_finish = r.riders[0].timeline.back().race_time;
+      double my_finish = rider.timeline.back().race_time;
+      double gap = my_finish - leader_finish;
+      char gap_buf[16];
+      snprintf(gap_buf, sizeof(gap_buf), "  +%.1fs", gap);
+      row += gap_buf;
+    } else if (i == 0) {
+      row += "  LEADER";
+    }
+
+    SDL_Log("%s", row.c_str());
+  }
+
+  SDL_Log("==========================");
+}
+
+// ---------------------------------------------------------------------------
+// TimeTrialScreen
+// ---------------------------------------------------------------------------
+
+TimeTrialScreen::TimeTrialScreen(AppState* s) : state(s) {}
+
+void TimeTrialScreen::update() {
+  // Kick off the async run once
+  if (!running && !result.has_value()) {
+    running = true;
+    future = std::async(
+        std::launch::async, run_time_trial, std::cref(*state->course),
+        std::cref(state->rider_configs), 60.0 /* start gap seconds */);
+  }
+
+  // Poll for completion (non-blocking)
+  if (running && future.wait_for(std::chrono::milliseconds(0)) ==
+                     std::future_status::ready) {
+    result = future.get();
+    running = false;
+    log_results(*result);
+  }
+}
+
+void TimeTrialScreen::render() {
+  // Placeholder — just clear the screen while running / after logging
+  SDL_SetRenderDrawColor(state->renderer, 20, 20, 20, 255);
+  SDL_RenderClear(state->renderer);
+
+  // TODO: replace with ImGui results table
+}
+
+bool TimeTrialScreen::handle_event(const SDL_Event* e) {
+  if (running) {
+    SDL_Log("Time trial running, please wait...");
+    return true;
+  }
+
+  if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE) {
+    state->screens->replace(ScreenType::Simulation);
+    return true;
+  }
+
+  return false;
+}
 ```
 
 src/screenmanager.cpp
@@ -3778,6 +4082,7 @@ src/screenmanager.cpp
 #include "screenmanager.h"
 #include "appstate.h"
 #include "screen.h"
+#include <memory>
 
 ScreenManager::ScreenManager(AppState* state) : app(state) {}
 
@@ -3791,6 +4096,8 @@ std::unique_ptr<IScreen> ScreenManager::create_screen(ScreenType type) {
     return std::make_unique<ResultsScreen>(app);
   case ScreenType::Plot:
     return std::make_unique<PlotScreen>(app);
+  case ScreenType::TimeTrial:
+    return std::make_unique<TimeTrialScreen>(app);
   }
   return nullptr;
 }
@@ -3871,7 +4178,6 @@ src/sim.cpp
 #include "rider.h"
 #include <chrono>
 #include <memory>
-#include <numeric>
 #include <thread>
 
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
@@ -3894,112 +4200,6 @@ RiderUid PhysicsEngine::add_rider(const RiderConfig cfg) {
   riders.push_back(std::move(r));
 
   return uid;
-}
-
-void PhysicsEngine::check_collisions(double dt) {
-  // If you allow multiple interaction sources later (drafting, brakes,
-  // collision), it’s safer to do:
-  // ext_resist_force = sum_of_all_extras;
-
-  // The ordering is important for stability.
-  //  Reset interaction accumulators
-  for (auto& r : riders) {
-    r->set_ext_resist_force(0.0);
-    // (optional) accumulate debug info: r.debug.block_force = 0;
-  }
-
-  std::vector<int> order(riders.size());
-  std::iota(order.begin(), order.end(), 0);
-
-  std::sort(order.begin(), order.end(), [&](int a, int b) {
-    return riders[a]->get_pos() < riders[b]->get_pos();
-  });
-
-  double r = params.rider_radius;
-  double x_max = params.x_lookahead;
-
-  for (int i : order) {
-    double xi = riders[i]->get_pos();
-    double yi = riders[i]->lateral_pos;
-
-    int left_blocker = -1;
-    int right_blocker = -1;
-    double best_dx_left = 1e9;
-    double best_dx_right = 1e9;
-
-    for (int jdx = i + 1; jdx < order.size(); ++jdx) {
-      int j = order[jdx];
-
-      double dx = riders[j]->get_pos() - xi;
-      if (dx > x_max)
-        break; // sorted → no more candidates
-
-      // lateral separation test (VERY cheap)
-      double dy = riders[j]->lateral_pos - yi;
-      if (std::abs(dy) > 2.0 * r)
-        continue; // cannot block laterally
-
-      // classify side
-      if (dy > 0) {
-        // right side
-        if (dx < best_dx_right) {
-          best_dx_right = dx;
-          right_blocker = j;
-        }
-      } else {
-        // left side
-        if (dx < best_dx_left) {
-          best_dx_left = dx;
-          left_blocker = j;
-        }
-      }
-    }
-    if (left_blocker < 0 || right_blocker < 0)
-      continue; // NOT wedged → allow sliding
-
-    double yl = riders[left_blocker]->lateral_pos;
-    double yr = riders[right_blocker]->lateral_pos;
-
-    double gap = (yr - yl) - 2.0 * r;
-    double g_need = 2.0 * r + 0.05;
-
-    double t = (g_need - gap) / g_need;
-    t = std::clamp(t, 0.0, 1.0);
-    double tight = std::pow(t, params.tight_gamma);
-
-    double Pi = riders[i]->get_power();
-    double Pl = riders[left_blocker]->get_power();
-    double Pr = riders[right_blocker]->get_power();
-
-    double dP = std::max(0.0, Pi - std::max(Pl, Pr));
-    if (dP <= 0.0)
-      continue;
-
-    double vi = riders[i]->get_speed();
-    double F_want = dP / std::max(vi, params.v_min);
-
-    double F_block = std::clamp(params.k_t * tight * F_want, 0.0, params.F_max);
-
-    riders[i]->set_ext_resist_force(F_block);
-
-    double Jy =
-        std::clamp(params.shove_kJ * tight * dP * dt, 0.0, params.J_max);
-
-    double inv_ml = 1.0 / riders[left_blocker]->get_total_mass();
-    double inv_mr = 1.0 / riders[right_blocker]->get_total_mass();
-
-    riders[left_blocker]->lateral_pos -= Jy * inv_ml;
-    riders[right_blocker]->lateral_pos += Jy * inv_mr;
-
-    // optional reaction on attacker
-    double inv_mi = 1.0 / riders[i].total_mass();
-    riders[i]->lateral_pos += 0.5 * Jy * inv_mi * (yi > 0 ? -1 : 1);
-  }
-
-  //  Compute blocking + shoves (local only)
-  //  Run the longitudinal core step for each rider
-  //  Integrate lateral + damping + clamp to road
-  //  Projection pass (single pass, capped corrections)
 }
 
 void PhysicsEngine::update(double dt) {
@@ -4187,6 +4387,21 @@ bool Simulation::is_paused() const { return paused; }
 
 void Simulation::stop() { running = false; }
 
+// Must be called only while the physics thread is stopped (after sim->stop()
+// and thread join). No locking needed because there's no concurrent access.
+void Simulation::reset() {
+  sim_seconds = 0.0;
+  paused = false;
+  physics_error = false;
+  physics_error_message.clear();
+  effort_schedules.clear();
+
+  // get_riders() returns const ref, but unique_ptr<Rider> still lets us
+  // call non-const methods on the Rider through the pointer.
+  for (const auto& r : engine.get_riders())
+    r->reset();
+}
+
 const double Simulation::get_sim_seconds() const { return sim_seconds; }
 
 // class TimeReached : public SimulationCondition {
@@ -4231,6 +4446,11 @@ SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
   if (frame_curr.riders.count(0)) {
     camera->set_center(frame_curr.riders.at(0).pos2d);
   }
+}
+
+void SimulationRenderer::reset() {
+  std::scoped_lock lock(snapshot_swap_mtx);
+  frames_initialized = false;
 }
 
 void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
@@ -4332,9 +4552,6 @@ void SimulationRenderer::render_frame() {
       view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
 
       view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
-
-      view.rider_lateral[id] =
-          s0.lateral_offset * (1.0 - alpha) + s1.lateral_offset * alpha;
     }
 
     ctx.view = std::move(view);
@@ -4520,6 +4737,112 @@ FontManager::~FontManager() {
       TTF_CloseFont(kv.second);
     }
   }
+}
+```
+
+src/timetrial.cpp
+```
+#include "timetrial.h"
+#include "analysis.h"
+#include "sim.h"
+
+static const double RACE_WINDOW = 7200.0; // 2h ceiling
+
+std::map<RiderId, double>
+build_start_offsets(const std::vector<RiderConfig>& ridercfgs,
+                    double gap_seconds) {
+  std::map<RiderId, double> offsets;
+  for (int i = 0; i < (int)ridercfgs.size(); ++i)
+    offsets[ridercfgs[i].rider_id] = i * gap_seconds;
+  return offsets;
+}
+
+void setup_tt_schedules(Simulation* sim,
+                        const std::vector<RiderConfig>& ridercfgs,
+                        const std::map<RiderId, double>& start_offsets) {
+  for (const auto& cfg : ridercfgs) {
+    double offset = start_offsets.at(cfg.rider_id);
+    if (offset > 0.0) {
+      sim->set_effort_schedule(
+          cfg.rider_id,
+          std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
+              {offset, 0.0},      // waiting at start gate
+              {RACE_WINDOW, 1.0}, // racing
+          }));
+    } else {
+      sim->set_effort_schedule(
+          cfg.rider_id,
+          std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
+              {RACE_WINDOW, 1.0},
+          }));
+    }
+  }
+}
+
+TimeTrialResult run_time_trial(const Course& course,
+                               const std::vector<RiderConfig>& ridercfgs,
+                               double start_gap_seconds) {
+  // --- Build checkpoints: 25%, 50%, 75%, finish ---
+  const double length = course.get_total_length();
+  std::vector<double> checkpoints = {
+      length * 0.25,
+      length * 0.50,
+      length * 0.75,
+      length,
+  };
+
+  // --- Assign start offsets: rider[0] goes at t=0, rider[1] at t=gap, etc. ---
+  auto start_offsets = build_start_offsets(ridercfgs, start_gap_seconds);
+
+  // --- Build simulation ---
+  auto sim = std::make_unique<Simulation>(&course);
+  sim->set_dt(0.1);
+  sim->add_riders(ridercfgs);
+  setup_tt_schedules(sim.get(), ridercfgs, start_offsets);
+
+  // --- Attach timeline observer ---
+  TimelineObserver timeline_obs(checkpoints, start_offsets);
+
+  OfflineSimulationRunner runner(std::move(sim));
+  runner.add_observer(&timeline_obs);
+  runner.set_end_condition(std::make_unique<FinishLineCondition>());
+  runner.run();
+
+  // --- Assemble results ---
+  const auto& raw = timeline_obs.data();
+
+  TimeTrialResult result;
+  result.checkpoint_distances = checkpoints;
+
+  for (const auto& cfg : ridercfgs) {
+    RiderTimeTrialResult r;
+    r.rider_id = cfg.rider_id;
+    r.name = cfg.name;
+
+    auto it = raw.find(cfg.rider_id);
+    if (it != raw.end()) {
+      r.timeline = it->second;
+    }
+    result.riders.push_back(std::move(r));
+  }
+
+  // Sort by finish time (last checkpoint = finish line).
+  // Riders with incomplete timelines (DNF) sort to the end.
+  std::sort(result.riders.begin(), result.riders.end(),
+            [&](const RiderTimeTrialResult& a, const RiderTimeTrialResult& b) {
+              bool a_finished = !a.timeline.empty() &&
+                                a.timeline.back().checkpoint_distance >= length;
+              bool b_finished = !b.timeline.empty() &&
+                                b.timeline.back().checkpoint_distance >= length;
+              if (a_finished && b_finished)
+                return a.timeline.back().race_time <
+                       b.timeline.back().race_time;
+              if (a_finished)
+                return true;
+              return false;
+            });
+
+  return result;
 }
 ```
 

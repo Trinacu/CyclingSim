@@ -90,6 +90,7 @@ void Rider::update(double dt) {
   env.g = 9.80665;
 
   env.slope = course->get_slope(state.pos);
+  env.crr = course->get_crr(state.pos);
   state.slope = env.slope;
 
   auto [wind_dir, wind_speed] = course->get_wind(state.pos);

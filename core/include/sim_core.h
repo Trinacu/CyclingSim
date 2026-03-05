@@ -63,6 +63,8 @@ typedef struct {
   double rho; /* air density (kg/m^3) */
   double g;   /* gravity (m/s^2) */
 
+  double crr; /* 0 for good surface, up to 0.02 gravel/cobbles */
+
   double slope;    /* road grade (rise/run) */
   double headwind; /* signed headwind component (m/s) */
 

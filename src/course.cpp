@@ -9,12 +9,12 @@ std::ostream& operator<<(std::ostream& os, const Segment& cs) {
   return os;
 }
 
-Course::Course(const std::vector<std::array<double, 4>> segments_) {
+Course::Course(const std::vector<std::array<double, 5>> segments_) {
   double x = 0.0, y = 0.0;
   visual_points.push_back(Vector2d(x, y));
 
-  for (auto [len, slope, heading, road_width] : segments_) {
-    segments.push_back({x, len, slope, x + len, heading, road_width});
+  for (auto [len, slope, crr, heading, road_width] : segments_) {
+    segments.push_back({x, len, slope, crr, x + len, heading, road_width});
     altitudes.push_back(y);
 
     x += len;
@@ -26,23 +26,25 @@ Course::Course(const std::vector<std::array<double, 4>> segments_) {
 }
 
 Course
-Course::from_segments(const std::vector<std::array<double, 4>> segments) {
+Course::from_segments(const std::vector<std::array<double, 5>> segments) {
   return Course(segments);
 }
 
 Course Course::create_flat() {
-  std::vector<std::array<double, 4>> v = {{30000, 0, 0, 8}};
+  std::vector<std::array<double, 5>> v = {{30000, 0, 0, 0, 8}};
   return Course(v);
 }
 
 Course Course::create_flat_short() {
-  std::vector<std::array<double, 4>> v = {{1000, 0, 0, 8}};
+  std::vector<std::array<double, 5>> v = {{1000, 0, 0, 0, 8}};
   return Course(v);
 }
 
 Course Course::create_endulating() {
-  std::vector<std::array<double, 4>> v = {
-      {100, 0, 0, 8}, {200, 0.1, 0, 8}, {200, 0, 0, 8}, {500, 0.05, 0, 8}};
+  std::vector<std::array<double, 5>> v = {{100, 0, 0, 0, 8},
+                                          {200, 0.1, 0, 0, 8},
+                                          {200, 0, 0, 0, 8},
+                                          {500, 0.05, 0, 0, 8}};
   return Course(v);
 }
 
@@ -53,6 +55,10 @@ double Course::get_altitude(double pos) const {
 
 double Course::get_slope(double pos) const {
   return segments[find_segment(pos)].slope;
+}
+
+double Course::get_crr(double pos) const {
+  return segments[find_segment(pos)].crr;
 }
 
 // TODO - fix this to query whatever holds the values?
