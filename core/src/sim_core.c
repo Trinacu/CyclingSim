@@ -180,10 +180,10 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
 
   r->solver = SIM_SOLVER_POWER_BALANCE;
 
-  printf("%.1f %.2f %.1f %.2f %.1f %.1f %.2f %.1f %.1f\n", r->pos, r->speed,
-         r->slope, r->target_effort, r->power, r->mass_rider, r->cda_rider,
-         r->ftp, r->heading);
-  printf("INIT RiderState ptr=%p target=%.3f\n", (void*)r, r->target_effort);
+  // printf("%.1f %.2f %.1f %.2f %.1f %.1f %.2f %.1f %.1f\n", r->pos, r->speed,
+  //        r->slope, r->target_effort, r->power, r->mass_rider, r->cda_rider,
+  //        r->ftp, r->heading);
+  // printf("INIT RiderState ptr=%p target=%.3f\n", (void*)r, r->target_effort);
 }
 
 void rider_reset(RiderState* r) {

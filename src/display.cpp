@@ -52,8 +52,6 @@ void CourseDrawable::render(const RenderContext* ctx) {
   }
 
   SDL_SetRenderDrawColor(ctx->renderer, 200, 200, 200, 255);
-  // SDL_RenderLines(ctx->renderer, points, pts.rows());
-  // delete[] points;
   SDL_RenderLines(ctx->renderer, screen_points.data(), screen_points.size());
 };
 

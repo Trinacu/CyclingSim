@@ -129,13 +129,11 @@ void SimulationRenderer::render_frame() {
   camera->update(ctx.view);
 
   // 1. Draw world-space drawables
-  int cnt = 0;
   for (auto& d : world_drawables) {
     d->render(&ctx);
   }
 
   // 2. Draw UI drawables (inherited from CoreRenderer)
-  cnt = 0;
   for (auto& d : drawables) {
     d->render(&ctx);
   }
@@ -155,15 +153,12 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   double min_dist = 20.0;
   bool found = false;
   RiderUid found_uid = 0;
-  SDL_Log("\n%.1f, %.1f", world_pos.x(), world_pos.y());
 
   std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
   for (auto& [id, snap] : frame_curr.riders) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
-    SDL_Log("%s: %.1f", snap.name.c_str(), dist);
-    SDL_Log("%.1f", snap.km_h);
 
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {
