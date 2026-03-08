@@ -1,4 +1,4 @@
-#include "simulationrenderer.h"
+#include "simrenderer.h"
 #include "camera.h"
 #include "display.h"
 #include "sim.h"

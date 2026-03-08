@@ -1,5 +1,5 @@
-#ifndef SIMULATION_RENDERER_H
-#define SIMULATION_RENDERER_H
+#ifndef SIMRENDERER_H
+#define SIMRENDERER_H
 
 #include "corerenderer.h"
 #include "snapshot.h"

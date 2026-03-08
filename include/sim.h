@@ -5,7 +5,7 @@
 #include "course.h"
 #include "effortschedule.h"
 #include "rider.h"
-#include "simulationrenderer.h"
+#include "simrenderer.h"
 #include <mutex>
 
 #include <atomic>
