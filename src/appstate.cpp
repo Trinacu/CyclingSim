@@ -36,14 +36,14 @@ AppState::AppState() {
   ImGui_ImplSDLRenderer3_Init(renderer);
 
   // 3. Initialize Shared Resources
-  resources = new GameResources(renderer);
+  resources = std::make_unique<GameResources>(renderer);
+  course = std::make_unique<Course>(Course::create_endulating());
+  sim = std::make_unique<Simulation>(course.get());
+  screens = std::make_unique<ScreenManager>(this);
 
-  // 4. Initialize Simulation
-  course = new Course(Course::create_endulating());
-  sim = new Simulation(course); // Sim now owns the course
   sim->set_time_factor(0.2);
 
-  screens = new ScreenManager(this);
+  screens = std::make_unique<ScreenManager>(this);
   screens->push(ScreenType::Simulation);
 
   Team team("Team1");
@@ -75,25 +75,13 @@ AppState::AppState() {
 
 AppState::~AppState() {
   // Cleanup in reverse order of creation
-  if (physics_thread) {
+  if (physics_thread.joinable()) {
     sim->stop();
-    physics_thread->join();
-    delete physics_thread;
+    physics_thread.join();
   }
 
-  if (sim)
-    delete sim;
-  if (course)
-    delete course;
-  if (resources)
-    delete resources;
-  if (screens)
-    delete screens;
-
-  if (renderer)
-    SDL_DestroyRenderer(renderer);
-  if (window)
-    SDL_DestroyWindow(window);
+  if (renderer) SDL_DestroyRenderer(renderer);
+  if (window) SDL_DestroyWindow(window);
 
   TTF_Quit();
   SDL_Quit();
@@ -105,11 +93,9 @@ bool AppState::load_image(const char* id, const char* filename) {
 
 void AppState::start_realtime_tt(double gap_seconds) {
   sim->stop();
-  if (physics_thread) {
-    physics_thread->join();
-    delete physics_thread;
-    physics_thread = nullptr;
-  }
+  if (physics_thread.joinable()) 
+    physics_thread.join();
+  
   sim->reset();
 
   if (auto* s = dynamic_cast<SimulationScreen*>(screens->top()))
@@ -118,6 +104,7 @@ void AppState::start_realtime_tt(double gap_seconds) {
     screens->replace(ScreenType::Simulation);
 
   auto offsets = build_start_offsets(rider_configs, gap_seconds);
-  setup_tt_schedules(sim, rider_configs, offsets);
-  physics_thread = new std::thread([this]() { sim->start_realtime(); });
+  setup_tt_schedules(sim.get(), rider_configs, offsets);
+
+  physics_thread = std::thread([this]() { sim->start_realtime(); });
 }

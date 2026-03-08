@@ -20,7 +20,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     auto* state = new AppState();
 
     state->physics_thread =
-        new std::thread([sim = state->sim]() { sim->start_realtime(); });
+        std::thread([sim = state->sim.get()]() { sim->start_realtime(); });
 
     // state->window =
     //     SDL_CreateWindow("Cycling Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
@@ -62,7 +62,7 @@ SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event) {
       state->screens->replace(ScreenType::TimeTrial);
       return SDL_APP_CONTINUE;
 
-    case SDLK_R: 
+    case SDLK_R:
       state->start_realtime_tt();
       return SDL_APP_CONTINUE;
     }

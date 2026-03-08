@@ -43,9 +43,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   Vector2d screensize(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
   // maybe this could take screensize rather than 2 ints?
   // display = new DisplayEngine(state, screensize, WORLD_WIDTH);
-  auto cam = std::make_shared<Camera>(s->course, WORLD_WIDTH, screensize);
-  sim_renderer = std::make_unique<SimulationRenderer>(s->renderer, s->resources,
-                                                      s->sim, cam);
+  auto cam = std::make_shared<Camera>(s->course.get(), WORLD_WIDTH, screensize);
+  sim_renderer = std::make_unique<SimulationRenderer>(s->renderer, s->resources.get(),
+                                                      s->sim.get(), cam);
 
   s->sim->set_snapshot_source(sim_renderer.get());
 
@@ -58,7 +58,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   sim_renderer->add_drawable(std::make_unique<Stopwatch>(
       20, 20, state->resources->get_fontManager()->get_font("stopwatch"),
-      state->sim));
+      state->sim.get()));
 
   Vector2d scr_size = s->get_window_size();
 
@@ -67,14 +67,14 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   int pos_x = scr_size[0] - map_w - 8;
   int pos_y = scr_size[1] - map_h - 8;
   sim_renderer->add_drawable(
-      std::make_unique<MinimapWidget>(pos_x, pos_y, map_w, map_h, s->course));
+      std::make_unique<MinimapWidget>(pos_x, pos_y, map_w, map_h, s->course.get()));
 
   sim_renderer->add_drawable(std::make_unique<TimeControlPanel>(
-      400, 20, 40, default_font, state->sim));
+      400, 20, 40, default_font, state->sim.get()));
 
   static_assert(std::is_base_of_v<IRiderDataSource, Simulation>);
   // 2. Create the Panel
-  auto panel = std::make_unique<RiderPanel>(20, 120, default_font, s->sim);
+  auto panel = std::make_unique<RiderPanel>(20, 120, default_font, s->sim.get());
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
@@ -234,7 +234,7 @@ void SimulationScreen::select_rider_by_uid(RiderUid uid) {
 }
 
 PlotScreen::PlotScreen(AppState* s) : state(s) {
-  renderer = std::make_unique<PlotRenderer>(state->renderer, state->resources);
+  renderer = std::make_unique<PlotRenderer>(state->renderer, state->resources.get());
 
   TTF_Font* f = state->resources->get_fontManager()->get_font("default");
 
@@ -244,11 +244,8 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
 
   renderer->add_drawable(
       std::make_unique<Button>(20, 60, 120, 30, "Pause", f, [this]() {
-        auto sim = state->sim;
-        if (sim->is_paused())
-          sim->resume();
-        else
-          sim->pause();
+        if (state->sim->is_paused()) state->sim->resume();
+        else state->sim->pause();
       }));
 }
 

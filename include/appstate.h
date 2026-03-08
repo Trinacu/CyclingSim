@@ -28,13 +28,12 @@ public:
   std::chrono::steady_clock::time_point last_frame_time;
 
   // Logic & Assets (Owned by AppState)
-  GameResources* resources = nullptr;
-  Course* course = nullptr;
-  Simulation* sim = nullptr;
-  std::thread* physics_thread = nullptr;
-
+  std::unique_ptr<GameResources> resources;
+  std::unique_ptr<Course> course;
+  std::unique_ptr<Simulation> sim;
+  std::thread physics_thread;
   // View State
-  ScreenManager* screens;
+  std::unique_ptr<ScreenManager> screens;
 
   // this can be done more elegantly
   void start_realtime_tt(double gap_seconds = 10.0);

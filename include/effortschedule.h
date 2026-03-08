@@ -1,3 +1,7 @@
+// effortschedule.h
+#ifndef EFFORTSCHEDULE_H
+#define EFFORTSCHEDULE_H
+
 #include <vector>
 
 class EffortSchedule {
@@ -52,3 +56,5 @@ private:
   std::vector<Range> ranges;
   double total_duration = 0.0;
 };
+
+#endif

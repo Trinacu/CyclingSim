@@ -1,3 +1,6 @@
+#ifndef ANALYSIS_H
+#define ANALYSIS_H
+
 #include "rider.h"
 #include <functional>
 #include <map>
@@ -91,3 +94,5 @@ private:
   std::map<RiderId, int> next_checkpoint_idx; // tracks progress per rider
   std::map<RiderId, std::vector<RiderTimelineEntry>> timeline;
 };
+
+#endif
