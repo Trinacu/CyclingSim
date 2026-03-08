@@ -194,6 +194,17 @@ MinimapWidget::MinimapWidget(int x, int y, int w, int h, const Course* course)
   }
 }
 
+static SDL_FColor slope_to_color(double slope) {
+  // flat=green, uphill->red, downhill->blue
+  if (slope > 0.0) {
+    float t = std::min((float)(slope / 0.15), 1.0f); // saturates at 15%
+    return {1.0f * t, 1.0f * (1.0f - t), 0.0f, 0.8f};
+  } else {
+    float t = std::min((float)(-slope / 0.08), 1.0f); // saturates at 8%
+    return {0.0f, 1.0f * (1.0f - t), 1.0f * t, 0.8f};
+  }
+}
+
 void MinimapWidget::bake_profile(SDL_Renderer* r) {
   profile_tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
                                   SDL_TEXTUREACCESS_TARGET, w, h);
@@ -208,9 +219,36 @@ void MinimapWidget::bake_profile(SDL_Renderer* r) {
   // draw the profile line
   const auto& pts = course->points;
   std::vector<SDL_FPoint> screen_pts;
-  for (auto& p : pts) {
+  for (auto& p : pts)
     screen_pts.push_back(world_to_mini(p.x, p.y));
+
+  float bottom_y = (float)(h - pad);
+
+  std::vector<SDL_Vertex> verts;
+  verts.reserve((pts.size() - 1) * 6);
+
+  for (size_t i = 0; i + 1 < pts.size(); ++i) {
+    double slope = (pts[i + 1].y - pts[i].y) / (pts[i + 1].x - pts[i].x);
+    SDL_FColor col = slope_to_color(slope);
+
+    SDL_FPoint tl = screen_pts[i];
+    SDL_FPoint tr = screen_pts[i + 1];
+    SDL_FPoint bl = {tl.x, bottom_y};
+    SDL_FPoint br = {tr.x, bottom_y};
+
+    // two triangles: tl-tr-br and tl-br-bl
+    SDL_Vertex quad[6] = {
+        {{tl.x, tl.y}, col, {0, 0}}, {{tr.x, tr.y}, col, {0, 0}},
+        {{br.x, br.y}, col, {0, 0}},
+
+        {{tl.x, tl.y}, col, {0, 0}}, {{br.x, br.y}, col, {0, 0}},
+        {{bl.x, bl.y}, col, {0, 0}},
+    };
+    for (auto& v : quad)
+      verts.push_back(v);
   }
+
+  SDL_RenderGeometry(r, nullptr, verts.data(), (int)verts.size(), nullptr, 0);
 
   SDL_SetRenderDrawColor(r, 180, 220, 255, 255);
   SDL_RenderLines(r, screen_pts.data(), screen_pts.size());
