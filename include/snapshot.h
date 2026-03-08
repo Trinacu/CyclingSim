@@ -1,13 +1,11 @@
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H
 
+#include "mytypes.h"
 #include "pch.hpp"
 #include "visualmodel.h"
 #include <string>
 #include <unordered_map>
-
-using RiderUid = int;
-using RiderId = int;
 
 enum class PowerTerm : int {
   Aerodynamic = 0,

@@ -61,10 +61,13 @@ Rider::Rider(RiderConfig config_)
     state.solver = SIM_SOLVER_ACCEL_FORCE;
 }
 
-Rider* Rider::create_generic(Team team_) {
-  Bike bike = Bike::create_generic();
-  RiderConfig cfg = {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, bike, team_};
-  return new Rider(cfg);
+std::unique_ptr<Rider> Rider::create_generic(Team team_) {
+  RiderConfig cfg = {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(), team_};
+  return std::make_unique<Rider>(cfg);
+}
+
+RiderConfig Rider::default_config(Team team_) {
+  return {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(), team_};
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }

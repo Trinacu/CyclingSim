@@ -10,14 +10,10 @@
 #include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <iostream>
+#include "mytypes.h"
 
 struct SDL_Texture;
 
-// Semantic, scenario-level identity (UI / plots / configs)
-using RiderId = int;
-
-// Runtime, object-level identity (physics / snapshots)
-using RiderUid = int;
 
 class Team {
 private:
@@ -91,7 +87,8 @@ public:
   const SDL_Texture* image;
 
   explicit Rider(RiderConfig config_);
-  static Rider* create_generic(Team team_);
+  static std::unique_ptr<Rider> create_generic(Team team_);
+  static RiderConfig default_config(Team team_);
 
   void set_course(const ICourseView* cv);
 
