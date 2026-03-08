@@ -155,7 +155,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   RiderUid found_uid = 0;
 
   std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
-  for (auto& [id, snap] : frame_curr.riders) {
+  for (auto& [uid, snap] : frame_curr.riders) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
@@ -163,7 +163,7 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {
       min_dist = dist;
-      found_uid = id;
+      found_uid = uid;
       found = true;
     }
   }
