@@ -3,7 +3,7 @@
 
 PlotResult run_plot_simulation(const Course& course,
                                const std::vector<RiderConfig>& riders,
-                               int target_uid) {
+                               int rider_id) {
   auto sim = std::make_unique<Simulation>(&course);
 
   sim->set_dt(0.1);
@@ -18,32 +18,31 @@ PlotResult run_plot_simulation(const Course& course,
       {60.0, 0.5} // sprint
   });
 
-  RiderId rider_id = 0;
   std::string rider_name = sim->get_engine()->get_rider_by_id(rider_id)->name;
 
   sim->set_effort_schedule(rider_id, schedule);
 
   OfflineSimulationRunner runner(std::move(sim));
 
-  MetricObserver effort_obs([target_uid, rider_id](const Simulation& s) {
+  MetricObserver effort_obs([rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
     return r ? r->get_target_effort() : 0.0;
   });
 
-  MetricObserver effortlimit_obs([target_uid, rider_id](const Simulation& s) {
+  MetricObserver effortlimit_obs([rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
     return r ? r->get_effort_limit() : 0.0;
   });
 
-  MetricObserver speed_obs([target_uid, rider_id](const Simulation& s) {
+  MetricObserver speed_obs([rider_id](const Simulation& s) {
     const Rider* r = s.get_engine()->get_rider_by_id(rider_id);
     return r ? r->get_speed() * 3.6 : 0.0;
   });
 
   MetricObserver wbal_fraction_obs(
-      [target_uid, rider_id](const Simulation& sim) {
+      [rider_id](const Simulation& sim) {
         const Rider* r = sim.get_engine()->get_rider_by_id(rider_id);
-        return r->get_energy_fraction();
+        return r ? r->get_energy_fraction() : 0.0;
       });
 
   runner.add_observer(&effort_obs);

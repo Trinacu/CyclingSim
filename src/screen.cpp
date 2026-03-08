@@ -260,7 +260,7 @@ void PlotScreen::update() {
 
     future = std::async(std::launch::async, run_plot_simulation,
                         std::cref(*state->course),
-                        std::cref(state->rider_configs), target_uid);
+                        std::cref(state->rider_configs), target_id);
   }
 
   // Poll completion (non-blocking)

@@ -112,7 +112,7 @@ private:
   std::unique_ptr<PlotRenderer> renderer;
 
   // TODO - how do we choose/cahnge this?
-  int target_uid = 2;
+  RiderId target_id = 0;
 };
 
 class TimeTrialScreen : public IScreen {
