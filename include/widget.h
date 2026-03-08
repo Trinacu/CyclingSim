@@ -65,7 +65,7 @@ class MinimapWidget : public Widget {
   SDL_Texture* profile_tex = nullptr; // baked once
 
   int x, y, w, h; // screen rect
-  float pad = 4.f;
+  float pad = 8.f;
 
   // computed once from visual_points
   double world_x_min, world_x_max;
