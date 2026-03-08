@@ -4,6 +4,7 @@
 
 #include "pch.hpp"
 #include <iostream>
+#include <vector>
 
 struct Wind {
   double heading;
@@ -15,11 +16,16 @@ struct Segment {
   double length;
   double slope;
   double crr;
-  double end_x;
   double heading;
   double road_width;
+};
 
-  double altitude_at(double x) const { return slope * (x - start_x); }
+struct CoursePoint {
+  double x;
+  double y;
+  double slope;
+
+  Vector2d vec2() const { return Vector2d(x, y); }
 };
 
 std::ostream& operator<<(std::ostream& os, const Segment& seg);
@@ -42,12 +48,14 @@ protected:
 class Course : public ICourseView {
 private:
   std::vector<Segment> segments;
-  std::vector<double> altitudes; // y at each segment start
+  // std::vector<double> altitudes; // y at each segment start
 
 public:
-  std::vector<Vector2d> visual_points;
+  std::vector<CoursePoint> points;
+  // std::vector<Vector2d> visual_points;
 
-  Course(const std::vector<std::array<double, 5>> segments);
+  Course(const std::vector<std::array<double, 5>> segments,
+         double starting_alt);
   static Course
   from_segments(const std::vector<std::array<double, 5>> segments);
 

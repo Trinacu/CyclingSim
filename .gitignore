@@ -29,7 +29,7 @@ compile_commands.json
 # ======================================
 #  Project-specific
 # ======================================
-/vendor/        # ignore imgui, implot, stb, etc.
+vendor/        # ignore imgui, implot, stb, etc.
 /include/Eigen/
 !.gitkeep       # allow empty folders if you want
 

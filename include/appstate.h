@@ -2,6 +2,7 @@
 #ifndef APPSTATE_H
 #define APPSTATE_H
 
+#include "pch.hpp"
 #include "sim.h"
 #include "texturemanager.h" // For GameResources
 #include <SDL3/SDL.h>
@@ -45,7 +46,9 @@ public:
 
   // Helper to get window size dynamically if needed
   Vector2d get_window_size() const {
-    return Vector2d(SCREEN_WIDTH, SCREEN_HEIGHT);
+    int w, h;
+    SDL_GetWindowSize(window, &w, &h);
+    return Vector2d(w, h);
   }
 };
 

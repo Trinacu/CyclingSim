@@ -4,6 +4,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "imgui.h"
+#include "pch.hpp"
 #include "plotrenderer.h"
 #include "plotting.h"
 #include "screenmanager.h"
@@ -58,6 +59,15 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->add_drawable(std::make_unique<Stopwatch>(
       20, 20, state->resources->get_fontManager()->get_font("stopwatch"),
       state->sim));
+
+  Vector2d scr_size = s->get_window_size();
+
+  int map_w = 400;
+  int map_h = 100;
+  int pos_x = scr_size[0] - map_w - 8;
+  int pos_y = scr_size[1] - map_h - 8;
+  sim_renderer->add_drawable(
+      std::make_unique<MinimapWidget>(pos_x, pos_y, map_w, map_h, s->course));
 
   sim_renderer->add_drawable(std::make_unique<TimeControlPanel>(
       400, 20, 40, default_font, state->sim));
@@ -132,9 +142,7 @@ void SimulationScreen::render() {
   SDL_RenderPresent(state->renderer);
 }
 
-void SimulationScreen::reset() {
-  sim_renderer->reset();
-}
+void SimulationScreen::reset() { sim_renderer->reset(); }
 
 bool SimulationScreen::handle_event(const SDL_Event* e) {
   if (sim_renderer->handle_event(e))

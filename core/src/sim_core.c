@@ -288,7 +288,8 @@ static void step_energy_accel(RiderState* r, const EnvState* env, double dt) {
 static int solve_speed_newton(double power, double* speed_io, double dt,
                               const RiderState* r, const EnvState* env,
                               StepDiagnostics* diag) {
-  double x = (*speed_io > 0.1) ? *speed_io : 0.1;
+  // double x = (*speed_io > 0.1) ? *speed_io : 0.1;
+  double x = *speed_io;
 
   for (int i = 0; i < 25; ++i) {
     double f = pow_speed(x, r->speed, dt, r, env) - power;

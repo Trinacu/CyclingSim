@@ -28,7 +28,7 @@ double effort_to_freq(double effort, double max_effort) {
 CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
 
 void CourseDrawable::render(const RenderContext* ctx) {
-  const std::vector<Vector2d>& world_pts = course->visual_points;
+  const std::vector<CoursePoint>& world_pts = course->points;
 
   if (world_pts.empty())
     return;
@@ -43,10 +43,10 @@ void CourseDrawable::render(const RenderContext* ctx) {
     return;
   }
   for (const auto& wp : world_pts) {
-    if (abs(wp.x() - camera->get_pos().x()) > 2000)
+    if (abs(wp.x - camera->get_pos().x()) > 2000)
       continue;
 
-    Vector2d sp = camera->world_to_screen(wp);
+    Vector2d sp = camera->world_to_screen(wp.vec2());
     screen_points.push_back(SDL_FPoint{(float)sp.x(), (float)sp.y()});
   }
 

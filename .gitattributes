@@ -13,12 +13,12 @@
 # ============================================================
 
 # Treat C and C++ code as programming languages for better diffs
-*.c     diff=cpp
-*.h     diff=cpp
-*.hpp   diff=cpp
-*.cpp   diff=cpp
-*.cc    diff=cpp
-*.cxx   diff=cpp
+*.c     diff=cpp text eol=lf
+*.h     diff=cpp text eol=lf
+*.hpp   diff=cpp text eol=lf
+*.cpp   diff=cpp text eol=lf
+*.cc    diff=cpp text eol=lf
+*.cxx   diff=cpp text eol=lf
 
 # Prevent Git from trying to UTF8-diff binary assets
 *.png   binary
@@ -53,3 +53,6 @@ vendor/** linguist-vendored
 # Ignore generated files (if you have any codegen in future)
 generated/** linguist-generated
 
+
+# Vendor files - don't touch
+/vendor/** -text

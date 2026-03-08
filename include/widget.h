@@ -3,7 +3,6 @@
 #define WIDGET_H
 
 #include "display.h"
-#include "rider.h"
 #include "sim.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -59,6 +58,27 @@ public:
 
   void update_texture(const RenderContext* ctx);
   void render(const RenderContext* ctx) override;
+};
+
+class MinimapWidget : public Widget {
+  const Course* course;
+  SDL_Texture* profile_tex = nullptr; // baked once
+
+  int x, y, w, h; // screen rect
+  float pad = 4.f;
+
+  // computed once from visual_points
+  double world_x_min, world_x_max;
+  double world_y_min, world_y_max;
+
+public:
+  MinimapWidget(int x, int y, int w, int h, const Course* course);
+  ~MinimapWidget() { SDL_DestroyTexture(profile_tex); }
+  void render(const RenderContext* ctx) override;
+
+private:
+  void bake_profile(SDL_Renderer* r);
+  SDL_FPoint world_to_mini(double wx, double wy) const;
 };
 
 class Button : public Widget {
@@ -257,6 +277,8 @@ public:
 
   void render_plot_overlay(const RenderContext* ctx);
 };
+
+/* EDITABLE FIELDS */
 
 class BaseEditableField : public ValueField {
 public:

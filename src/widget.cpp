@@ -173,6 +173,83 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
   return tex;
 }
 
+/* MINIMAP */
+
+MinimapWidget::MinimapWidget(int x, int y, int w, int h, const Course* course)
+    : x(x), y(y), w(w), h(h), course(course) {
+  world_x_min = world_x_max = course->points[0].x;
+  world_y_min = world_y_max = course->points[0].y;
+
+  for (const auto& p : course->points) {
+    world_x_min = std::min(world_x_min, p.x);
+    world_x_max = std::max(world_x_max, p.x);
+    world_y_min = std::min(world_y_min, p.y);
+    world_y_max = std::max(world_y_max, p.y);
+  }
+
+  // prevent degenerate range on flat courses
+  if (world_y_max - world_y_min < 5.0) {
+    world_y_min -= 2.5;
+    world_y_max += 2.5;
+  }
+}
+
+void MinimapWidget::bake_profile(SDL_Renderer* r) {
+  profile_tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888,
+                                  SDL_TEXTUREACCESS_TARGET, w, h);
+  SDL_SetTextureBlendMode(profile_tex, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderTarget(r, profile_tex);
+  SDL_SetRenderDrawColor(r, 0, 0, 0, 0);
+  SDL_RenderClear(r);
+
+  // draw filled polygon below the line (optional, nicer look)
+  // ...
+
+  // draw the profile line
+  const auto& pts = course->points;
+  std::vector<SDL_FPoint> screen_pts;
+  for (auto& p : pts) {
+    screen_pts.push_back(world_to_mini(p.x, p.y));
+  }
+
+  SDL_SetRenderDrawColor(r, 180, 220, 255, 255);
+  SDL_RenderLines(r, screen_pts.data(), screen_pts.size());
+
+  SDL_SetRenderTarget(r, nullptr); // restore
+}
+
+SDL_FPoint MinimapWidget::world_to_mini(double wx, double wy) const {
+  float nx = (wx - world_x_min) / (world_x_max - world_x_min);
+  float ny = (wy - world_y_min) / (world_y_max - world_y_min);
+  return {
+      pad + nx * (w - 2 * pad),
+      (h - pad) - ny * (h - 2 * pad) // flip Y
+  };
+}
+
+void MinimapWidget::render(const RenderContext* ctx) {
+  if (!profile_tex)
+    bake_profile(ctx->renderer);
+
+  // background
+  SDL_SetRenderDrawColor(ctx->renderer, 20, 20, 20, 200);
+  SDL_FRect bg{(float)x, (float)y, (float)w, (float)h};
+  SDL_RenderFillRect(ctx->renderer, &bg);
+
+  SDL_FRect dst = bg;
+  SDL_RenderTexture(ctx->renderer, profile_tex, nullptr, &dst);
+
+  // rider dots — pos2d.y() is already altitude
+  // for (auto& [uid, snap] : ctx->curr_frame->riders) {
+  //     auto pt = world_to_mini(snap.pos2d.x(), snap.pos2d.y());
+  //     SDL_SetRenderDrawColor(ctx->renderer, 255, 80, 80, 255);
+  //     SDL_FRect dot{pt.x - 3, pt.y - 3, 6, 6};
+  //     SDL_RenderFillRect(ctx->renderer, &dot);
+  // }
+}
+
+/* UI elements */
+
 Button::Button(int x_, int y_, int w_, int h_, std::string label_,
                TTF_Font* font_, Callback cb)
     : x(x_), y(y_), w(w_), h(h_), label(std::move(label_)), font(font_),
