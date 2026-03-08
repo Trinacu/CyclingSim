@@ -12,7 +12,8 @@ RiderUid PhysicsEngine::add_rider(const RiderConfig cfg) {
   for (const auto& r0 : riders) {
     // could even raise here?
     if (r->get_id() == r0->get_id()) {
-      SDL_Log("Tried to add rider who is already in the list! %s",
+      SDL_Log("PhysicsEngine::add_rider: Tried to add rider who is already in "
+              "the list! %s",
               r->name.c_str());
       return -1;
     }
@@ -133,11 +134,22 @@ void Simulation::start_realtime() {
 }
 
 void Simulation::add_riders(const std::vector<RiderConfig>& configs) {
-  rider_id_to_uid.clear();
-
   for (const auto& cfg : configs) {
     assert(cfg.rider_id >= 0 && "RiderConfig must have a valid rider_id");
+
+    if (rider_id_to_uid.count(cfg.rider_id)) {
+      SDL_Log("Simulation::add_riders: rider_id %d already exists, skipping",
+              cfg.rider_id);
+      continue;
+    }
+
     RiderUid uid = engine.add_rider(cfg);
+    if (uid == -1) {
+      SDL_Log("Simulation::add_riders: engine rejected rider_id %d",
+              cfg.rider_id);
+      continue;
+    }
+
     rider_id_to_uid.emplace(cfg.rider_id, uid);
   }
 }

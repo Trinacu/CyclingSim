@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 /* ------------------------------
  * Internal helpers
@@ -111,6 +112,7 @@ void energy_update(EnergyState* e, double power, double dt) {
 
   // double s = sigmoid(wbal_frac, SIGMOID_K, SIGMOID_X0);
   double s = piecewise(wbal_frac, 0.2);
+  assert(s != -1.0 && "Piecewise was passed a threshold <= 0!");
 
   // offset by 1 so it scales from max_effort_base to 1
   // ftp is effort_limit when empty
