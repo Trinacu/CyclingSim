@@ -5,7 +5,6 @@
 
 #include "sim_core.h"
 
-#include "helpers.h"
 #include "snapshot.h"
 
 int Rider::global_id_counter = 0;

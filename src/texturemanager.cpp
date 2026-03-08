@@ -1,9 +1,8 @@
 #include "texturemanager.h"
+#include "SDL3/SDL_stdinc.h"
 #include "SDL3_ttf/SDL_ttf.h"
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
-#include <iostream>
-#include <unordered_map>
 
 // You must give TextureManager a valid SDL_Renderer* at construction time.
 // It keeps that renderer internally so it can turn surfaces → textures.
@@ -23,13 +22,13 @@ TextureManager::~TextureManager() {
 bool TextureManager::load_texture(const char* id, const char* file_path) {
   // If we've already loaded “id”, do nothing.
   if (texture_map.count(id)) {
+    SDL_Log("TextureManager: '%s' already loaded, ignoring reload request", id);
     return true;
   }
 
   SDL_Surface* surf = IMG_Load(file_path);
   if (!surf) {
-    std::cerr << "IMG_Load Error (" << file_path << "): " << SDL_GetError()
-              << "\n";
+    SDL_Log("IMG_Load Error (%s): %s", file_path, SDL_GetError());
     return false;
   }
 
@@ -37,8 +36,8 @@ bool TextureManager::load_texture(const char* id, const char* file_path) {
   SDL_DestroySurface(surf);
 
   if (!tex) {
-    std::cerr << "SDL_CreateTextureFromSurface Error (" << file_path
-              << "): " << SDL_GetError() << "\n";
+    SDL_Log("SDL_CreateTextureFromSurface Error (%s): %s", file_path,
+            SDL_GetError());
     return false;
   }
 
@@ -46,7 +45,7 @@ bool TextureManager::load_texture(const char* id, const char* file_path) {
   return true;
 }
 
-// Retrieve the texture pointer for a given id (returns nullptr if not found).
+// Retrieve the font
 TTF_Font* FontManager::get_font(const char* id) const {
   auto it = font_map.find(id);
   if (it == font_map.end())
@@ -61,7 +60,7 @@ bool TextureManager::query_texture(const char* id, float& outW,
   if (!tex)
     return false;
   if (0 != SDL_GetTextureSize(tex, &outW, &outH)) {
-    std::cerr << "SDL_QueryTexture Error: " << SDL_GetError() << "\n";
+    SDL_Log("SDL_QueryTexture Error %s", SDL_GetError());
     return false;
   }
   return true;
@@ -78,14 +77,17 @@ SDL_Texture* TextureManager::get_texture(const char* id) const {
 bool FontManager::load_font(const char* id, const char* file_path,
                             int font_size) {
   if (font_map.count(id)) {
+    SDL_Log("FontManager: '%s' already loaded, ignoring reload request", id);
     return true;
   }
 
   char* font_path = NULL;
+  // BUG TODO - fix this ".." hack because dir structure might change
   SDL_asprintf(&font_path, "%s/../%s", SDL_GetBasePath(), file_path);
   TTF_Font* font = TTF_OpenFont(font_path, font_size);
   if (!font) {
     SDL_Log("Couldn't load font: %s", SDL_GetError());
+    SDL_free(font_path);
     return false;
   }
   SDL_free(font_path);
@@ -95,10 +97,9 @@ bool FontManager::load_font(const char* id, const char* file_path,
 }
 
 FontManager::~FontManager() {
-  // Destroy all SDL_Texture* that we have loaded.
+  // Destroy all TTF_Font* that we have loaded.
   for (auto& kv : font_map) {
     if (kv.second) {
-      // free(kv.second);
       TTF_CloseFont(kv.second);
     }
   }

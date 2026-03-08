@@ -108,8 +108,9 @@ void Simulation::start_realtime() {
       try {
         step_fixed(dt);
       } catch (const std::exception& e) {
-        physics_error = true;
+        // write messagae before setting flag, due to race condition
         physics_error_message = e.what();
+        physics_error = true;
         running = false;
       }
       accumulator -= dt;
