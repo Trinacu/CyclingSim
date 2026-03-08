@@ -37,8 +37,7 @@ Team::Team(const char* name_) : name(name_) { id = 0; }
 
 Rider::Rider(RiderConfig config_)
     : config(config_), id(config_.rider_id), uid(global_id_counter++),
-      name(config_.name), ftp_base(config_.ftp_base), mass(config_.mass),
-      cda(config_.cda), bike(config_.bike), team(config_.team) {
+      name(config_.name), bike(config_.bike), team(config_.team) {
   RiderInitParams p{};
   p.ftp_base = config_.ftp_base;
   p.w_prime = config_.w_prime_base;
@@ -164,7 +163,7 @@ RiderSnapshot Rider::snapshot() const {
       .pos2d = this->_pos2d,
       .power = this->state.power,
       .effort = this->state.effort,
-      .max_effort = this->max_effort,
+      .max_effort = this->state.max_effort,
       .speed = this->state.speed,
       .km_h = this->get_speed() * 3.6,
       .heading = this->heading,

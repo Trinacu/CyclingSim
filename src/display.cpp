@@ -3,6 +3,7 @@
 #include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_render.h"
 #include "pch.hpp"
+#include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
 #include <SDL3/SDL.h>
@@ -70,23 +71,12 @@ void RiderDrawable::render(const RenderContext* ctx) {
   if (!cam)
     return;
 
-  const auto& prev = ctx->prev_frame->riders;
-  const auto& curr = ctx->curr_frame->riders;
+  for (const auto& [id, s1] : ctx->curr_frame->riders) {
+    Vector2d pos2d;
+    double slope, effort;
+    if (!resolve_view_data(ctx, id, pos2d, slope, effort))
+      continue;
 
-  // for (const auto& [id, snap] : *ctx->rider_snapshots) {
-  for (auto& [id, s1] : curr) {
-    // auto it0 = prev.find(id);
-    // if (it0 == prev.end())
-    //   continue; // new rider appeared
-    // const RiderSnapshot& s0 = it0->second;
-
-    Vector2d pos2d = ctx->view.rider_pos.at(id);
-    double slope = ctx->view.rider_slope.at(id);
-    double effort = ctx->view.rider_effort.at(id);
-
-    // ---------------------------
-    // Resolve visual model
-    // ---------------------------
     const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
 
     auto [it, inserted] = visuals.try_emplace(id);
@@ -98,146 +88,126 @@ void RiderDrawable::render(const RenderContext* ctx) {
       vis.wheel_angle = 0.0;
     }
 
-    // ---------------------------
-    // Camera & orientation
-    // ---------------------------
-    Vector2d front_ground_world = pos2d;
-    Vector2d front_ground_screen = cam->world_to_screen(front_ground_world);
-
-    double tilt_rad = std::atan(slope);
-    double tilt_deg = tilt_rad * 180.0 / M_PI;
-
-    // ---------------------------
-    // Rotate offsets in world space
-    // ---------------------------
-    Vector2d front_wheel_world =
-        front_ground_world + rotate(model.front_wheel_offset, tilt_rad);
-
-    Vector2d rear_wheel_world =
-        front_ground_world + rotate(model.rear_wheel_offset, tilt_rad);
-
-    Vector2d body_world =
-        front_ground_world + rotate(model.body_offset, tilt_rad);
-
-    // ---------------------------
-    // World → screen
-    // ---------------------------
-    Vector2d front_wheel_screen = cam->world_to_screen(front_wheel_world);
-
-    Vector2d rear_wheel_screen = cam->world_to_screen(rear_wheel_world);
-
-    Vector2d body_screen = cam->world_to_screen(body_world);
-
-    // ---------------------------
-    // Distance-based wheel rotation
-    // ---------------------------
+    // Wheel rotation from distance travelled
     if (std::isnan(vis.last_pos))
       vis.last_pos = pos2d.x();
-
-    double ds = pos2d.x() - vis.last_pos;
+    vis.wheel_angle += (pos2d.x() - vis.last_pos) / model.wheel_radius;
     vis.last_pos = pos2d.x();
 
-    vis.wheel_angle += ds / model.wheel_radius;
+    update_animation(vis, ctx->view.interp_sim_time, effort, s1.max_effort);
 
-    // ---------------------------
-    // Draw wheels
-    // ---------------------------
-    SDL_Texture* front_wheel_tex =
-        ctx->resources->get_textureManager()->get_texture("wheel_front");
-    SDL_Texture* rear_wheel_tex =
-        ctx->resources->get_textureManager()->get_texture("wheel_rear");
+    const RiderScreenGeom geom =
+        compute_screen_geom(*cam, pos2d, slope, model, vis.wheel_angle);
 
-    float wheel_screen_diameter = cam->get_scale() * 2.0 * model.wheel_radius;
-
-    SDL_FRect front_wheel_dst{
-        float(front_wheel_screen.x() - wheel_screen_diameter * 0.5),
-        float(front_wheel_screen.y() - wheel_screen_diameter * 0.5),
-        wheel_screen_diameter, wheel_screen_diameter};
-
-    SDL_FRect rear_wheel_dst{
-        float(rear_wheel_screen.x() - wheel_screen_diameter * 0.5),
-        float(rear_wheel_screen.y() - wheel_screen_diameter * 0.5),
-        wheel_screen_diameter, wheel_screen_diameter};
-
-    SDL_FPoint wheel_center{wheel_screen_diameter * 0.5f,
-                            wheel_screen_diameter * 0.5f};
-
-    double wheel_angle_deg = vis.wheel_angle * 180.0 / M_PI + tilt_deg;
-
-    // ---------------------------
-    // Draw rider / bike texture
-    // ---------------------------
-    SDL_Texture* rider_front_tex =
-        ctx->resources->get_textureManager()->get_texture("rider_front");
-    SDL_Texture* rider_back_tex =
-        ctx->resources->get_textureManager()->get_texture("rider_back");
-
-    // float rider_screen_size =
-    //     cam->get_scale() * model.wheelbase * 512.0f / 330.0f;
-
-    float wheel_radius_px = 112.5;
-
-    float scale_from_radius =
-        cam->get_scale() * model.wheel_radius / model.wheel_radius_px;
-
-    float rider_screen_size = scale_from_radius * 512.0f;
-
-    // texture-space anchor → screen pixels
-    float anchor_x = model.front_ground_point.x * rider_screen_size;
-    float anchor_y = model.front_ground_point.y * rider_screen_size;
-
-    SDL_FRect rider_dst{float(front_ground_screen.x() - anchor_x),
-                        float(front_ground_screen.y() - anchor_y),
-                        rider_screen_size, rider_screen_size};
-
-    SDL_FPoint rider_pivot{anchor_x, anchor_y};
-
-    double prev_sim_time = ctx->prev_frame->sim_time;
-    double curr_sim_time = ctx->curr_frame->sim_time;
-
-    if (std::isnan(vis.last_anim_sim_time))
-      vis.last_anim_sim_time = ctx->view.interp_sim_time;
-
-    double dt = ctx->view.interp_sim_time - vis.last_anim_sim_time;
-
-    if (dt > 0.0) {
-      double hz = effort_to_freq(effort, s1.max_effort);
-      vis.anim_phase = std::fmod(vis.anim_phase + hz * dt, 1.0);
-      vis.last_anim_sim_time = ctx->view.interp_sim_time;
-    }
-
-    constexpr int COLS = 6;
-    constexpr int ROWS = 4;
-    constexpr int TOTAL_FRAMES = COLS * ROWS;
-
-    int idx = static_cast<int>(vis.anim_phase * TOTAL_FRAMES);
-    idx = std::clamp(idx, 0, TOTAL_FRAMES - 1);
-
-    int row = idx / COLS;
-    int col = idx % COLS;
-
-    SDL_FRect src{static_cast<float>(col * 512), static_cast<float>(row * 512),
-                  512, 512};
-
-    // draw the back side first, because wheels appear on top of it
-    SDL_RenderTextureRotated(ctx->renderer, rider_back_tex, &src, &rider_dst,
-                             -tilt_deg, &rider_pivot, SDL_FLIP_NONE);
-
-    SDL_RenderTextureRotated(ctx->renderer, rear_wheel_tex, nullptr,
-                             &rear_wheel_dst, wheel_angle_deg, &wheel_center,
-                             SDL_FLIP_NONE);
-
-    SDL_RenderTextureRotated(ctx->renderer, front_wheel_tex, nullptr,
-                             &front_wheel_dst, wheel_angle_deg, &wheel_center,
-                             SDL_FLIP_NONE);
-
-    SDL_RenderTextureRotated(ctx->renderer, rider_front_tex, &src, &rider_dst,
-                             -tilt_deg, &rider_pivot, SDL_FLIP_NONE);
-
-    // show the anchor point
-    SDL_SetRenderDrawColor(ctx->renderer, 255, 0, 0, 255);
-    SDL_FRect anchor_rect = SDL_FRect{(float)front_ground_screen.x() - 2,
-                                      (float)front_ground_screen.y() - 2, 5, 5};
-    SDL_RenderRect(ctx->renderer, &anchor_rect);
+    draw_rider(ctx, model, vis, geom, *cam);
   }
+}
+
+bool RiderDrawable::resolve_view_data(const RenderContext* ctx, int id,
+                                      Vector2d& pos2d, double& slope,
+                                      double& effort) const {
+  auto pos_it = ctx->view.rider_pos.find(id);
+  auto slope_it = ctx->view.rider_slope.find(id);
+  auto effort_it = ctx->view.rider_effort.find(id);
+
+  if (pos_it == ctx->view.rider_pos.end() ||
+      slope_it == ctx->view.rider_slope.end() ||
+      effort_it == ctx->view.rider_effort.end()) {
+    return false;
+  }
+
+  pos2d = pos_it->second;
+  slope = slope_it->second;
+  effort = effort_it->second;
+  return true;
+}
+
+RiderDrawable::RiderScreenGeom
+RiderDrawable::compute_screen_geom(const Camera& cam, const Vector2d& pos2d,
+                                   double slope, const RiderVisualModel& model,
+                                   double wheel_angle) const {
+
+  const double tilt_rad = std::atan(slope);
+
+  Vector2d front_wheel_world =
+      pos2d + rotate(model.front_wheel_offset, tilt_rad);
+  Vector2d rear_wheel_world = pos2d + rotate(model.rear_wheel_offset, tilt_rad);
+
+  return RiderScreenGeom{
+      .front_ground_screen = cam.world_to_screen(pos2d),
+      .front_wheel_screen = cam.world_to_screen(front_wheel_world),
+      .rear_wheel_screen = cam.world_to_screen(rear_wheel_world),
+      .tilt_deg = tilt_rad * 180.0 / M_PI,
+      .wheel_angle_deg = wheel_angle * 180.0 / M_PI + (tilt_rad * 180.0 / M_PI),
+  };
+}
+
+void RiderDrawable::update_animation(RiderVisualState& vis,
+                                     double interp_sim_time, double effort,
+                                     double max_effort) {
+  if (std::isnan(vis.last_anim_sim_time))
+    vis.last_anim_sim_time = interp_sim_time;
+
+  const double dt = interp_sim_time - vis.last_anim_sim_time;
+  if (dt > 0.0) {
+    const double hz = effort_to_freq(effort, max_effort);
+    vis.anim_phase = std::fmod(vis.anim_phase + hz * dt, 1.0);
+    vis.last_anim_sim_time = interp_sim_time;
+  }
+}
+
+void RiderDrawable::draw_rider(const RenderContext* ctx,
+                               const RiderVisualModel& model,
+                               const RiderVisualState& vis,
+                               const RiderScreenGeom& geom,
+                               const Camera& cam) const {
+  auto* tex_mgr = ctx->resources->get_textureManager();
+
+  // --- Sprite sheet frame ---
+  constexpr int COLS = 6, ROWS = 4, TOTAL_FRAMES = COLS * ROWS;
+  const int idx = std::clamp(static_cast<int>(vis.anim_phase * TOTAL_FRAMES), 0,
+                             TOTAL_FRAMES - 1);
+  const SDL_FRect src{static_cast<float>((idx % COLS) * 512),
+                      static_cast<float>((idx / COLS) * 512), 512.f, 512.f};
+
+  // --- Rider dst rect ---
+  const float scale =
+      cam.get_scale() * model.wheel_radius / model.wheel_radius_px;
+  const float size_px = scale * 512.f;
+  const float ax = model.front_ground_point.x * size_px;
+  const float ay = model.front_ground_point.y * size_px;
+
+  const SDL_FRect rider_dst{float(geom.front_ground_screen.x()) - ax,
+                            float(geom.front_ground_screen.y()) - ay, size_px,
+                            size_px};
+  const SDL_FPoint rider_pivot{ax, ay};
+
+  // --- Wheel dst rects ---
+  const float wheel_diam = cam.get_scale() * 2.f * model.wheel_radius;
+  const SDL_FPoint wheel_center{wheel_diam * .5f, wheel_diam * .5f};
+
+  auto wheel_rect = [&](Vector2d screen_pos) -> SDL_FRect {
+    return {float(screen_pos.x()) - wheel_diam * .5f,
+            float(screen_pos.y()) - wheel_diam * .5f, wheel_diam, wheel_diam};
+  };
+
+  SDL_FRect front_wheel_dst = wheel_rect(geom.front_wheel_screen);
+  SDL_FRect rear_wheel_dst = wheel_rect(geom.rear_wheel_screen);
+
+  // --- Draw: back layer → wheels → front layer ---
+  SDL_RenderTextureRotated(ctx->renderer, tex_mgr->get_texture("rider_back"),
+                           &src, &rider_dst, -geom.tilt_deg, &rider_pivot,
+                           SDL_FLIP_NONE);
+
+  SDL_RenderTextureRotated(ctx->renderer, tex_mgr->get_texture("wheel_rear"),
+                           nullptr, &rear_wheel_dst, geom.wheel_angle_deg,
+                           &wheel_center, SDL_FLIP_NONE);
+
+  SDL_RenderTextureRotated(ctx->renderer, tex_mgr->get_texture("wheel_front"),
+                           nullptr, &front_wheel_dst, geom.wheel_angle_deg,
+                           &wheel_center, SDL_FLIP_NONE);
+
+  SDL_RenderTextureRotated(ctx->renderer, tex_mgr->get_texture("rider_front"),
+                           &src, &rider_dst, -geom.tilt_deg, &rider_pivot,
+                           SDL_FLIP_NONE);
 }

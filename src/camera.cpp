@@ -25,8 +25,6 @@ void Camera::update(const InterpolatedFrameView& view) {
     return;
 
   Vector2d target_pos = it->second;
-  // Smooth interpolation toward target
-  pos = pos + follow_strength * (target_pos - pos);
   pos = target_pos;
 }
 

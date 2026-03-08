@@ -20,9 +20,6 @@ public:
 
   // Called once at end (optional)
   virtual void on_finish(const Simulation& sim) {}
-
-  // Return true to stop simulation early
-  virtual bool should_stop(const Simulation& sim) const { return false; }
 };
 
 class OfflineSimulationRunner {

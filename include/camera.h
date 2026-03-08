@@ -26,7 +26,7 @@ public:
   void pan(double dx, double dy); // screen space delta
   void zoom(double amount);       // amount > 0 zooms in
                                   //
-  double get_scale() { return scale; }
+  double get_scale() const { return scale; }
 
   // Direct set (used rarely)
   void set_center(Vector2d p) { pos = p; }

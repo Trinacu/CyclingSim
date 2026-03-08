@@ -64,27 +64,9 @@ private:
   static RiderUid global_id_counter; // class var
   const RiderUid uid;                // instance unique ID
   const RiderId id;                  // stable config ID - UI must not use uid
-  double ftp_base;
-  double effort;
-  double max_effort;
-  double cda;
-  double cda_factor;
-  double effective_cda;
-  double mass;
-  double total_mass;
-  double lateral_speed;
 
-  double heading; // can we remove this?
   Vector2d _pos2d;
-  double v_hw;
-  double power;
-
-  double drag_coeff;
-  double roll_coeff;
-  double inertia_coeff;
-  double f_grav;
-  double slope;
-  double mass_ir;
+  double heading;
 
   double timestep;
 

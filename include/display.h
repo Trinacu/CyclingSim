@@ -72,6 +72,30 @@ public:
   RenderLayer layer() const override { return RenderLayer::Riders; }
 
   void render(const RenderContext* ctx) override;
+
+private:
+  struct RiderScreenGeom {
+    Vector2d front_ground_screen;
+    Vector2d front_wheel_screen;
+    Vector2d rear_wheel_screen;
+    double tilt_deg;
+    double wheel_angle_deg;
+  };
+
+  bool resolve_view_data(const RenderContext* ctx, int id, Vector2d& pos2d,
+                         double& slope, double& effort) const;
+
+  RiderScreenGeom compute_screen_geom(const Camera& cam, const Vector2d& pos2d,
+                                      double slope,
+                                      const RiderVisualModel& model,
+                                      double wheel_angle) const;
+
+  void update_animation(RiderVisualState& vis, double interp_sim_time,
+                        double effort, double max_effort);
+
+  void draw_rider(const RenderContext* ctx, const RiderVisualModel& model,
+                  const RiderVisualState& vis, const RiderScreenGeom& geom,
+                  const Camera& cam) const;
 };
 
 #endif

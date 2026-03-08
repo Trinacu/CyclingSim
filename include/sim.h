@@ -81,7 +81,7 @@ private:
 
   double interp_alpha = 0.0;
 
-  float dt = 0.01; // 100 Hz physics
+  double dt = 0.01; // 100 Hz physics
 
   std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
   std::unordered_map<RiderId, RiderUid> rider_id_to_uid;

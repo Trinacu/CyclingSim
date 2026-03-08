@@ -102,6 +102,7 @@ typedef struct {
   /* control */
   double ftp;
   double target_effort;
+  double max_effort;
   double effort;
   double power;
 

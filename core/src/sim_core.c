@@ -160,6 +160,7 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
   r->mass_rider = params->mass_rider;
   r->cda_rider = params->cda;
   r->ftp = params->ftp_base;
+  r->max_effort = params->max_effort;
 
   r->max_drive_force = params->max_drive_force;
 
