@@ -62,62 +62,38 @@ Vector2d rotate(Vec2 p, double a) {
 }
 
 void RiderDrawable::render(const RenderContext* ctx) {
-  if (ctx->curr_frame->riders.empty() || ctx->prev_frame->riders.empty())
+  if (ctx->riders.empty())
     return;
 
   auto cam = ctx->camera_weak.lock();
   if (!cam)
     return;
 
-  for (const auto& [id, s1] : ctx->curr_frame->riders) {
-    Vector2d pos2d;
-    double slope, effort;
-    if (!resolve_view_data(ctx, id, pos2d, slope, effort))
-      continue;
-
-    const RiderVisualModel& model = resolve_visual_model(s1.visual_type);
+  for (const auto& [id, rs] : ctx->riders) {
+    const RiderVisualModel& model = resolve_visual_model(rs.visual_type);
 
     auto [it, inserted] = visuals.try_emplace(id);
     RiderVisualState& vis = it->second;
 
     if (inserted) {
-      vis.last_anim_sim_time = ctx->view.interp_sim_time;
+      vis.last_anim_sim_time = ctx->interp_sim_time;
       vis.anim_phase = 0.0;
       vis.wheel_angle = 0.0;
     }
 
     // Wheel rotation from distance travelled
     if (std::isnan(vis.last_pos))
-      vis.last_pos = pos2d.x();
-    vis.wheel_angle += (pos2d.x() - vis.last_pos) / model.wheel_radius;
-    vis.last_pos = pos2d.x();
+      vis.last_pos = rs.pos2d.x();
+    vis.wheel_angle += (rs.pos2d.x() - vis.last_pos) / model.wheel_radius;
+    vis.last_pos = rs.pos2d.x();
 
-    update_animation(vis, ctx->view.interp_sim_time, effort, s1.max_effort);
+    update_animation(vis, ctx->interp_sim_time, rs.effort, rs.max_effort);
 
     const RiderScreenGeom geom =
-        compute_screen_geom(*cam, pos2d, slope, model, vis.wheel_angle);
+        compute_screen_geom(*cam, rs.pos2d, rs.slope, model, vis.wheel_angle);
 
     draw_rider(ctx, model, vis, geom, *cam);
   }
-}
-
-bool RiderDrawable::resolve_view_data(const RenderContext* ctx, int id,
-                                      Vector2d& pos2d, double& slope,
-                                      double& effort) const {
-  auto pos_it = ctx->view.rider_pos.find(id);
-  auto slope_it = ctx->view.rider_slope.find(id);
-  auto effort_it = ctx->view.rider_effort.find(id);
-
-  if (pos_it == ctx->view.rider_pos.end() ||
-      slope_it == ctx->view.rider_slope.end() ||
-      effort_it == ctx->view.rider_effort.end()) {
-    return false;
-  }
-
-  pos2d = pos_it->second;
-  slope = slope_it->second;
-  effort = effort_it->second;
-  return true;
 }
 
 RiderDrawable::RiderScreenGeom

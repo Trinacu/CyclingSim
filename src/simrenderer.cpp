@@ -2,6 +2,7 @@
 #include "camera.h"
 #include "display.h"
 #include "sim.h"
+#include "snapshot.h"
 #include <memory>
 
 SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
@@ -40,41 +41,50 @@ void SimulationRenderer::render_frame() {
   ctx.resources = resources;
   ctx.camera_weak = camera;
   ctx.sim_time = frame_curr.sim_time;
+  ctx.time_factor = frame_curr.time_factor;
 
-  ctx.prev_frame = &frame_prev;
-  ctx.curr_frame = &frame_curr;
+  // ctx.prev_frame = &frame_prev;
+  // ctx.curr_frame = &frame_curr;
 
   double now = SDL_GetTicks() / 1000.0;
   const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
-
-  // time since "curr" was published (real seconds)
   const double real_since_curr = now - frame_curr.real_time;
 
   double alpha = 1.0;
-  if (sim_dt > 0.0) {
+  if (sim_dt > 0.0)
     alpha = (real_since_curr * frame_curr.time_factor) / sim_dt;
-  }
   ctx.alpha = std::clamp(alpha, 0.0, 1.0);
 
-  InterpolatedFrameView view;
-  view.alpha = alpha;
-  view.interp_sim_time =
-      frame_prev.sim_time * (1.0 - alpha) + frame_curr.sim_time * alpha;
+  ctx.interp_sim_time =
+      frame_prev.sim_time * (1.0 - ctx.alpha) + frame_curr.sim_time * ctx.alpha;
 
   for (const auto& [id, s1] : frame_curr.riders) {
     auto it0 = frame_prev.riders.find(id);
     if (it0 == frame_prev.riders.end())
       continue;
-
     const RiderSnapshot& s0 = it0->second;
 
-    view.rider_pos[id] = s0.pos2d * (1.0 - alpha) + s1.pos2d * alpha;
-    view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
-    view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
-  }
-  ctx.view = std::move(view);
+    RiderRenderState rs;
+    // Interpolated
+    rs.pos2d = s0.pos2d * (1.0 - ctx.alpha) + s1.pos2d * ctx.alpha;
+    rs.slope = s0.slope * (1.0 - ctx.alpha) + s1.slope * ctx.alpha;
+    rs.effort = s0.effort * (1.0 - ctx.alpha) + s1.effort * ctx.alpha;
 
-  camera->update(ctx.view);
+    // Non-interpolated from curr_frame
+    rs.id = s1.id;
+    rs.name = s1.name;
+    rs.max_effort = s1.max_effort;
+    rs.power = s1.power;
+    rs.speed = s1.speed;
+    rs.pos = s1.pos;
+    rs.visual_type = s1.visual_type;
+    rs.team_id = s1.team_id;
+    rs.power_breakdown = s1.power_breakdown;
+
+    ctx.riders[id] = std::move(rs);
+  }
+
+  camera->update(ctx.riders);
 
   // 1. Draw world-space drawables
   for (auto& d : world_drawables) {

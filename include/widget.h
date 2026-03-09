@@ -5,6 +5,7 @@
 #include "display.h"
 #include "sim.h"
 #include "simrenderer.h"
+#include "snapshot.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
@@ -183,7 +184,7 @@ public:
 
 class RiderValueField : public ValueField {
 public:
-  using DataGetter = std::function<std::string(const RiderSnapshot&)>;
+  using DataGetter = std::function<std::string(const RiderRenderState&)>;
 
 private:
   size_t target_rider_id;
@@ -194,7 +195,7 @@ public:
                   DataGetter getter);
 
   void render_with_snapshot(const RenderContext* ctx,
-                            const RiderSnapshot* snap);
+                            const RiderRenderState* snap);
 };
 
 class TimeControlPanel : public Widget {
@@ -241,7 +242,7 @@ public:
   ~MetricRow();
 
   // void render(const RenderContext* ctx) override;
-  void render_for_rider(const RenderContext* ctx, const RiderSnapshot* snap);
+  void render_for_rider(const RenderContext* ctx, const RiderRenderState* snap);
 
   // Helper to calculate total height for the panel
   int get_height() const { return 30; } // simplified

@@ -4,6 +4,7 @@
 #include "course.h"
 #include "snapshot.h"
 #include <optional>
+#include <unordered_map>
 
 class Camera {
 public:
@@ -20,7 +21,7 @@ public:
   bool has_target() const { return target_id.has_value(); }
 
   // Update camera position each frame
-  void update(const InterpolatedFrameView& view);
+  void update(const std::unordered_map<int, RiderRenderState>& riders);
 
   // --- Manual controls ---
   void pan(double dx, double dy); // screen space delta

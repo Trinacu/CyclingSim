@@ -10,26 +10,19 @@
 #include <memory>
 
 #include <SDL3/SDL.h>
+#include <unordered_map>
 
 struct RenderContext {
   SDL_Renderer* renderer;
   std::weak_ptr<Camera> camera_weak;
   ResourceProvider* resources;
-  double sim_time;
 
-  const FrameSnapshot* prev_frame = nullptr;
-  const FrameSnapshot* curr_frame = nullptr;
-
-  InterpolatedFrameView view;
-
-  double alpha = 1.0; // 0 ... 1
-
-  const RiderSnapshot* get_snapshot(const size_t id) const {
-    auto it = curr_frame->riders.find(id);
-    if (it != curr_frame->riders.end())
-      return &it->second;
-    return nullptr;
-  }
+  double sim_time = 0.0;
+  double time_factor = 1.0;
+  double alpha = 1.0;
+  double interp_sim_time = 0.0; // for animation sim timing
+                                //
+  std::unordered_map<int, RiderRenderState> riders;
 };
 
 enum class RenderLayer : int { Course = 0, Riders = 1, UI = 2, COUNT };
@@ -81,9 +74,6 @@ private:
     double tilt_deg;
     double wheel_angle_deg;
   };
-
-  bool resolve_view_data(const RenderContext* ctx, int id, Vector2d& pos2d,
-                         double& slope, double& effort) const;
 
   RiderScreenGeom compute_screen_geom(const Camera& cam, const Vector2d& pos2d,
                                       double slope,

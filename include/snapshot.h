@@ -1,6 +1,7 @@
 #ifndef SNAPSHOT_H
 #define SNAPSHOT_H
 
+#include "Eigen/Core"
 #include "mytypes.h"
 #include "pch.hpp"
 #include "visualmodel.h"
@@ -19,6 +20,24 @@ enum class PowerTerm : int {
 
 static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
                                                "Grav", "Inert", "Drive"};
+
+struct RiderRenderState {
+  // interpolated
+  Vector2d pos2d;
+  double slope;
+  double effort;
+
+  // curr_frame values - no lerp
+  RiderId id;
+  std::string name;
+  double max_effort;
+  double power;
+  double speed;
+  double pos;
+  BikeType visual_type;
+  int team_id;
+  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
+};
 
 struct RiderSnapshot {
   const RiderUid uid;
@@ -50,15 +69,6 @@ struct FrameSnapshot {
   double real_time = 0.0;   // seconds (steady clock / SDL time) when captured
 
   SnapshotMap riders;
-};
-
-struct InterpolatedFrameView {
-  double interp_sim_time; // optional, but useful
-  double alpha;
-
-  std::unordered_map<int, Vector2d> rider_pos;
-  std::unordered_map<int, double> rider_slope;
-  std::unordered_map<int, double> rider_effort;
 };
 
 #endif

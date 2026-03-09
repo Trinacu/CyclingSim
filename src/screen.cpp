@@ -77,22 +77,22 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // 3. Add Rows (Using Lambdas for custom logic)
 
   // SPEED
-  panel->add_row("Speed", "km/h", [](const RiderSnapshot& s) {
-    return format_number(s.km_h, 2);
+  panel->add_row("Speed", "km/h", [](const RiderRenderState& s) {
+    return format_number(3.6 * s.speed, 2);
   });
 
   // POWER
-  panel->add_row("Power", "W", [](const RiderSnapshot& s) {
+  panel->add_row("Power", "W", [](const RiderRenderState& s) {
     return format_number(s.power, 0); // Precision 0 for watts
   });
 
   // DISTANCE
-  panel->add_row("Dist", "km", [](const RiderSnapshot& s) {
+  panel->add_row("Dist", "km", [](const RiderRenderState& s) {
     return format_number(s.pos / 1000.0, 3);
   });
 
   // GRADIENT (Custom logic inside lambda!)
-  panel->add_row("Grad", "%", [](const RiderSnapshot& s) {
+  panel->add_row("Grad", "%", [](const RiderRenderState& s) {
     // Assuming you add 'slope' to RiderSnapshot
     // return format_number(s.slope * 100.0);
     return format_number(s.slope * 100.0);

@@ -13,7 +13,6 @@
 #include "display.h"
 #include "imgui.h"
 #include "implot.h"
-#include "sim.h"
 #include "simrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -585,7 +584,7 @@ RiderValueField::RiderValueField(int x, int y, int w, int h, TTF_Font* font,
 }
 
 void RiderValueField::render_with_snapshot(const RenderContext* ctx,
-                                           const RiderSnapshot* snap) {
+                                           const RiderRenderState* snap) {
   if (!snap)
     return;
 
@@ -623,7 +622,7 @@ void MetricRow::set_position(int new_x, int new_y) {
 }
 
 void MetricRow::render_for_rider(const RenderContext* ctx,
-                                 const RiderSnapshot* snap) {
+                                 const RiderRenderState* snap) {
   // 1. Render static labels once
   if (!label_tex) {
     SDL_Surface* s = TTF_RenderText_Blended(font, label_txt.c_str(), 0,
@@ -691,34 +690,26 @@ void RiderPanel::add_row(std::string label, std::string unit,
 }
 
 void RiderPanel::render(const RenderContext* ctx) {
-  if (!snapshot_source || id < 0)
+  if (id < 0)
     return;
 
-  const FrameSnapshot* frame = snapshot_source->latest_snapshot();
-  if (!frame)
+  auto it = ctx->riders.find(id);
+  if (it == ctx->riders.end())
     return;
 
-  auto iter = frame->riders.find(id);
+  const RiderRenderState& rs = it->second;
 
-  if (iter == frame->riders.end())
-    return;
-
-  const RiderSnapshot* snap = &iter->second;
-
-  if (!snap)
-    return;
-
-  std::string title_text = snap->name;
-
-  if (title != title_text) {
-    title = title_text;
+  if (title != rs.name) {
+    title = rs.name;
     if (title_tex)
       SDL_DestroyTexture(title_tex);
+
     SDL_Surface* s =
         TTF_RenderText_Blended(font, title.c_str(), 0, {255, 255, 255});
     title_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
     SDL_DestroySurface(s);
   }
+
   // Draw Title
   if (!title_tex) {
     SDL_Surface* s = TTF_RenderText_Blended(font, title.c_str(), 0,
@@ -736,27 +727,19 @@ void RiderPanel::render(const RenderContext* ctx) {
   // ID? Proper way: Refactor ValueField::render to take a snapshot, not look
   // it up itself. Draw all rows
   for (auto& row : rows) {
-    row->render_for_rider(ctx, snap);
+    row->render_for_rider(ctx, &rs);
   }
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {
-  if (!snapshot_source || id < 0)
+  if (id < 0)
     return;
 
-  const FrameSnapshot* frame = snapshot_source->latest_snapshot();
-  if (!frame)
+  auto it = ctx->riders.find(id);
+  if (it == ctx->riders.end())
     return;
 
-  auto iter = frame->riders.find(id);
-
-  if (iter == frame->riders.end())
-    return;
-
-  const RiderSnapshot* snap = &iter->second;
-
-  if (!snap)
-    return;
+  const RiderRenderState& rs = it->second;
 
   // compute where the plot goes based on panel position
   ImVec2 pos((float)x, (float)y + 140);
@@ -772,7 +755,7 @@ void RiderPanel::render_imgui(const RenderContext* ctx) {
 
   static double data1[static_cast<size_t>(PowerTerm::COUNT)];
   for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
-    data1[i] = static_cast<float>(snap->power_breakdown[i]);
+    data1[i] = static_cast<float>(rs.power_breakdown[i]);
   }
   // clamp so we don't show negative inertia term
   // thought ideally we'd only show the output of the other terms

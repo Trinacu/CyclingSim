@@ -15,17 +15,15 @@ void Camera::set_target_id(int rider_id) { target_id = rider_id; }
 
 void Camera::clear_target() { target_id.reset(); }
 
-void Camera::update(const InterpolatedFrameView& view) {
+void Camera::update(const std::unordered_map<int, RiderRenderState>& riders) {
   if (!target_id)
     return;
-  int id = *target_id;
 
-  auto it = view.rider_pos.find(id);
-  if (it == view.rider_pos.end())
+  auto it = riders.find(*target_id);
+  if (it == riders.end())
     return;
 
-  Vector2d target_pos = it->second;
-  pos = target_pos;
+  pos = it->second.pos2d;
 }
 
 // ------------------------
