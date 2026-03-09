@@ -4,6 +4,7 @@
 
 #include "display.h"
 #include "sim.h"
+#include "simrenderer.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
@@ -260,11 +261,11 @@ private:
 
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
-  const IRiderDataSource* data_source;
+  const ISnapshotSource* snapshot_source;
 
 public:
   RiderPanel(int x, int y, TTF_Font* font,
-             const IRiderDataSource* data_source_);
+             const ISnapshotSource* snapshot_source_);
   ~RiderPanel();
 
   void set_rider_id(RiderId id_);

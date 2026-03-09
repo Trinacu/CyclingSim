@@ -27,43 +27,31 @@ void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
 }
 
 void SimulationRenderer::build_and_swap_snapshots() {
-  // Build into frame_back (no lock needed if frame_back is not shared)
-  frame_back.riders.clear();
+  frame_back = {};
 
   // sim->fill_snapshots(frame_back.riders); // however you currently do it
   // could extract this into a function (gpt says it lives inside Simulation)
   PhysicsEngine* engine = sim->get_engine();
   {
-    // protects only reading rider data
     std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
 
-    const auto& riders = engine->get_riders();
-    for (const auto& r : riders) {
-      if (!r.get())
-        continue;
-      frame_back.riders.emplace(r->get_uid(), r->snapshot());
-    }
-  }
+    for (const auto& [id, r] : engine->get_riders())
+      frame_back.riders.emplace(id, r->snapshot());
 
-  frame_back.sim_time = sim->get_sim_seconds();
-  frame_back.sim_dt = sim->get_dt();
-  frame_back.time_factor = sim->get_time_factor(); // or wherever it lives
+    frame_back.sim_time = sim->get_sim_seconds();
+    frame_back.sim_dt = sim->get_dt();
+    frame_back.time_factor = sim->get_time_factor(); // or wherever it lives
+  } // phys_lock rleasd. frame_back is now local snapshot safe to read w/o lock
+
   frame_back.real_time = SDL_GetTicks() / 1000.0;
 
   // Only publish if sim advanced
   {
     std::scoped_lock lock(snapshot_swap_mtx);
 
-    if (!frames_initialized) {
-      frame_curr = frame_back;
-      frame_prev = frame_back; // identical on purpose
-      frames_initialized = true;
-      return;
-    }
-
-    if (frame_back.sim_time <= frame_curr.sim_time) {
+    if (frame_back.sim_time <= frame_curr.sim_time)
       return; // no new sim step -> keep prev/curr stable for interpolation
-    }
+
     frame_prev = std::move(frame_curr);
     frame_curr = std::move(frame_back);
   }
@@ -144,7 +132,7 @@ void SimulationRenderer::render_frame() {
 
 // TODO - make this safe - there is a suggestion in "Code review feedback" chat
 // in chatGPT from 26.11.2025
-int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
+RiderId SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   if (!camera)
     return -1;
 
@@ -152,10 +140,10 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
 
   double min_dist = 20.0;
   bool found = false;
-  RiderUid found_uid = 0;
+  RiderUid found_id = 0;
 
   std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
-  for (auto& [uid, snap] : frame_curr.riders) {
+  for (auto& [id, snap] : frame_curr.riders) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
     double dist = std::sqrt(dx * dx + dy * dy);
@@ -163,14 +151,14 @@ int SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
     // you might wanna weight X more strictly if they are packed tight
     if (dist < min_dist) {
       min_dist = dist;
-      found_uid = uid;
+      found_id = id;
       found = true;
     }
   }
 
   if (found) {
-    SDL_Log("Selected rider ID: %lu", (unsigned long)found_uid);
-    return found_uid;
+    SDL_Log("Selected rider ID: %d", found_id);
+    return found_id;
   }
   return -1;
 }

@@ -15,9 +15,9 @@ public:
   Vector2d screen_to_world(Vector2d screen) const;
 
   // --- Follow logic ---
-  void set_target_id(int rider_uid);
+  void set_target_id(int rider_id);
   void clear_target();
-  bool has_target() const { return target_uid.has_value(); }
+  bool has_target() const { return target_id.has_value(); }
 
   // Update camera position each frame
   void update(const InterpolatedFrameView& view);
@@ -43,7 +43,7 @@ private:
   double vert_scale; //  additional vertical scaling
 
   Vector2d pos; // world coordinate camera center
-  std::optional<int> target_uid;
+  std::optional<RiderId> target_id;
 
   // smooth follow parameters
   double follow_strength = 0.4; // 0=no follow, 1=teleport

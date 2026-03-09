@@ -43,8 +43,9 @@ struct RiderSnapshot {
 using SnapshotMap = std::unordered_map<int, RiderSnapshot>;
 
 struct FrameSnapshot {
-  double sim_time = 0.0;    // seconds (sim clock)
-  double sim_dt = 0.0;      // seconds per physics step (constant)
+  double sim_time =
+      -1.0;            // -1 means unpopulated, makes sure we publish at time 0
+  double sim_dt = 0.0; // seconds per physics step (constant)
   double time_factor = 1.0; // sim_speed / real_speed
   double real_time = 0.0;   // seconds (steady clock / SDL time) when captured
 

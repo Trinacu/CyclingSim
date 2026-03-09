@@ -3,32 +3,28 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <unordered_map>
 
 PhysicsEngine::PhysicsEngine(const Course* c) : course(c) {}
 
-RiderUid PhysicsEngine::add_rider(const RiderConfig cfg) {
+bool PhysicsEngine::add_rider(const RiderConfig cfg) {
   auto r = std::make_unique<Rider>(cfg);
 
-  for (const auto& r0 : riders) {
-    // could even raise here?
-    if (r->get_id() == r0->get_id()) {
-      SDL_Log("PhysicsEngine::add_rider: Tried to add rider who is already in "
-              "the list! %s",
-              r->name.c_str());
-      return -1;
-    }
+  // could even raise here?
+  if (riders.count(r->get_id()) > 0) {
+    SDL_Log("PhysicsEngine::add_rider: Tried to add rider who is already in "
+            "the list! %s",
+            r->name.c_str());
+    return false;
   }
-
   std::lock_guard<std::mutex> lock(frame_mtx);
   r->set_course(course);
-  RiderUid uid = r->get_uid();
-  riders.push_back(std::move(r));
-
-  return uid;
+  riders.emplace(cfg.rider_id, std::move(r));
+  return true;
 }
 
 void PhysicsEngine::update(double dt) {
-  for (const auto& r : riders) {
+  for (const auto& [id, r] : riders) {
     r->update(dt);
   }
 }
@@ -38,41 +34,29 @@ void PhysicsEngine::update(double dt) {
 // state.
 std::mutex* PhysicsEngine::get_frame_mutex() const { return &frame_mtx; }
 
-const std::vector<std::unique_ptr<Rider>>& PhysicsEngine::get_riders() const {
+const std::unordered_map<RiderId, std::unique_ptr<Rider>>&
+PhysicsEngine::get_riders() const {
   return riders;
 }
 
 // this is (now) only used to set camera to first rider... kinda useless if
 // fixed
 const Rider* PhysicsEngine::get_rider_by_id(RiderId id) const {
-  for (auto& r : riders) {
-    if (r->get_id() == id) {
-      return r.get();
-    }
+  auto it = riders.find(id);
+  if (it == riders.end()) {
+    SDL_Log("Engine::get_rider_by_id: id %d not found", id);
+    return nullptr;
   }
-  SDL_Log("id %d did not match any rider!", id);
-  return nullptr;
+  return it->second.get();
 }
 
-// const Rider* PhysicsEngine::get_rider_by_uid(RiderUid uid) const {
-//   for (auto& r : get_riders()) {
-//     SDL_Log("%d", r->get_uid());
-//     if (r->get_uid() == uid)
-//       return r.get();
-//     // TODO - do we just raise error here?
-//   }
-//   SDL_Log("uid %d did not match any rider!", uid);
-//   return nullptr;
-// }
-
-void PhysicsEngine::set_rider_effort(int uid, double effort) {
-  for (auto& r : riders) {
-    if (r->get_uid() == uid) {
-      r->set_effort(effort);
-      return;
-    }
+void PhysicsEngine::set_rider_effort(int id, double effort) {
+  auto it = riders.find(id);
+  if (it == riders.end()) {
+    SDL_Log("Engine::set_rider_effort: id %d not found", id);
+    return;
   }
-  SDL_Log("Engine::set_rider_effort: uid %d not found", uid);
+  it->second->set_effort(effort);
 }
 
 // SIMULATION
@@ -135,22 +119,9 @@ void Simulation::start_realtime() {
 
 void Simulation::add_riders(const std::vector<RiderConfig>& configs) {
   for (const auto& cfg : configs) {
-    assert(cfg.rider_id >= 0 && "RiderConfig must have a valid rider_id");
-
-    if (rider_id_to_uid.count(cfg.rider_id)) {
-      SDL_Log("Simulation::add_riders: rider_id %d already exists, skipping",
-              cfg.rider_id);
-      continue;
-    }
-
-    RiderUid uid = engine.add_rider(cfg);
-    if (uid == -1) {
-      SDL_Log("Simulation::add_riders: engine rejected rider_id %d",
-              cfg.rider_id);
-      continue;
-    }
-
-    rider_id_to_uid.emplace(cfg.rider_id, uid);
+    assert(cfg.rider_id >= 0);
+    if (!engine.add_rider(cfg))
+      SDL_Log("add_riders: engine rejected rider_id %d", cfg.rider_id);
   }
 }
 
@@ -159,7 +130,7 @@ void Simulation::set_effort_schedule(int rider_id,
   effort_schedules[rider_id] = std::move(schedule);
 }
 
-void Simulation::clear_effort_schedule(int rider_id) {
+void Simulation::clear_effort_schedule(RiderId rider_id) {
   effort_schedules.erase(rider_id);
 }
 
@@ -178,42 +149,7 @@ void Simulation::step_fixed(double dt) {
 }
 
 void Simulation::set_rider_effort(RiderId rider_id, double effort) {
-  // UI never sees uid, PhysicsEngine never sees rider_id
-  auto it = rider_id_to_uid.find(rider_id);
-  if (it == rider_id_to_uid.end())
-    return;
-
-  engine.set_rider_effort(it->second, effort);
-}
-
-RiderId Simulation::resolve_rider_id(RiderUid uid) const {
-  for (auto& [id, u] : rider_id_to_uid)
-    if (u == uid)
-      return id;
-  return -1;
-}
-
-void Simulation::set_snapshot_source(const ISnapshotSource* src) {
-  snapshot_source = src;
-}
-
-const RiderSnapshot* Simulation::get_rider_snapshot(RiderId id) const {
-  if (!snapshot_source)
-    return nullptr;
-
-  auto it = rider_id_to_uid.find(id);
-  if (it == rider_id_to_uid.end())
-    return nullptr;
-
-  const FrameSnapshot* snap = snapshot_source->latest_snapshot();
-  if (!snap)
-    return nullptr;
-
-  auto it2 = snap->riders.find(it->second);
-  if (it2 == snap->riders.end())
-    return nullptr;
-
-  return &it2->second;
+  engine.set_rider_effort(rider_id, effort);
 }
 
 void Simulation::pause() { paused = true; }
@@ -235,7 +171,7 @@ void Simulation::reset() {
 
   // get_riders() returns const ref, but unique_ptr<Rider> still lets us
   // call non-const methods on the Rider through the pointer.
-  for (const auto& r : engine.get_riders())
+  for (const auto& [id, r] : engine.get_riders())
     r->reset();
 }
 

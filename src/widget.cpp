@@ -14,6 +14,7 @@
 #include "imgui.h"
 #include "implot.h"
 #include "sim.h"
+#include "simrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
 // for std::setprecision
@@ -662,8 +663,8 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 // ======================= RIDER PANEL =======================
 // WARNING - this assumes the font isnt deallocated
 RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f,
-                       const IRiderDataSource* data_source_)
-    : x(x_), y(y_), font(f), data_source(data_source_) {}
+                       const ISnapshotSource* snapshot_source_)
+    : x(x_), y(y_), font(f), snapshot_source(snapshot_source_) {}
 
 void RiderPanel::set_rider_id(RiderId id_) { id = id_; }
 
@@ -690,10 +691,19 @@ void RiderPanel::add_row(std::string label, std::string unit,
 }
 
 void RiderPanel::render(const RenderContext* ctx) {
-  if (!data_source || id < 0)
+  if (!snapshot_source || id < 0)
     return;
 
-  const RiderSnapshot* snap = data_source->get_rider_snapshot(id);
+  const FrameSnapshot* frame = snapshot_source->latest_snapshot();
+  if (!frame)
+    return;
+
+  auto iter = frame->riders.find(id);
+
+  if (iter == frame->riders.end())
+    return;
+
+  const RiderSnapshot* snap = &iter->second;
 
   if (!snap)
     return;
@@ -731,10 +741,19 @@ void RiderPanel::render(const RenderContext* ctx) {
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {
-  if (!data_source || id < 0)
+  if (!snapshot_source || id < 0)
     return;
 
-  const RiderSnapshot* snap = data_source->get_rider_snapshot(id);
+  const FrameSnapshot* frame = snapshot_source->latest_snapshot();
+  if (!frame)
+    return;
+
+  auto iter = frame->riders.find(id);
+
+  if (iter == frame->riders.end())
+    return;
+
+  const RiderSnapshot* snap = &iter->second;
 
   if (!snap)
     return;

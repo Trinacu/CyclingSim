@@ -49,7 +49,7 @@ public:
 
   std::shared_ptr<Camera> get_camera() const { return camera; }
 
-  int pick_rider(double screen_x, double screen_y) const;
+  RiderId pick_rider(double screen_x, double screen_y) const;
 
   // const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
   FramePairView get_frame_pair() const;

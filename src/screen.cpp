@@ -47,8 +47,6 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer = std::make_unique<SimulationRenderer>(
       s->renderer, s->resources.get(), s->sim.get(), cam);
 
-  s->sim->set_snapshot_source(sim_renderer.get());
-
   TTF_Font* default_font =
       state->resources->get_fontManager()->get_font("default");
 
@@ -72,10 +70,9 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->add_drawable(std::make_unique<TimeControlPanel>(
       400, 20, 40, default_font, state->sim.get()));
 
-  static_assert(std::is_base_of_v<IRiderDataSource, Simulation>);
   // 2. Create the Panel
   auto panel =
-      std::make_unique<RiderPanel>(20, 120, default_font, s->sim.get());
+      std::make_unique<RiderPanel>(20, 120, default_font, sim_renderer.get());
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
@@ -109,8 +106,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   // TODO - fix this to set the right uid effort, not just fix to uid=0
   auto num = std::make_unique<EditableNumberField>(
       200, 400, 80, 26, default_font, state->window, [&](double v) {
-        state->sim->get_engine()->set_rider_effort(selected_rider.semantic_id,
-                                                   v);
+        state->sim->set_rider_effort(selected_rider, v);
         const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
         SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       });
@@ -155,7 +151,7 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
       RiderUid uid = sim_renderer->pick_rider(e->button.x, e->button.y);
 
       if (uid != -1) {
-        select_rider_by_uid(uid);
+        select_rider(uid);
         return true;
       }
     }
@@ -206,32 +202,27 @@ void SimulationScreen::cycle_rider(int direction) {
   if (riders.empty())
     return;
 
-  std::vector<RiderUid> uids;
-  uids.reserve(riders.size());
+  std::vector<RiderId> ids;
+  ids.reserve(riders.size());
 
-  for (const auto& [uid, _] : riders)
-    uids.push_back(uid);
+  for (const auto& [id, _] : riders)
+    ids.push_back(id);
 
-  std::sort(uids.begin(), uids.end());
+  std::sort(ids.begin(), ids.end());
 
   // Find current index
-  auto it = std::find(uids.begin(), uids.end(), selected_rider.runtime_uid);
-  int idx = (it == uids.end()) ? 0 : std::distance(uids.begin(), it);
+  auto it = std::find(ids.begin(), ids.end(), selected_rider);
+  int idx = (it == ids.end()) ? 0 : std::distance(ids.begin(), it);
 
-  idx = (idx + direction + uids.size()) % uids.size();
+  idx = (idx + direction + ids.size()) % ids.size();
 
-  select_rider_by_uid(uids[idx]);
+  select_rider(ids[idx]);
 }
 
-void SimulationScreen::select_rider_by_uid(RiderUid uid) {
-  selected_rider.runtime_uid = uid;
-  selected_rider.semantic_id = state->sim->resolve_rider_id(uid);
-
-  sim_renderer->get_camera()->set_target_id(uid);
-
-  if (selected_rider.semantic_id != -1) {
-    sim_renderer->get_rider_panel()->set_rider_id(selected_rider.semantic_id);
-  }
+void SimulationScreen::select_rider(RiderId id) {
+  selected_rider = id;
+  sim_renderer->get_camera()->set_target_id(id);
+  sim_renderer->get_rider_panel()->set_rider_id(id);
 }
 
 PlotScreen::PlotScreen(AppState* s) : state(s) {

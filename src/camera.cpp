@@ -5,20 +5,20 @@ Camera::Camera(const Course* course_, int world_width_, Vector2d screensize_)
     : course(course_), world_width(world_width_), screensize(screensize_),
       scale(screensize_.x() / (double)world_width_), vert_scale(1.0),
       pos(0.0, 0.0) {
-  target_uid = 0;
+  target_id = 0;
 }
 
 // ------------------------
 // FOLLOWING LOGIC
 // ------------------------
-void Camera::set_target_id(int rider_uid) { target_uid = rider_uid; }
+void Camera::set_target_id(int rider_id) { target_id = rider_id; }
 
-void Camera::clear_target() { target_uid.reset(); }
+void Camera::clear_target() { target_id.reset(); }
 
 void Camera::update(const InterpolatedFrameView& view) {
-  if (!target_uid)
+  if (!target_id)
     return;
-  int id = *target_uid;
+  int id = *target_id;
 
   auto it = view.rider_pos.find(id);
   if (it == view.rider_pos.end())

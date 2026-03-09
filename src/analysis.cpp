@@ -45,9 +45,7 @@ TimelineObserver::TimelineObserver(std::vector<double> checkpoints,
 
 void TimelineObserver::on_step(const Simulation& sim) {
   double sim_time = sim.get_sim_seconds();
-  for (const auto& rider : sim.get_engine()->get_riders()) {
-    RiderId id = rider->get_id();
-
+  for (const auto& [id, rider] : sim.get_engine()->get_riders()) {
     // lazy init
     if (next_checkpoint_idx.find(id) == next_checkpoint_idx.end())
       next_checkpoint_idx[id] = 0;
