@@ -3,6 +3,7 @@
 #define RIDER_H
 
 #include "course.h"
+#include "mytypes.h"
 #include "pch.hpp"
 #include "sim_core.h"
 #include "snapshot.h"
@@ -10,10 +11,8 @@
 #include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <iostream>
-#include "mytypes.h"
 
 struct SDL_Texture;
-
 
 class Team {
 private:
@@ -106,8 +105,6 @@ public:
 
   void set_effort(double new_effort);
 
-  double lateral_pos;
-
   double get_pos() const;
   double get_speed() const;
   double get_power() const { return state.power; }
@@ -116,8 +113,6 @@ public:
   double get_effort_limit() const { return energy_effort_limit(&state.energy); }
   double get_target_effort() const { return state.target_effort; }
   double get_total_mass() const { return state.mass_rider + state.mass_bike; }
-
-  double get_lateral_pos() const { return lateral_pos; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

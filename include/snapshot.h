@@ -57,9 +57,8 @@ struct InterpolatedFrameView {
   double alpha;
 
   std::unordered_map<int, Vector2d> rider_pos;
-  std::unordered_map<size_t, double> rider_slope;
-  std::unordered_map<size_t, double> rider_effort;
-  std::unordered_map<size_t, double> rider_lateral;
+  std::unordered_map<int, double> rider_slope;
+  std::unordered_map<int, double> rider_effort;
 };
 
 #endif

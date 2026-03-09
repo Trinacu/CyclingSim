@@ -1,5 +1,6 @@
 #include "sim.h"
 #include "rider.h"
+#include "snapshot.h"
 #include <chrono>
 #include <memory>
 #include <thread>
@@ -29,10 +30,18 @@ void PhysicsEngine::update(double dt) {
   }
 }
 
-// Expose a way for the render thread to grab the same mutex.
-// We need this so that rendering can “lock frame_mtx” before reading any Rider
-// state.
-std::mutex* PhysicsEngine::get_frame_mutex() const { return &frame_mtx; }
+void PhysicsEngine::step_and_snapshot(double dt, FrameSnapshot& out) {
+  std::lock_guard<std::mutex> lock(frame_mtx);
+  update(dt);
+  fill_snapshot(out);
+}
+
+void PhysicsEngine::fill_snapshot(FrameSnapshot& out) const {
+  // this needs to be called under phys_lock, but we lock in sim::step_fixed
+  out.riders.clear();
+  for (const auto& [id, r] : riders)
+    out.riders.emplace(id, r->snapshot());
+}
 
 const std::unordered_map<RiderId, std::unique_ptr<Rider>>&
 PhysicsEngine::get_riders() const {
@@ -125,6 +134,44 @@ void Simulation::add_riders(const std::vector<RiderConfig>& configs) {
   }
 }
 
+void Simulation::publish_snapshot() {
+  snap_back.real_time = SDL_GetTicks() / 1000.0;
+
+  std::scoped_lock lock(snapshot_swap_mtx);
+
+  if (snap_back.sim_time <= snap_curr.sim_time)
+    return; // physics didn't advance (shouldn't happen in step_fixed, but safe)
+
+  snap_prev = std::move(snap_curr);
+  snap_curr = std::move(snap_back);
+}
+
+bool Simulation::consume_latest_frame_pair(FrameSnapshot& out_prev,
+                                           FrameSnapshot& out_curr) {
+  std::scoped_lock lock(snapshot_swap_mtx);
+
+  if (snap_curr.sim_time < 0.0)
+    return false; // nothing published yet
+
+  out_prev = snap_prev;
+  out_curr = snap_curr;
+  return true;
+}
+
+void Simulation::step_fixed(double dt) {
+  for (auto& [id, sched] : effort_schedules)
+    engine.set_rider_effort(id, sched->effort_at(sim_seconds));
+
+  engine.step_and_snapshot(dt, snap_back);
+
+  sim_seconds += dt;
+  snap_back.sim_time = sim_seconds;
+  snap_back.sim_dt = dt;
+  snap_back.time_factor = time_factor;
+
+  publish_snapshot(); // acquires snapshot_swap_mtx
+}
+
 void Simulation::set_effort_schedule(int rider_id,
                                      std::shared_ptr<EffortSchedule> schedule) {
   effort_schedules[rider_id] = std::move(schedule);
@@ -132,20 +179,6 @@ void Simulation::set_effort_schedule(int rider_id,
 
 void Simulation::clear_effort_schedule(RiderId rider_id) {
   effort_schedules.erase(rider_id);
-}
-
-void Simulation::step_fixed(double dt) {
-  std::lock_guard<std::mutex> phys_lock(*engine.get_frame_mutex());
-
-  double t = sim_seconds;
-
-  for (auto& [id, sched] : effort_schedules) {
-    double effort = sched->effort_at(t);
-    set_rider_effort(id, effort);
-  }
-
-  engine.update(dt);
-  sim_seconds += dt;
 }
 
 void Simulation::set_rider_effort(RiderId rider_id, double effort) {

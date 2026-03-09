@@ -66,13 +66,8 @@ private:
 
   RiderPanel* rider_panel = nullptr;
 
-  // Double buffers
   FrameSnapshot frame_prev; // published previous
   FrameSnapshot frame_curr; // published current
-  FrameSnapshot frame_back; // build buffer
-  mutable std::mutex snapshot_swap_mtx;
-
-  bool frames_initialized = false;
 };
 
 #endif

@@ -3,7 +3,6 @@
 #include "display.h"
 #include "sim.h"
 #include <memory>
-#include <mutex>
 
 SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
                                        GameResources* resources,
@@ -17,44 +16,14 @@ SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
   }
 }
 
-void SimulationRenderer::reset() {
-  std::scoped_lock lock(snapshot_swap_mtx);
-  frames_initialized = false;
-}
+void SimulationRenderer::reset() {}
 
 void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
   world_drawables.push_back(std::move(d));
 }
 
 void SimulationRenderer::build_and_swap_snapshots() {
-  frame_back = {};
-
-  // sim->fill_snapshots(frame_back.riders); // however you currently do it
-  // could extract this into a function (gpt says it lives inside Simulation)
-  PhysicsEngine* engine = sim->get_engine();
-  {
-    std::lock_guard<std::mutex> phys_lock(*engine->get_frame_mutex());
-
-    for (const auto& [id, r] : engine->get_riders())
-      frame_back.riders.emplace(id, r->snapshot());
-
-    frame_back.sim_time = sim->get_sim_seconds();
-    frame_back.sim_dt = sim->get_dt();
-    frame_back.time_factor = sim->get_time_factor(); // or wherever it lives
-  } // phys_lock rleasd. frame_back is now local snapshot safe to read w/o lock
-
-  frame_back.real_time = SDL_GetTicks() / 1000.0;
-
-  // Only publish if sim advanced
-  {
-    std::scoped_lock lock(snapshot_swap_mtx);
-
-    if (frame_back.sim_time <= frame_curr.sim_time)
-      return; // no new sim step -> keep prev/curr stable for interpolation
-
-    frame_prev = std::move(frame_curr);
-    frame_curr = std::move(frame_back);
-  }
+  sim->consume_latest_frame_pair(frame_prev, frame_curr);
 }
 
 void SimulationRenderer::update() {
@@ -70,49 +39,40 @@ void SimulationRenderer::render_frame() {
   ctx.renderer = renderer;
   ctx.resources = resources;
   ctx.camera_weak = camera;
-  ctx.sim_time = sim->get_sim_seconds();
+  ctx.sim_time = frame_curr.sim_time;
+
+  ctx.prev_frame = &frame_prev;
+  ctx.curr_frame = &frame_curr;
 
   double now = SDL_GetTicks() / 1000.0;
+  const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
 
-  {
-    // IMPORTANT: prevent swap while we compute alpha and set pointers
-    std::scoped_lock lock(snapshot_swap_mtx);
+  // time since "curr" was published (real seconds)
+  const double real_since_curr = now - frame_curr.real_time;
 
-    ctx.prev_frame = &frame_prev;
-    ctx.curr_frame = &frame_curr;
-
-    const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
-
-    // time since "curr" was published (real seconds)
-    const double real_since_curr = now - frame_curr.real_time;
-
-    double alpha = 1.0;
-    if (sim_dt > 0.0) {
-      alpha = (real_since_curr * frame_curr.time_factor) / sim_dt;
-    }
-    ctx.alpha = std::clamp(alpha, 0.0, 1.0);
-
-    InterpolatedFrameView view;
-    view.alpha = alpha;
-    view.interp_sim_time =
-        frame_prev.sim_time * (1.0 - alpha) + frame_curr.sim_time * alpha;
-
-    for (const auto& [id, s1] : frame_curr.riders) {
-      auto it0 = frame_prev.riders.find(id);
-      if (it0 == frame_prev.riders.end())
-        continue;
-
-      const RiderSnapshot& s0 = it0->second;
-
-      view.rider_pos[id] = s0.pos2d * (1.0 - alpha) + s1.pos2d * alpha;
-
-      view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
-
-      view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
-    }
-
-    ctx.view = std::move(view);
+  double alpha = 1.0;
+  if (sim_dt > 0.0) {
+    alpha = (real_since_curr * frame_curr.time_factor) / sim_dt;
   }
+  ctx.alpha = std::clamp(alpha, 0.0, 1.0);
+
+  InterpolatedFrameView view;
+  view.alpha = alpha;
+  view.interp_sim_time =
+      frame_prev.sim_time * (1.0 - alpha) + frame_curr.sim_time * alpha;
+
+  for (const auto& [id, s1] : frame_curr.riders) {
+    auto it0 = frame_prev.riders.find(id);
+    if (it0 == frame_prev.riders.end())
+      continue;
+
+    const RiderSnapshot& s0 = it0->second;
+
+    view.rider_pos[id] = s0.pos2d * (1.0 - alpha) + s1.pos2d * alpha;
+    view.rider_slope[id] = s0.slope * (1.0 - alpha) + s1.slope * alpha;
+    view.rider_effort[id] = s0.effort * (1.0 - alpha) + s1.effort * alpha;
+  }
+  ctx.view = std::move(view);
 
   camera->update(ctx.view);
 
@@ -142,7 +102,6 @@ RiderId SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   bool found = false;
   RiderUid found_id = 0;
 
-  std::lock_guard<std::mutex> lock(snapshot_swap_mtx);
   for (auto& [id, snap] : frame_curr.riders) {
     double dx = snap.pos2d.x() - world_pos.x();
     double dy = snap.pos2d.y() - world_pos.y();
@@ -164,8 +123,6 @@ RiderId SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
 }
 
 FramePairView SimulationRenderer::get_frame_pair() const {
-  std::scoped_lock lock(snapshot_swap_mtx);
-
   return FramePairView{.prev = &frame_prev, .curr = &frame_curr};
 }
 

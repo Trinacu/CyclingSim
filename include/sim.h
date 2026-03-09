@@ -6,6 +6,7 @@
 #include "effortschedule.h"
 #include "rider.h"
 #include "simrenderer.h"
+#include "snapshot.h"
 #include <memory>
 #include <mutex>
 
@@ -36,6 +37,8 @@ private:
   mutable std::mutex frame_mtx;
   std::unordered_map<RiderId, std::unique_ptr<Rider>> riders;
 
+  void fill_snapshot(FrameSnapshot& out) const;
+
   CollisionParams params;
 
 public:
@@ -49,11 +52,11 @@ public:
   // do these returns need to/should be const?
   const std::unordered_map<RiderId, std::unique_ptr<Rider>>& get_riders() const;
   const Rider* get_rider_by_id(RiderId id) const;
-  // const Rider* get_rider_by_uid(RiderUid uid) const;
-  std::mutex* get_frame_mutex() const;
 
   // physicsengine mutates rider state
   void set_rider_effort(int id, double effort);
+
+  void step_and_snapshot(double dt, FrameSnapshot& out);
 
   ~PhysicsEngine() = default;
 };
@@ -78,6 +81,16 @@ private:
   double dt = 0.01; // 100 Hz physics
 
   std::unordered_map<int, std::shared_ptr<EffortSchedule>> effort_schedules;
+
+  // Double buffers
+  FrameSnapshot snap_prev; // published previous
+  FrameSnapshot snap_curr; // published current
+  FrameSnapshot snap_back; // build buffer
+                           //
+  // Called at the end of step_fixed(), while frame_mtx is still held
+  void publish_snapshot();
+
+  mutable std::mutex snapshot_swap_mtx;
 
 public:
   Simulation(const Course* c);
@@ -116,6 +129,10 @@ public:
                            std::shared_ptr<EffortSchedule> schedule);
   void clear_effort_schedule(RiderId rider_id);
   void set_rider_effort(RiderId rider_id, double effort);
+
+  // Called by the renderer each frame; returns false if no new frame
+  bool consume_latest_frame_pair(FrameSnapshot& out_prev,
+                                 FrameSnapshot& out_curr);
 };
 
 class SimulationEndCondition {
