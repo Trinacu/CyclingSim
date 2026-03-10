@@ -1,11 +1,14 @@
+cmake_minimum_required(VERSION 3.10)
+project(game LANGUAGES C CXX)
+
+# tell CMake to output a compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Set default build type to Debug if not specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(WARNING "Setting build type to 'Debug' as none was specified.")
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
 endif()
-
-cmake_minimum_required(VERSION 3.10)
-project(game LANGUAGES C CXX)
 
 # CTest
 enable_testing()
@@ -15,8 +18,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Set PKG_CONFIG_PATH environment variable clearly for pkg-config
-set(ENV{PKG_CONFIG_PATH}
-    "$ENV{HOME}/opt/SDL3/lib64/pkgconfig:$ENV{HOME}/opt/SDL3_ttf/lib64/pkgconfig:$ENV{HOME}/opt/SDL3_image/lib64/pkgconfig"
+# set(ENV{PKG_CONFIG_PATH}
+#     "$ENV{HOME}/opt/SDL3/lib64/pkgconfig:$ENV{HOME}/opt/SDL3_ttf/lib64/pkgconfig:$ENV{HOME}/opt/SDL3_image/lib64/pkgconfig"
+# )
+# Prefer this
+list(APPEND CMAKE_PREFIX_PATH
+    "$ENV{HOME}/opt/SDL3"
+    "$ENV{HOME}/opt/SDL3_ttf"
+    "$ENV{HOME}/opt/SDL3_image"
 )
 
 find_package(PkgConfig REQUIRED)
@@ -39,25 +48,17 @@ target_include_directories(common_deps INTERFACE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_compile_options(common_deps INTERFACE
-    $<$<COMPILE_LANGUAGE:C>:${SDL3_CFLAGS_OTHER}>
-    $<$<COMPILE_LANGUAGE:C>:${SDL3_TTF_CFLAGS_OTHER}>
-    $<$<COMPILE_LANGUAGE:C>:${SDL3_IMAGE_CFLAGS_OTHER}>
-
-    $<$<COMPILE_LANGUAGE:CXX>:${SDL3_CFLAGS_OTHER}>
-    $<$<COMPILE_LANGUAGE:CXX>:${SDL3_TTF_CFLAGS_OTHER}>
-    $<$<COMPILE_LANGUAGE:CXX>:${SDL3_IMAGE_CFLAGS_OTHER}>
-)
-set(COMMON_LINK_DIRS
+target_link_directories(common_deps INTERFACE
     ${SDL3_LIBRARY_DIRS}
     ${SDL3_TTF_LIBRARY_DIRS}
     ${SDL3_IMAGE_LIBRARY_DIRS}
 )
-# set(COMMON_LIBS
-#     ${SDL3_LIBRARIES}
-#     ${SDL3_TTF_LIBRARIES}
-#     ${SDL3_IMAGE_LIBRARIES}
-# )
+
+target_compile_options(common_deps INTERFACE
+    ${SDL3_CFLAGS_OTHER}
+    ${SDL3_TTF_CFLAGS_OTHER}
+    ${SDL3_IMAGE_CFLAGS_OTHER}
+)
 
 target_link_libraries(common_deps INTERFACE
     ${SDL3_LIBRARIES}
@@ -97,7 +98,6 @@ target_link_libraries(implot PUBLIC imgui)
 
 set(CORE_SRC
     core/src/sim_core.c
-    core/include/sim_core.h
   )
 
 # ADD CORE - pure C library
@@ -120,8 +120,8 @@ set_target_properties(core_lib PROPERTIES
 
 # Warnings for C core (only applied to C files)
 target_compile_options(core_lib PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -Wpedantic>
-    $<$<COMPILE_LANGUAGE:CXX>:-Werror> # should never trigger
+  $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -Wpedantic -Werror -Wshadow -Wdouble-promotion>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Werror -Woverloaded-virtual> # should never trigger
 )
 
 
@@ -139,13 +139,9 @@ target_link_libraries(game_lib
     implot
 )
 
-target_compile_options(game_lib PRIVATE $<$<CONFIG:Debug>:-g>)
-
-
 # 2) Main executable just needs main.cpp + link to game_lib
 add_executable(${PROJECT_NAME} src/main.cpp)
 
-target_link_directories(${PROJECT_NAME} PRIVATE ${COMMON_LINK_DIRS})
 target_link_libraries(${PROJECT_NAME}
   PRIVATE
     game_lib
@@ -170,7 +166,6 @@ foreach(test_src IN LISTS TEST_SOURCES)
   get_filename_component(test_name ${test_src} NAME_WE)
 
   add_executable(${test_name} ${test_src})
-  target_link_directories(${test_name} PRIVATE ${COMMON_LINK_DIRS})
   # target_link_libraries(${test_name}
   target_link_libraries(${test_name}
     PRIVATE
@@ -215,6 +210,11 @@ foreach(test_src IN LISTS TEST_C_SOURCES)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 
+# add_custom_target(run_tests
+#     COMMAND ctest --output-on-failure
+#   )
+
 add_custom_target(run_tests
-    COMMAND ctest --output-on-failure
-  )
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --build-and-test .
+    DEPENDS ${test_targets}  # collect these in your foreach
+)

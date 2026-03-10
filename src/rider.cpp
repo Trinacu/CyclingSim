@@ -9,14 +9,6 @@
 
 int Rider::global_id_counter = 0;
 
-const double ETOL = 1e-1; // W
-const double ERTOL = 1e-3;
-const double PTOL = 2e-3; // m/s
-const double PRTOL = 1e-4;
-
-const double RHO = 1.2234;
-const double G = 9.80665;
-
 bool is_close(double value, double target, double tol, double rtol) {
   return std::fabs(value - target) <= tol + rtol * std::fabs(target);
 }
@@ -35,8 +27,8 @@ Bike Bike::create_generic() {
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
 Rider::Rider(RiderConfig config_)
-    : config(config_), id(config_.rider_id), uid(global_id_counter++),
-      name(config_.name), bike(config_.bike), team(config_.team) {
+    : config(config_), uid(global_id_counter++), id(config_.rider_id),
+      bike(config_.bike), team(config_.team), name(config_.name) {
   RiderInitParams p{};
   p.ftp_base = config_.ftp_base;
   p.w_prime = config_.w_prime_base;

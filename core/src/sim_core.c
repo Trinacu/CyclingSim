@@ -1,10 +1,10 @@
 #include "sim_core.h"
 
+#include <assert.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 
 /* ------------------------------
  * Internal helpers
@@ -256,7 +256,7 @@ static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
   double P_eff = r->power * (1.0 - r->drivetrain_loss);
   double F_prop = 0.0;
   if (P_eff > 0.0) {
-    double F_power = (v > 0.0) ? P_eff / v : INFINITY;
+    double F_power = (v > 0.0) ? P_eff / v : HUGE_VAL;
     F_prop = fmin(F_power, r->max_drive_force);
   }
 

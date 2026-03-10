@@ -3,7 +3,6 @@
 #include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_render.h"
 #include "pch.hpp"
-#include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
 #include <SDL3/SDL.h>
