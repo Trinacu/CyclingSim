@@ -110,7 +110,6 @@ public:
 
   void step_fixed(double dt);
 
-  double get_time_factor() { return time_factor; }
   void set_time_factor(double f) { time_factor = f; }
 
   double get_dt() { return dt; }

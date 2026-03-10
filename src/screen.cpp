@@ -55,8 +55,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->add_world_drawable(std::make_unique<RiderDrawable>());
 
   sim_renderer->add_drawable(std::make_unique<Stopwatch>(
-      20, 20, state->resources->get_fontManager()->get_font("stopwatch"),
-      state->sim.get()));
+      20, 20, state->resources->get_fontManager()->get_font("stopwatch")));
 
   Vector2d scr_size = s->get_window_size();
 

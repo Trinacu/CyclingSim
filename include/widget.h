@@ -21,7 +21,6 @@ public:
 
 class Stopwatch : public Widget {
 private:
-  Simulation* sim;
   TTF_Font* font;
   SDL_Color text_color = SDL_Color{80, 255, 40, 255};
   int screen_x, screen_y;
@@ -44,10 +43,8 @@ private:
   SDL_Texture* create_base(SDL_Renderer* renderer);
 
 public:
-  Stopwatch(int x, int y, TTF_Font* font_, Simulation* sim_,
-            int update_ms = 100)
-      : screen_x(x), screen_y(y), font(font_), sim(sim_),
-        update_interval_ms(update_ms) {
+  Stopwatch(int x, int y, TTF_Font* font_, int update_ms = 100)
+      : screen_x(x), screen_y(y), font(font_), update_interval_ms(update_ms) {
     last_update_ticks = 0;
   }
 

@@ -65,8 +65,7 @@ SDL_Texture* Stopwatch::render_time(SDL_Renderer* renderer, const char* s,
 }
 
 void Stopwatch::update_texture(const RenderContext* ctx) {
-  double sim_time = sim->get_sim_seconds();
-  format_time(sim_time, text);
+  format_time(ctx->sim_time, text);
 
   if (texture) {
     SDL_DestroyTexture(texture);
@@ -372,6 +371,7 @@ PauseButton::PauseButton(int x, int y, int w, int h, Simulation* sim,
 
 void PauseButton::render(const RenderContext* ctx) {
   // Update label before drawing
+  // BUT NOT BY READING STRAIGHT FROM SIM!
   // set_label(sim->is_paused() ? "Resume" : "Pause");
 
   Button::render(ctx);
@@ -413,7 +413,7 @@ void TimeFactorSlider::render(const RenderContext* ctx) {
   SDL_RenderFillRect(r, &marker);
 
   // knob
-  double t = factor_to_slider(sim->get_time_factor());
+  double t = factor_to_slider(ctx->time_factor);
   float knobX = x + t * w - h / 4.0;
   SDL_SetRenderDrawColor(r, 240, 240, 240, 255);
   SDL_FRect knob{knobX, static_cast<float>(y + h / 4.0), (float)h / 2,
@@ -497,7 +497,7 @@ void TimeControlPanel::render(const RenderContext* ctx) {
   SDL_RenderFillRect(r, &bg);
 
   char buf[8];
-  snprintf(buf, sizeof(buf), "%.2f", sim->get_time_factor());
+  snprintf(buf, sizeof(buf), "%.2f", ctx->time_factor);
   time_factor_field->set_text(buf);
 
   // Children
