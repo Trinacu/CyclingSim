@@ -13,6 +13,7 @@
 #include "snapshot.h"
 #include "widget.h"
 #include <memory>
+#include <vector>
 
 void MenuScreen::render() {
   SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
@@ -70,8 +71,8 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
       400, 20, 40, default_font, state->sim.get()));
 
   // 2. Create the Panel
-  auto panel =
-      std::make_unique<RiderPanel>(20, 120, default_font, sim_renderer.get());
+  auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
+  rider_panel = panel.get(); // screen owns the reference
 
   // 3. Add Rows (Using Lambdas for custom logic)
 
@@ -97,9 +98,6 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
     return format_number(s.slope * 100.0);
   });
 
-  RiderPanel* p = panel.get();
-
-  sim_renderer->set_rider_panel(p);
   sim_renderer->add_drawable(std::move(panel));
 
   // TODO - fix this to set the right uid effort, not just fix to uid=0
@@ -197,22 +195,13 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
 }
 
 void SimulationScreen::cycle_rider(int direction) {
-  const auto& riders = sim_renderer->get_frame_pair().curr->riders;
-  if (riders.empty())
+  std::vector<RiderId> ids = sim_renderer->get_rider_ids();
+  if (ids.empty())
     return;
-
-  std::vector<RiderId> ids;
-  ids.reserve(riders.size());
-
-  for (const auto& [id, _] : riders)
-    ids.push_back(id);
-
-  std::sort(ids.begin(), ids.end());
 
   // Find current index
   auto it = std::find(ids.begin(), ids.end(), selected_rider);
   int idx = (it == ids.end()) ? 0 : std::distance(ids.begin(), it);
-
   idx = (idx + direction + ids.size()) % ids.size();
 
   select_rider(ids[idx]);
@@ -221,7 +210,7 @@ void SimulationScreen::cycle_rider(int direction) {
 void SimulationScreen::select_rider(RiderId id) {
   selected_rider = id;
   sim_renderer->get_camera()->set_target_id(id);
-  sim_renderer->get_rider_panel()->set_rider_id(id);
+  rider_panel->set_rider_id(id);
 }
 
 PlotScreen::PlotScreen(AppState* s) : state(s) {

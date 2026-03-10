@@ -132,8 +132,16 @@ RiderId SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   return -1;
 }
 
-FramePairView SimulationRenderer::get_frame_pair() const {
-  return FramePairView{.prev = &frame_prev, .curr = &frame_curr};
+std::vector<RiderId> SimulationRenderer::get_rider_ids() const {
+  std::vector<RiderId> ids;
+  ids.reserve(frame_curr.riders.size());
+  for (const auto& [id, _] : frame_curr.riders)
+    ids.push_back(id);
+
+  std::sort(ids.begin(), ids.end(), [&](RiderId a, RiderId b) {
+    return frame_curr.riders.at(a).pos >= frame_curr.riders.at(b).pos;
+  });
+  return ids;
 }
 
 bool SimulationRenderer::handle_event(const SDL_Event* e) {

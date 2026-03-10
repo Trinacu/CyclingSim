@@ -4,6 +4,53 @@
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
 
+void GameResources::build_base_path() {
+  const char* base = SDL_GetBasePath(); // e.g. "/home/user/project/build/"
+  base_path = base ? base : "./";
+}
+
+std::string GameResources::img(const char* file) {
+  return base_path + "resources/img/" + file;
+}
+std::string GameResources::font(const char* file) {
+  return base_path + "resources/fonts/" + file;
+}
+
+void GameResources::load_common_resources() {
+  if (!textureManager.load_texture("player",
+                                   img("collated_grid.png").c_str())) {
+    SDL_Log("Failed to load 'player' texture");
+  }
+  if (!textureManager.load_texture("rider", img("rider_sheet.png").c_str())) {
+    SDL_Log("Failed to load 'rider' texture");
+  }
+  if (!textureManager.load_texture("rider_front",
+                                   img("rider_sheet_front.png").c_str())) {
+    SDL_Log("Failed to load 'rider_front' texture");
+  }
+  if (!textureManager.load_texture("rider_back",
+                                   img("rider_sheet_back.png").c_str())) {
+    SDL_Log("Failed to load 'rider_back' texture");
+  }
+  if (!textureManager.load_texture("wheel_rear",
+                                   img("wheel_rear.png").c_str())) {
+    SDL_Log("Failed to load 'wheel_rear' texture");
+  }
+  if (!textureManager.load_texture("wheel_front",
+                                   img("wheel_front.png").c_str())) {
+    SDL_Log("Failed to load 'wheel_front' texture");
+  }
+  // FONTS
+  if (!fontManager.load_font("default", font("Roboto-Regular.ttf").c_str(),
+                             16)) {
+    SDL_Log("Failed to load 'default' font");
+  }
+  if (!fontManager.load_font("stopwatch",
+                             font("DSEG7Classic-Regular.ttf").c_str(), 32)) {
+    SDL_Log("Failed to load 'stopwatch' font");
+  }
+}
+
 // You must give TextureManager a valid SDL_Renderer* at construction time.
 // It keeps that renderer internally so it can turn surfaces → textures.
 TextureManager::TextureManager(SDL_Renderer* renderer) : renderer(renderer) {}
@@ -81,16 +128,13 @@ bool FontManager::load_font(const char* id, const char* file_path,
     return true;
   }
 
-  char* font_path = NULL;
   // BUG TODO - fix this ".." hack because dir structure might change
-  SDL_asprintf(&font_path, "%s/../%s", SDL_GetBasePath(), file_path);
-  TTF_Font* font = TTF_OpenFont(font_path, font_size);
+  // SDL_asprintf(&font_path, "%s/../%s", SDL_GetBasePath(), file_path);
+  TTF_Font* font = TTF_OpenFont(file_path, font_size);
   if (!font) {
     SDL_Log("Couldn't load font: %s", SDL_GetError());
-    SDL_free(font_path);
     return false;
   }
-  SDL_free(font_path);
 
   font_map[id] = font;
   return true;

@@ -62,12 +62,14 @@ Rider::Rider(RiderConfig config_)
 }
 
 std::unique_ptr<Rider> Rider::create_generic(Team team_) {
-  RiderConfig cfg = {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(), team_};
+  RiderConfig cfg = {
+      0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(), team_};
   return std::make_unique<Rider>(cfg);
 }
 
 RiderConfig Rider::default_config(Team team_) {
-  return {0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(), team_};
+  return {0,    "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(),
+          team_};
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
@@ -76,12 +78,7 @@ Vector2d Rider::get_pos2d() const { return _pos2d; }
 
 void Rider::set_pos2d(Vector2d pos) { _pos2d = pos; }
 
-void Rider::reset() {
-  rider_reset(&state);
-  // pos = 0;
-  // speed = 0;
-  // energymodel.reset();
-}
+void Rider::reset() { rider_reset(&state); }
 
 void Rider::update(double dt) {
   if (!course)

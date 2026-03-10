@@ -661,9 +661,7 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 
 // ======================= RIDER PANEL =======================
 // WARNING - this assumes the font isnt deallocated
-RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f,
-                       const ISnapshotSource* snapshot_source_)
-    : x(x_), y(y_), font(f), snapshot_source(snapshot_source_) {}
+RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
 
 void RiderPanel::set_rider_id(RiderId id_) { id = id_; }
 

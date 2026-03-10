@@ -151,6 +151,16 @@ target_link_libraries(${PROJECT_NAME}
     game_lib
 )
 
+
+# copy resources into build dir so they are at the level that executable is
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/resources
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>/resources
+)
+
+
+
 # 3) Tests: one executable per test, also link game_lib
 # # -------------------------
 # C++ tests (integration)

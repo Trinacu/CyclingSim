@@ -4,57 +4,28 @@
 #include "corerenderer.h"
 #include "snapshot.h"
 #include <memory>
-#include <mutex>
 
 class Simulation;
 class Camera;
 class RiderPanel;
 
-struct FramePairView {
-  const FrameSnapshot* prev;
-  const FrameSnapshot* curr;
-};
-
-class ISnapshotSource {
-public:
-  virtual ~ISnapshotSource() = default;
-
-  virtual const FrameSnapshot* latest_snapshot() const = 0;
-};
-
-// This renderer extends CoreRenderer with:
-// - Camera
-// - World-to-screen transform
-// - Automatic SnapshotMap generation
-// - Course + Rider drawing
-class SimulationRenderer : public CoreRenderer, public ISnapshotSource {
+class SimulationRenderer : public CoreRenderer {
 public:
   SimulationRenderer(SDL_Renderer* r, GameResources* resources, Simulation* sim,
                      std::shared_ptr<Camera> camera);
 
   ~SimulationRenderer() override = default;
 
-  // Main render function: adds simulation info + world drawables.
   void render_frame() override;
-
   void reset();
-
   void update();
 
-  RiderPanel* get_rider_panel() const { return rider_panel; }
-  void set_rider_panel(RiderPanel* p) { rider_panel = p; }
-
-  // World drawables
   void add_world_drawable(std::unique_ptr<Drawable> d);
-
   std::shared_ptr<Camera> get_camera() const { return camera; }
 
   RiderId pick_rider(double screen_x, double screen_y) const;
-
-  // const SnapshotMap& get_snapshot_map() const { return snapshot_front; }
-  FramePairView get_frame_pair() const;
+  std::vector<RiderId> get_rider_ids() const;
   void build_and_swap_snapshots();
-  const FrameSnapshot* latest_snapshot() const override { return &frame_curr; }
 
   bool handle_event(const SDL_Event* e);
 
@@ -63,8 +34,6 @@ private:
   Simulation* sim;                // Not owned
   std::shared_ptr<Camera> camera; // Owned here
   std::vector<std::unique_ptr<Drawable>> world_drawables;
-
-  RiderPanel* rider_panel = nullptr;
 
   FrameSnapshot frame_prev; // published previous
   FrameSnapshot frame_curr; // published current

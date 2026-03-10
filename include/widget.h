@@ -259,11 +259,9 @@ private:
 
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
-  const ISnapshotSource* snapshot_source;
 
 public:
-  RiderPanel(int x, int y, TTF_Font* font,
-             const ISnapshotSource* snapshot_source_);
+  RiderPanel(int x, int y, TTF_Font* font);
   ~RiderPanel();
 
   void set_rider_id(RiderId id_);
