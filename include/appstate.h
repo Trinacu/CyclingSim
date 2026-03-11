@@ -16,8 +16,8 @@ class AppState {
 public:
   std::vector<RiderConfig> rider_configs;
   // Constants
-  const int SCREEN_WIDTH = 1000;
-  const int SCREEN_HEIGHT = 640;
+  // int screen_width = 1000;
+  // int screen_height = 640;
 
   const int FPS = 60;
 

@@ -23,6 +23,10 @@ void SimulationRenderer::add_world_drawable(std::unique_ptr<Drawable> d) {
   world_drawables.push_back(std::move(d));
 }
 
+void SimulationRenderer::set_ui_root(std::unique_ptr<UIRoot> root) {
+  ui_root = std::move(root);
+}
+
 void SimulationRenderer::build_and_swap_snapshots() {
   sim->consume_latest_frame_pair(frame_prev, frame_curr);
 }
@@ -42,9 +46,6 @@ void SimulationRenderer::render_frame() {
   ctx.camera_weak = camera;
   ctx.sim_time = frame_curr.sim_time;
   ctx.time_factor = frame_curr.time_factor;
-
-  // ctx.prev_frame = &frame_prev;
-  // ctx.curr_frame = &frame_curr;
 
   double now = SDL_GetTicks() / 1000.0;
   const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;
@@ -91,14 +92,10 @@ void SimulationRenderer::render_frame() {
     d->render(&ctx);
   }
 
-  // 2. Draw UI drawables (inherited from CoreRenderer)
-  // for (auto& d : drawables) {
-  //   d->render(&ctx);
-  // }
-  ui_root->render(&ctx);
-
-  for (auto& w : drawables)
-    w->render_imgui(&ctx);
+  if (ui_root) {
+    ui_root->render(&ctx);
+    ui_root->render_imgui(&ctx);
+  }
 }
 
 // TODO - make this safe - there is a suggestion in "Code review feedback" chat
@@ -145,17 +142,10 @@ std::vector<RiderId> SimulationRenderer::get_rider_ids() const {
   return ids;
 }
 
-void SimulationRenderer::set_ui_root(std::unique_ptr<UIRoot> root) {
-  ui_root = std::move(root);
-}
-
 bool SimulationRenderer::handle_event(const SDL_Event* e) {
   // UI above world
-  if (ui_root->handle_event(e))
+  if (ui_root && ui_root->handle_event(e))
     return true;
-  // for (auto& d : drawables)
-  //   if (d->handle_event(e))
-  //     return true;
 
   for (auto& d : world_drawables)
     if (d->handle_event(e))

@@ -29,42 +29,32 @@ void MenuScreen::render() {
 void ResultsScreen::render() {
   SDL_SetRenderDrawColor(state->renderer, 0, 0, 0, 255);
   SDL_RenderClear(state->renderer);
-
-  // show rider stats
-  // auto snap1 = state->sim->get_engine()->snapshot_of(state->r1);
-  // auto snap2 = state->sim->get_engine()->snapshot_of(state->r2);
-
-  // draw simple text:
-  // "Rider1 final pos: 123.4"
-  // "Rider2 final pos: 110.2"
-
   SDL_RenderPresent(state->renderer);
 }
 
 SimulationScreen::SimulationScreen(AppState* s) : state(s) {
-  Vector2d screensize(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
-  // maybe this could take screensize rather than 2 ints?
-  // display = new DisplayEngine(state, screensize, WORLD_WIDTH);
+  Vector2d screensize = s->get_window_size();
   auto cam = std::make_shared<Camera>(s->course.get(), WORLD_WIDTH, screensize);
   sim_renderer = std::make_unique<SimulationRenderer>(
       s->renderer, s->resources.get(), s->sim.get(), cam);
 
   TTF_Font* default_font =
       state->resources->get_fontManager()->get_font("default");
+  TTF_Font* stopwatch_font =
+      state->resources->get_fontManager()->get_font("stopwatch");
 
   sim_renderer->add_world_drawable(
       std::make_unique<CourseDrawable>(state->sim->get_engine()->get_course()));
   sim_renderer->add_world_drawable(std::make_unique<RiderDrawable>());
 
-  auto ui = std::make_unique<UIRoot>(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
+  auto ui = std::make_unique<UIRoot>(screensize[0], screensize[1]);
 
   auto top_left = std::make_unique<VStack>(8);
+  top_left->add(std::make_unique<Stopwatch>(0, 0, stopwatch_font));
 
-  top_left->add(std::make_unique<Stopwatch>(
-      20, 20, state->resources->get_fontManager()->get_font("stopwatch")));
-
-  // 2. Create the Panel
   auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
+  rider_panel = panel.get(); // screen owns the reference
+
   panel->add_row("Speed", "km/h", [](const RiderRenderState& s) {
     return format_number(3.6 * s.speed, 2);
   });
@@ -77,62 +67,43 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   panel->add_row("Grad", "%", [](const RiderRenderState& s) {
     return format_number(s.slope * 100.0);
   });
-  rider_panel = panel.get(); // screen owns the reference
+
   top_left->add(std::move(panel));
+  ui->add(UIAnchor::TopLeft, 10, std::move(top_left));
 
-  auto top_center = std::make_unique<HStack>(5);
+  // auto top_center = std::make_unique<HStack>(5);
+  // top_center->add(std::make_unique<TimeControlPanel>(400, 20, 40,
+  // default_font,
+  //                                                    state->sim.get()));
+  // ui->add(UIAnchor::TopCenter, /*margin=*/10, std::move(top_center));
 
-  top_center->add(std::make_unique<TimeControlPanel>(400, 20, 40, default_font,
-                                                     state->sim.get()));
-  int map_w = 400;
-  int map_h = 100;
-  Vector2d scr_size = s->get_window_size();
-  int pos_x = scr_size[0] - map_w - 8;
-  int pos_y = scr_size[1] - map_h - 8;
-  auto minimap = std::make_unique<MinimapWidget>(pos_x, pos_y, map_w, map_h,
-                                                 s->course.get());
+  ui->add(UIAnchor::TopCenter, 20,
+          std::make_unique<TimeControlPanel>(400, 20, 40, default_font,
+                                             state->sim.get()));
 
-  ui->add(UIAnchor::TopLeft, /*margin=*/10, std::move(top_left));
-  ui->add(UIAnchor::TopCenter, /*margin=*/10, std::move(top_center));
-  ui->add(UIAnchor::BottomRight, /*margin=*/8, std::move(minimap));
+  Vector2d mapsize = {400, 100};
+
+  ui->add(UIAnchor::BottomRight, 8,
+          std::make_unique<MinimapWidget>(0, 0, mapsize[0], mapsize[1],
+                                          s->course.get()));
+
+  auto bottom_left = std::make_unique<VStack>(8);
+
+  bottom_left->add(std::make_unique<EditableNumberField>(
+      0, 0, 80, 26, default_font, state->window, [this](double v) {
+        state->sim->set_rider_effort(selected_rider, v);
+        const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
+        SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
+      }));
+
+  bottom_left->add(std::make_unique<EditableStringField>(
+      0, 0, 120, 26, default_font, state->window,
+      [](const std::string& s) { SDL_Log("%s", s.c_str()); }));
+
+  ui->add(UIAnchor::BottomLeft, 20, std::move(bottom_left));
 
   ui->resolve(); // one call computes all positions
-
   sim_renderer->set_ui_root(std::move(ui));
-
-  // sim_renderer->add_drawable(std::make_unique<MinimapWidget>(
-  //     pos_x, pos_y, map_w, map_h, s->course.get()));
-  //
-  // panel->add_row("Speed", "km/h", [](const RiderRenderState& s) {
-  //   return format_number(3.6 * s.speed, 2);
-  // });
-  // panel->add_row("Power", "W", [](const RiderRenderState& s) {
-  //   return format_number(s.power, 0); // Precision 0 for watts
-  // });
-  // panel->add_row("Dist", "km", [](const RiderRenderState& s) {
-  //   return format_number(s.pos / 1000.0, 3);
-  // });
-  // panel->add_row("Grad", "%", [](const RiderRenderState& s) {
-  //   return format_number(s.slope * 100.0);
-  // });
-  //
-  // sim_renderer->add_drawable(std::move(panel));
-  //
-  // // TODO - fix this to set the right uid effort, not just fix to uid=0
-  // auto num = std::make_unique<EditableNumberField>(
-  //     200, 400, 80, 26, default_font, state->window, [&](double v) {
-  //       state->sim->set_rider_effort(selected_rider, v);
-  //       const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
-  //       SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
-  //     });
-  //
-  // sim_renderer->add_drawable(std::move(num));
-  //
-  // auto name_field = std::make_unique<EditableStringField>(
-  //     200, 450, 120, 26, default_font, state->window,
-  //     [&](const std::string& s) { SDL_Log("%s", s.c_str()); });
-  //
-  // sim_renderer->add_drawable(std::move(name_field));
 }
 
 SimulationScreen::~SimulationScreen() = default;
@@ -196,11 +167,11 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
   case SDL_EVENT_KEY_DOWN:
     switch (e->key.key) {
     case SDLK_LEFT:
-      cycle_rider(-1);
+      cycle_rider(+1);
       return true;
 
     case SDLK_RIGHT:
-      cycle_rider(+1);
+      cycle_rider(-1);
       return true;
 
     case SDLK_ESCAPE:

@@ -20,8 +20,8 @@ AppState::AppState() {
   }
 
   // 2. Create Window and Renderer ONCE
-  if (!SDL_CreateWindowAndRenderer("Cycle Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0,
-                                   &window, &renderer)) {
+  if (!SDL_CreateWindowAndRenderer("Cycle Sim", 1000, 640, 0, &window,
+                                   &renderer)) {
     SDL_Log("CreateWindowAndRenderer failed: %s", SDL_GetError());
     throw std::runtime_error("Window Creation Failed");
   }
