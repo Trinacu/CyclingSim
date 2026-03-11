@@ -44,10 +44,10 @@ Course Course::create_flat_short() {
 }
 
 Course Course::create_endulating() {
-  std::vector<std::array<double, 5>> v = {{100, 0, 0, 0, 8},
-                                          {200, 0.1, 0, 0, 8},
-                                          {200, 0, 0, 0, 8},
-                                          {500, 0.05, 0, 0, 8}};
+  std::vector<std::array<double, 5>> v = {
+      {100, 0, 0, 0, 8},    {200, 0.1, 0, 0, 8},  {200, 0, 0, 0, 8},
+      {2000, 0.1, 0, 0, 8}, {2000, 0, 0, 0, 8},   {2000, 0.1, 0, 0, 8},
+      {2000, 0, 0, 0, 8},   {5000, 0.05, 0, 0, 8}};
   return Course(v, 0.0);
 }
 

@@ -39,11 +39,10 @@ PlotResult run_plot_simulation(const Course& course,
     return r ? r->get_speed() * 3.6 : 0.0;
   });
 
-  MetricObserver wbal_fraction_obs(
-      [rider_id](const Simulation& sim) {
-        const Rider* r = sim.get_engine()->get_rider_by_id(rider_id);
-        return r ? r->get_energy_fraction() : 0.0;
-      });
+  MetricObserver wbal_fraction_obs([rider_id](const Simulation& sim) {
+    const Rider* r = sim.get_engine()->get_rider_by_id(rider_id);
+    return r ? r->get_energy_fraction() : 0.0;
+  });
 
   runner.add_observer(&effort_obs);
   runner.add_observer(&effortlimit_obs);
@@ -60,8 +59,9 @@ PlotResult run_plot_simulation(const Course& course,
                            .samples = effortlimit_obs.data(),
                            .y_axis = 0});
 
-  result.series.push_back(
-      {.label = "Effort (%)", .samples = effort_obs.data(), .y_axis = 0});
+  result.series.push_back({.label = "Target effort (%)",
+                           .samples = effort_obs.data(),
+                           .y_axis = 0});
 
   result.series.push_back(
       {.label = "Speed (km/h)", .samples = speed_obs.data(), .y_axis = 0});

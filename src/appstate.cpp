@@ -80,8 +80,10 @@ AppState::~AppState() {
     physics_thread.join();
   }
 
-  if (renderer) SDL_DestroyRenderer(renderer);
-  if (window) SDL_DestroyWindow(window);
+  if (renderer)
+    SDL_DestroyRenderer(renderer);
+  if (window)
+    SDL_DestroyWindow(window);
 
   TTF_Quit();
   SDL_Quit();
@@ -93,9 +95,9 @@ bool AppState::load_image(const char* id, const char* filename) {
 
 void AppState::start_realtime_tt(double gap_seconds) {
   sim->stop();
-  if (physics_thread.joinable()) 
+  if (physics_thread.joinable())
     physics_thread.join();
-  
+
   sim->reset();
 
   if (auto* s = dynamic_cast<SimulationScreen*>(screens->top()))
