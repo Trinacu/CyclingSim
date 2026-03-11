@@ -11,6 +11,7 @@
 #include "sim.h"
 #include "simrenderer.h"
 #include "snapshot.h"
+#include "ui_layout.h"
 #include "widget.h"
 #include <memory>
 #include <vector>
@@ -55,66 +56,83 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
       std::make_unique<CourseDrawable>(state->sim->get_engine()->get_course()));
   sim_renderer->add_world_drawable(std::make_unique<RiderDrawable>());
 
-  sim_renderer->add_drawable(std::make_unique<Stopwatch>(
+  auto ui = std::make_unique<UIRoot>(s->SCREEN_WIDTH, s->SCREEN_HEIGHT);
+
+  auto top_left = std::make_unique<VStack>(8);
+
+  top_left->add(std::make_unique<Stopwatch>(
       20, 20, state->resources->get_fontManager()->get_font("stopwatch")));
-
-  Vector2d scr_size = s->get_window_size();
-
-  int map_w = 400;
-  int map_h = 100;
-  int pos_x = scr_size[0] - map_w - 8;
-  int pos_y = scr_size[1] - map_h - 8;
-  sim_renderer->add_drawable(std::make_unique<MinimapWidget>(
-      pos_x, pos_y, map_w, map_h, s->course.get()));
-
-  sim_renderer->add_drawable(std::make_unique<TimeControlPanel>(
-      400, 20, 40, default_font, state->sim.get()));
 
   // 2. Create the Panel
   auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
-  rider_panel = panel.get(); // screen owns the reference
-
-  // 3. Add Rows (Using Lambdas for custom logic)
-
-  // SPEED
   panel->add_row("Speed", "km/h", [](const RiderRenderState& s) {
     return format_number(3.6 * s.speed, 2);
   });
-
-  // POWER
   panel->add_row("Power", "W", [](const RiderRenderState& s) {
     return format_number(s.power, 0); // Precision 0 for watts
   });
-
-  // DISTANCE
   panel->add_row("Dist", "km", [](const RiderRenderState& s) {
     return format_number(s.pos / 1000.0, 3);
   });
-
-  // GRADIENT (Custom logic inside lambda!)
   panel->add_row("Grad", "%", [](const RiderRenderState& s) {
-    // Assuming you add 'slope' to RiderSnapshot
-    // return format_number(s.slope * 100.0);
     return format_number(s.slope * 100.0);
   });
+  rider_panel = panel.get(); // screen owns the reference
+  top_left->add(std::move(panel));
 
-  sim_renderer->add_drawable(std::move(panel));
+  auto top_center = std::make_unique<HStack>(5);
 
-  // TODO - fix this to set the right uid effort, not just fix to uid=0
-  auto num = std::make_unique<EditableNumberField>(
-      200, 400, 80, 26, default_font, state->window, [&](double v) {
-        state->sim->set_rider_effort(selected_rider, v);
-        const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
-        SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
-      });
+  top_center->add(std::make_unique<TimeControlPanel>(400, 20, 40, default_font,
+                                                     state->sim.get()));
+  int map_w = 400;
+  int map_h = 100;
+  Vector2d scr_size = s->get_window_size();
+  int pos_x = scr_size[0] - map_w - 8;
+  int pos_y = scr_size[1] - map_h - 8;
+  auto minimap = std::make_unique<MinimapWidget>(pos_x, pos_y, map_w, map_h,
+                                                 s->course.get());
 
-  sim_renderer->add_drawable(std::move(num));
+  ui->add(UIAnchor::TopLeft, /*margin=*/10, std::move(top_left));
+  ui->add(UIAnchor::TopCenter, /*margin=*/10, std::move(top_center));
+  ui->add(UIAnchor::BottomRight, /*margin=*/8, std::move(minimap));
 
-  auto name_field = std::make_unique<EditableStringField>(
-      200, 450, 120, 26, default_font, state->window,
-      [&](const std::string& s) { SDL_Log("%s", s.c_str()); });
+  ui->resolve(); // one call computes all positions
 
-  sim_renderer->add_drawable(std::move(name_field));
+  sim_renderer->set_ui_root(std::move(ui));
+
+  // sim_renderer->add_drawable(std::make_unique<MinimapWidget>(
+  //     pos_x, pos_y, map_w, map_h, s->course.get()));
+  //
+  // panel->add_row("Speed", "km/h", [](const RiderRenderState& s) {
+  //   return format_number(3.6 * s.speed, 2);
+  // });
+  // panel->add_row("Power", "W", [](const RiderRenderState& s) {
+  //   return format_number(s.power, 0); // Precision 0 for watts
+  // });
+  // panel->add_row("Dist", "km", [](const RiderRenderState& s) {
+  //   return format_number(s.pos / 1000.0, 3);
+  // });
+  // panel->add_row("Grad", "%", [](const RiderRenderState& s) {
+  //   return format_number(s.slope * 100.0);
+  // });
+  //
+  // sim_renderer->add_drawable(std::move(panel));
+  //
+  // // TODO - fix this to set the right uid effort, not just fix to uid=0
+  // auto num = std::make_unique<EditableNumberField>(
+  //     200, 400, 80, 26, default_font, state->window, [&](double v) {
+  //       state->sim->set_rider_effort(selected_rider, v);
+  //       const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
+  //       SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
+  //     });
+  //
+  // sim_renderer->add_drawable(std::move(num));
+  //
+  // auto name_field = std::make_unique<EditableStringField>(
+  //     200, 450, 120, 26, default_font, state->window,
+  //     [&](const std::string& s) { SDL_Log("%s", s.c_str()); });
+  //
+  // sim_renderer->add_drawable(std::move(name_field));
 }
 
 SimulationScreen::~SimulationScreen() = default;
@@ -145,10 +163,10 @@ bool SimulationScreen::handle_event(const SDL_Event* e) {
   switch (e->type) {
   case SDL_EVENT_MOUSE_BUTTON_DOWN:
     if (e->button.button == SDL_BUTTON_LEFT) {
-      RiderUid uid = sim_renderer->pick_rider(e->button.x, e->button.y);
+      RiderId id = sim_renderer->pick_rider(e->button.x, e->button.y);
 
-      if (uid != -1) {
-        select_rider(uid);
+      if (id != -1) {
+        select_rider(id);
         return true;
       }
     }

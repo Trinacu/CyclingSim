@@ -92,9 +92,10 @@ void SimulationRenderer::render_frame() {
   }
 
   // 2. Draw UI drawables (inherited from CoreRenderer)
-  for (auto& d : drawables) {
-    d->render(&ctx);
-  }
+  // for (auto& d : drawables) {
+  //   d->render(&ctx);
+  // }
+  ui_root->render(&ctx);
 
   for (auto& w : drawables)
     w->render_imgui(&ctx);
@@ -144,11 +145,17 @@ std::vector<RiderId> SimulationRenderer::get_rider_ids() const {
   return ids;
 }
 
+void SimulationRenderer::set_ui_root(std::unique_ptr<UIRoot> root) {
+  ui_root = std::move(root);
+}
+
 bool SimulationRenderer::handle_event(const SDL_Event* e) {
   // UI above world
-  for (auto& d : drawables)
-    if (d->handle_event(e))
-      return true;
+  if (ui_root->handle_event(e))
+    return true;
+  // for (auto& d : drawables)
+  //   if (d->handle_event(e))
+  //     return true;
 
   for (auto& d : world_drawables)
     if (d->handle_event(e))

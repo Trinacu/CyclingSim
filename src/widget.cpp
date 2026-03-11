@@ -16,8 +16,6 @@
 #include "simrenderer.h"
 #include "snapshot.h"
 #include "widget.h"
-// for std::setprecision
-// #include <iomanip>
 
 std::string format_number(double value, int precision) {
   char buffer[32];
@@ -26,7 +24,6 @@ std::string format_number(double value, int precision) {
 }
 
 void format_time(double seconds, char* text) {
-  // Break down into components
   int totalTenths = static_cast<int>(round(seconds * 10));
   int tenths = totalTenths % 10;
   int totalSeconds = totalTenths / 10;
@@ -39,9 +36,24 @@ void format_time(double seconds, char* text) {
   snprintf(text, 11, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
 }
 
-// std::pair<int, int> Widget::get_texture_size() const {
-//   return {widget_w, widget_h};
-// }
+LayoutSize Stopwatch::get_preferred_size() const {
+  // If the background has already been created by a prior render pass,
+  // return the actual baked dimensions.
+  if (bg_width > 0)
+    return {bg_width, bg_height};
+
+  // Otherwise measure the fixed-width reference string with the font so
+  // UIRoot::resolve() gets accurate dimensions even before first render.
+  int w = 0, h = 0;
+  TTF_GetStringSize(font, "00:00:00.0", 0, &w, &h);
+  return {w + 2 * content_offset, h + 2 * content_offset};
+}
+
+void Stopwatch::set_bounds(LayoutRect r) {
+  screen_x = r.x;
+  screen_y = r.y;
+  // Width/height are determined by font metrics, not imposed from outside.
+}
 
 SDL_Texture* Stopwatch::render_time(SDL_Renderer* renderer, const char* s,
                                     int& out_w, int& out_h) {
@@ -193,6 +205,14 @@ MinimapWidget::MinimapWidget(int x, int y, int w, int h, const Course* course)
   }
 }
 
+LayoutSize MinimapWidget::get_preferred_size() const { return {w, h}; }
+
+void MinimapWidget::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
+  // w and h are fixed at construction and don't change.
+}
+
 static SDL_FColor slope_to_color(double slope) {
   // flat=green, uphill->red, downhill->blue
   if (slope > 0.0) {
@@ -292,6 +312,15 @@ Button::Button(int x_, int y_, int w_, int h_, std::string label_,
     : x(x_), y(y_), w(w_), h(h_), label(std::move(label_)), font(font_),
       on_click(std::move(cb)) {}
 
+LayoutSize Button::get_preferred_size() const { return {w, h}; }
+
+void Button::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
+  w = r.w;
+  h = r.h;
+}
+
 void Button::render(const RenderContext* ctx) {
   SDL_Renderer* r = ctx->renderer;
 
@@ -377,6 +406,15 @@ void PauseButton::render(const RenderContext* ctx) {
   Button::render(ctx);
 }
 
+LayoutSize TimeFactorSlider::get_preferred_size() const { return {w, h}; }
+
+void TimeFactorSlider::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
+  w = r.w;
+  h = r.h;
+}
+
 double TimeFactorSlider::slider_to_factor(double t) {
   if (t <= neutral_point) {
     double s = t / neutral_point;
@@ -451,26 +489,25 @@ bool TimeFactorSlider::handle_event(const SDL_Event* e) {
 TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
                                    Simulation* sim_)
     : x(x_), y(y_), h(h_), sim(sim_) {
+
+  int widget_h = h_ / 2;
+  int widget_y = h_ / 4; // relative to panel top
+
+  // -- ValueField (time factor readout) --
+  child_rel_positions.push_back({next_x - x, 2});
   auto tf =
       std::make_unique<ValueField>(next_x, y + 2, valfield_w, h - 4, font);
   time_factor_field = tf.get();
   children.push_back(std::move(tf));
   next_x += valfield_w + gap_w;
 
-  int widget_h = h_ / 2;
-  int widget_y = y + h_ / 4;
-
+  child_rel_positions.push_back({next_x - x, widget_y});
   children.push_back(std::make_unique<TimeFactorSlider>(
       next_x, widget_y, slider_w, widget_h, sim));
   next_x += slider_w + gap_w;
 
   auto make_factor_button = [&](double val) {
-    char buffer[50];
-    snprintf(buffer, sizeof(buffer), "%.1f", val);
-    std::string str = buffer; // "3.1"
-    // children.push_back(std::make_unique<Button>(
-    //     next_x, y + h_ / 4, button_w, h_ / 2, str + " ×", font,
-    //     [sim_, val]() { sim_->set_time_factor(val); }));
+    child_rel_positions.push_back({next_x - x, widget_y});
     children.push_back(std::make_unique<TimeFactorButton>(
         next_x, widget_y, button_w, widget_h, val, sim_, font));
     next_x += gap_w + button_w;
@@ -481,8 +518,40 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
   make_factor_button(20.0);
 
   next_x += gap_w + button_w;
+  child_rel_positions.push_back({next_x - x, widget_y});
   children.push_back(std::make_unique<PauseButton>(next_x, widget_y, button_w,
                                                    widget_h, sim, font));
+}
+
+LayoutSize TimeControlPanel::get_preferred_size() const {
+  // Right edge of the PauseButton relative to panel origin:
+  //   gap_w (initial offset)
+  //   + valfield_w + gap_w
+  //   + slider_w + gap_w
+  //   + 3 * (gap_w + button_w)   <- factor buttons
+  //   + (gap_w + button_w)       <- existing extra skip (preserved)
+  //   + button_w                 <- pause button width
+  //   + gap_w                    <- right margin
+  int right_edge = gap_w + valfield_w + gap_w + slider_w + gap_w +
+                   3 * (gap_w + button_w) + (gap_w + button_w) + button_w +
+                   gap_w;
+  return {right_edge, h};
+}
+
+void TimeControlPanel::do_layout(int base_x, int base_y) {
+  for (int i = 0; i < static_cast<int>(children.size()); ++i) {
+    if (auto* lw = dynamic_cast<ILayoutWidget*>(children[i].get())) {
+      auto [rx, ry] = child_rel_positions[i];
+      LayoutSize cs = lw->get_preferred_size();
+      lw->set_bounds({base_x + rx, base_y + ry, cs.w, cs.h});
+    }
+  }
+}
+
+void TimeControlPanel::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
+  do_layout(x, y);
 }
 
 void TimeControlPanel::render(const RenderContext* ctx) {
@@ -521,6 +590,22 @@ ValueField::~ValueField() {
     SDL_DestroyTexture(texture);
   if (bg_texture)
     SDL_DestroyTexture(bg_texture);
+}
+
+LayoutSize ValueField::get_preferred_size() const { return {w, h}; }
+
+void ValueField::set_bounds(LayoutRect r) {
+  // If the layout changes the size, invalidate the background texture
+  // so it is recreated at the new dimensions next render.
+  if (r.w != w || r.h != h) {
+    if (bg_texture) {
+      SDL_DestroyTexture(bg_texture);
+      bg_texture = nullptr;
+    }
+  }
+  set_position(r.x, r.y);
+  w = r.w;
+  h = r.h;
 }
 
 void ValueField::set_text(const std::string& text) {
@@ -663,6 +748,33 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 // WARNING - this assumes the font isnt deallocated
 RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
 
+LayoutSize RiderPanel::get_preferred_size() const {
+  // Width: label (80) + field (80) + gap (10) + approx unit text (30)
+  const int panel_w = 200;
+  // Height: title row (30) + one row per metric
+  const int panel_h = 30 + static_cast<int>(rows.size()) * 30;
+  return {panel_w, panel_h};
+}
+
+void RiderPanel::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
+
+  // Reposition all metric rows to match the new panel origin.
+  int row_height = 30;
+  int current_y = y + 30; // +30 for the title
+  for (auto& row : rows) {
+    row->set_position(x, current_y);
+    current_y += row_height;
+  }
+
+  // Invalidate the title texture so it is redrawn at the correct position.
+  if (title_tex) {
+    SDL_DestroyTexture(title_tex);
+    title_tex = nullptr;
+  }
+}
+
 void RiderPanel::set_rider_id(RiderId id_) { id = id_; }
 
 RiderPanel::~RiderPanel() {
@@ -724,9 +836,8 @@ void RiderPanel::render(const RenderContext* ctx) {
   // HACK for now: Iterate rows, find their internal fields, and update their
   // ID? Proper way: Refactor ValueField::render to take a snapshot, not look
   // it up itself. Draw all rows
-  for (auto& row : rows) {
+  for (auto& row : rows)
     row->render_for_rider(ctx, &rs);
-  }
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {

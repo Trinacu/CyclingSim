@@ -2,7 +2,9 @@
 #define SIMRENDERER_H
 
 #include "corerenderer.h"
+#include "display.h"
 #include "snapshot.h"
+#include "ui_layout.h"
 #include <memory>
 
 class Simulation;
@@ -27,6 +29,8 @@ public:
   std::vector<RiderId> get_rider_ids() const;
   void build_and_swap_snapshots();
 
+  void set_ui_root(std::unique_ptr<UIRoot> ui_root);
+
   bool handle_event(const SDL_Event* e);
 
 private:
@@ -34,6 +38,8 @@ private:
   Simulation* sim;                // Not owned
   std::shared_ptr<Camera> camera; // Owned here
   std::vector<std::unique_ptr<Drawable>> world_drawables;
+
+  std::unique_ptr<UIRoot> ui_root;
 
   FrameSnapshot frame_prev; // published previous
   FrameSnapshot frame_curr; // published current

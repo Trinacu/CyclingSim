@@ -3,8 +3,8 @@
 #define WIDGET_H
 
 #include "display.h"
+#include "layout_types.h"
 #include "sim.h"
-#include "simrenderer.h"
 #include "snapshot.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -19,7 +19,7 @@ public:
   bool visible = true;
 };
 
-class Stopwatch : public Widget {
+class Stopwatch : public Widget, public ILayoutWidget {
 private:
   TTF_Font* font;
   SDL_Color text_color = SDL_Color{80, 255, 40, 255};
@@ -44,7 +44,7 @@ private:
 
 public:
   Stopwatch(int x, int y, TTF_Font* font_, int update_ms = 100)
-      : screen_x(x), screen_y(y), font(font_), update_interval_ms(update_ms) {
+      : font(font_), screen_x(x), screen_y(y), update_interval_ms(update_ms) {
     last_update_ticks = 0;
   }
 
@@ -54,12 +54,15 @@ public:
     if (bg_texture)
       SDL_DestroyTexture(bg_texture);
   }
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
 
   void update_texture(const RenderContext* ctx);
   void render(const RenderContext* ctx) override;
 };
 
-class MinimapWidget : public Widget {
+class MinimapWidget : public Widget, public ILayoutWidget {
   const Course* course;
   SDL_Texture* profile_tex = nullptr; // baked once
 
@@ -73,6 +76,11 @@ class MinimapWidget : public Widget {
 public:
   MinimapWidget(int x, int y, int w, int h, const Course* course);
   ~MinimapWidget() { SDL_DestroyTexture(profile_tex); }
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
   void render(const RenderContext* ctx) override;
 
 private:
@@ -80,9 +88,18 @@ private:
   SDL_FPoint world_to_mini(double wx, double wy) const;
 };
 
-class Button : public Widget {
+class Button : public Widget, public ILayoutWidget {
 public:
   using Callback = std::function<void()>;
+  Button(int x, int y, int w, int h, std::string label, TTF_Font* font,
+         Callback cb);
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
 
 private:
   int x, y, w, h;
@@ -91,13 +108,6 @@ private:
   Callback on_click;
   bool hovered = false;
   bool pressed = false;
-
-public:
-  Button(int x, int y, int w, int h, std::string label, TTF_Font* font,
-         Callback cb);
-
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override;
 };
 
 class TimeFactorButton : public Button {
@@ -124,7 +134,18 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
-class TimeFactorSlider : public Widget {
+class TimeFactorSlider : public Widget, public ILayoutWidget {
+public:
+  TimeFactorSlider(int x_, int y_, int w_, int h_, Simulation* sim_)
+      : x(x_), y(y_), w(w_), h(h_), sim(sim_) {}
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
+
 private:
   int x, y, w, h;
   double neutral_point = 0.3; // where factor = 1.0
@@ -133,19 +154,11 @@ private:
   double slider_pos = 0.5; // slider position 0..1
   Simulation* sim;
 
-public:
-  TimeFactorSlider(int x_, int y_, int w_, int h_, Simulation* sim_)
-      : x(x_), y(y_), w(w_), h(h_), sim(sim_) {}
-
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override;
-
-private:
   double slider_to_factor(double t);
   double factor_to_slider(double f);
 };
 
-class ValueField : public Widget {
+class ValueField : public Widget, public ILayoutWidget {
 protected:
   int x, y, w, h;
   TTF_Font* font;
@@ -174,6 +187,10 @@ public:
   }
   int get_width() const { return w; }
 
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
   // Standard Widget interface
   void render(const RenderContext* ctx) override;
   bool handle_event(const SDL_Event* e) override { return false; }
@@ -195,7 +212,17 @@ public:
                             const RiderRenderState* snap);
 };
 
-class TimeControlPanel : public Widget {
+class TimeControlPanel : public Widget, public ILayoutWidget {
+public:
+  TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, Simulation* sim);
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  void render(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
+
 private:
   int x, y, h;
   int valfield_w = 50;
@@ -204,17 +231,14 @@ private:
   int gap_w = 5;
   int next_x = x + gap_w;
   std::vector<std::unique_ptr<Widget>> children;
+  std::vector<std::pair<int, int>> child_rel_positions;
 
   ValueField* time_factor_field = nullptr;
 
   // for reading current time_factor
   Simulation* sim = nullptr;
 
-public:
-  TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, Simulation* sim);
-
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override;
+  void do_layout(int base_x, int base_y);
 };
 
 class MetricRow {
@@ -246,7 +270,25 @@ public:
   void set_position(int new_x, int new_y);
 };
 
-class RiderPanel : public Widget {
+class RiderPanel : public Widget, public ILayoutWidget {
+public:
+  RiderPanel(int x, int y, TTF_Font* font);
+  ~RiderPanel();
+
+  void set_rider_id(RiderId id_);
+  // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
+  void add_row(std::string label, std::string unit,
+               RiderValueField::DataGetter getter);
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  void render(const RenderContext* ctx) override;
+  void render_imgui(const RenderContext* ctx) override;
+
+  void render_plot_overlay(const RenderContext* ctx);
+
 private:
   int x, y;
   RiderId id = -1;
@@ -259,20 +301,6 @@ private:
 
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
-
-public:
-  RiderPanel(int x, int y, TTF_Font* font);
-  ~RiderPanel();
-
-  void set_rider_id(RiderId id_);
-  // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
-  void add_row(std::string label, std::string unit,
-               RiderValueField::DataGetter getter);
-
-  void render(const RenderContext* ctx) override;
-  void render_imgui(const RenderContext* ctx) override;
-
-  void render_plot_overlay(const RenderContext* ctx);
 };
 
 /* EDITABLE FIELDS */

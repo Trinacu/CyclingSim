@@ -5,7 +5,6 @@
 #include "course.h"
 #include "effortschedule.h"
 #include "rider.h"
-#include "simrenderer.h"
 #include "snapshot.h"
 #include <memory>
 #include <mutex>
