@@ -4,6 +4,7 @@
 #include "SDL3_ttf/SDL_ttf.h"
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
+#include "collision_params.h"
 #include "implot.h"
 #include "screen.h"
 #include "screenmanager.h"
@@ -43,23 +44,30 @@ AppState::AppState() {
 
   sim->set_time_factor(0.2);
 
-  screens = std::make_unique<ScreenManager>(this);
-  screens->push(ScreenType::Simulation);
-
   Team team("Team1");
   RiderConfig cfg = {
-      0, "Pedro", 320, 6, 700, 90, 0.5, 24000, Bike::create_generic(), team};
+      0, "Pedro", 320, 6, 700, 90, 0.5, 24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {1, "Power", 300, 6, 700, 88, 0.5, 24000, Bike::create_generic(), team};
+  cfg = {1, "Power", 300, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {2,     "AccelForce",           300, 6, 700, 88, 0.5,
-         24000, Bike::create_generic(), team};
+  cfg = {2,     "AccelForce",        300, 6, 700, 88, 0.5,
+         24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {3,     "AccelEnergy",          300, 6, 700, 88, 0.5,
-         24000, Bike::create_generic(), team};
+  cfg = {3,     "AccelEnergy",       300, 6, 700, 88, 0.5,
+         24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-
+  cfg = {4, "Mario", 310, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  rider_configs.push_back(cfg);
+  cfg = {5, "Kojo", 320, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  rider_configs.push_back(cfg);
+  cfg = {6, "Hari", 290, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  rider_configs.push_back(cfg);
+  cfg = {7, "Luka", 360, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  rider_configs.push_back(cfg);
   sim->add_riders(rider_configs);
+
+  screens = std::make_unique<ScreenManager>(this);
+  screens->push(ScreenType::Simulation);
 
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
       {20.0, 0.0},  // easy

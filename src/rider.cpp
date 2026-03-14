@@ -13,15 +13,20 @@ bool is_close(double value, double target, double tol, double rtol) {
   return std::fabs(value - target) <= tol + rtol * std::fabs(target);
 }
 
-Bike::Bike(double mass_, double wheel_i_, double wheel_r_,
+Bike::Bike(double mass_, double wheel_i_, double wheel_r_, double wheelbase,
            double wheel_drag_factor_, double crr_, double dt_loss_,
            BikeType type_)
     : mass(mass_), wheel_i(wheel_i_), wheel_r(wheel_r_),
       wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_),
       type(type_) {}
 
-Bike Bike::create_generic() {
-  return Bike(7.0, 0.14, 0.311, 0, 0.006, 0.02, BikeType::Road);
+Bike Bike::create_road() {
+  return Bike(7.0, 0.14, ROAD_WHEEL_RADIUS, ROAD_WHEELBASE, 0, 0.006, 0.02,
+              BikeType::Road);
+}
+Bike Bike::create_tt() {
+  return Bike(9.0, 0.14, TT_WHEEL_RADIUS, TT_WHEELBASE, 0, 0.006, 0.02,
+              BikeType::TT);
 }
 
 Team::Team(const char* name_) : name(name_) { id = 0; }
@@ -57,14 +62,14 @@ Rider::Rider(RiderConfig config_)
 }
 
 std::unique_ptr<Rider> Rider::create_generic(Team team_) {
-  RiderConfig cfg = {
-      0, "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(), team_};
+  RiderConfig cfg = {0,     "Joe Moe",           250,  6, 100, 65, 0.3,
+                     24000, Bike::create_road(), team_};
   return std::make_unique<Rider>(cfg);
 }
 
 RiderConfig Rider::default_config(Team team_) {
-  return {0,    "Joe Moe", 250, 6, 100, 65, 0.3, 24000, Bike::create_generic(),
-          team_};
+  return {0,     "Joe Moe",           250,  6, 100, 65, 0.3,
+          24000, Bike::create_road(), team_};
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }

@@ -34,9 +34,12 @@ public:
   double dt_loss;
   BikeType type;
 
-  Bike(double mass_, double wheel_i_, double wheel_r_,
+  double wheelbase; // used for lateral physics
+
+  Bike(double mass_, double wheel_i_, double wheel_r_, double wheelbase,
        double wheel_drag_factor_, double crr_, double dt_loss_, BikeType type_);
-  static Bike create_generic();
+  static Bike create_road();
+  static Bike create_tt();
 };
 
 struct RiderConfig {
@@ -117,6 +120,8 @@ public:
   double get_effort_limit() const { return energy_effort_limit(&state.energy); }
   double get_target_effort() const { return state.target_effort; }
   double get_total_mass() const { return state.mass_rider + state.mass_bike; }
+  double get_radius() const { return 0.5; }
+  double get_bike_len() const { return bike.wheelbase + 2 * bike.wheel_r; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

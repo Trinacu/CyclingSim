@@ -61,7 +61,9 @@ struct LateralRiderState {
   double surplus_power; // W — power above longitudinal resistance at speed
 
   // --- physical ---
-  double mass;       // kg — rider + bike combined
+  double mass; // kg — rider + bike combined
+  double rider_radius;
+  double bike_length;
   double road_width; // m — full driveable width at lon_pos
 };
 

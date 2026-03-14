@@ -2,11 +2,16 @@
 #include "lateral_solver.h"
 #include "rider.h"
 #include "snapshot.h"
+#include <cassert>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include <unordered_map>
 
+// Member initialisation order note:
+// params is declared before lateral_solver_ in sim.h, so params is
+// default-initialised before lateral_solver_ is constructed from it.
+// This is correct regardless of the order listed in the initialiser list.
 PhysicsEngine::PhysicsEngine(const Course* c)
     : course(c), lateral_solver_(params) {}
 
@@ -123,6 +128,8 @@ void PhysicsEngine::step_lateral_behavior() {
         .w_prime_frac = r->get_energy_fraction(),
         .surplus_power = compute_surplus_power(*r),
         .mass = r->get_total_mass(),
+        .rider_radius = r->get_radius(),
+        .bike_length = r->get_bike_len(),
         .road_width = course->get_road_width(r->get_pos()),
     });
   }
@@ -222,7 +229,7 @@ LateralContext PhysicsEngine::build_context(RiderId id) const {
     if (s.id == id)
       continue;
     const double lon_offset = s.lon_pos - own->lon_pos;
-    if (std::fabs(lon_offset) <= params.x_lookahead) {
+    if (std::fabs(lon_offset) <= s.bike_length) {
       ctx.nearby.push_back(NearbyRider{
           .lon_offset = lon_offset,
           .lat_pos = s.lat_pos,
@@ -242,7 +249,6 @@ Simulation::Simulation(const Course* c) : engine(c) {}
 void Simulation::start_realtime() {
   running = true;
   double accumulator = 0.0;
-  double sim_step;
 
   auto t_prev = std::chrono::steady_clock::now();
 

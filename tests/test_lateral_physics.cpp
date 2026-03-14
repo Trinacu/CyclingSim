@@ -55,9 +55,6 @@ bool allEqual(const std::vector<LateralSolver::ShoveOutcome>& results,
 
 CollisionParams default_params() {
   CollisionParams p{};
-  p.rider_radius = 0.5;
-  p.x_lookahead = 5.0;
-
   p.lat_damping = 0.0;
   p.lat_spring_k = 0.0;
 
@@ -78,6 +75,7 @@ LateralRiderState rider(int id, double lon, double lat, double power = 100,
   r.lat_pos = lat;
   r.lat_vel = 0;
   r.mass = 75;
+  r.rider_radius = 0.5;
 
   r.surplus_power = power;
   r.w_prime_frac = wprime;

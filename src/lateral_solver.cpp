@@ -1,5 +1,4 @@
 #include "lateral_solver.h"
-#include "SDL3/SDL_log.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -85,7 +84,6 @@ std::vector<LateralSolver::ContactPair> LateralSolver::find_proximity_pairs(
   });
 
   std::vector<ContactPair> pairs;
-  const double threshold_lat = 2.0 * params_.rider_radius;
 
   for (int si = 0; si < N; ++si) {
     const int ai = idx[si];
@@ -96,11 +94,14 @@ std::vector<LateralSolver::ContactPair> LateralSolver::find_proximity_pairs(
       const double lon_b = riders[bi].lon_pos;
       const double lon_sep = lon_b - lon_a; // always >= 0 due to sort
 
-      if (lon_sep >= params_.x_lookahead)
+      // this is not 100% correct, because there might be another rider
+      // b at a higher pos but with larger bike_length - for now good enuf
+      if (lon_sep >= riders[bi].bike_length)
         break; // window exhausted for this A
 
       const double lat_sep = riders[bi].lat_pos - riders[ai].lat_pos;
 
+      double threshold_lat = riders[ai].rider_radius + riders[bi].rider_radius;
       if (std::fabs(lat_sep) < threshold_lat) {
         pairs.push_back(ContactPair{
             .a_idx = ai,
@@ -132,7 +133,7 @@ std::vector<LateralSolver::ContactPair> LateralSolver::find_proximity_pairs(
 bool LateralSolver::is_blocked(
     int rider_idx, const std::vector<LateralRiderState>& riders) const {
   const LateralRiderState& own = riders[rider_idx];
-  const double min_gap = 2.0 * params_.rider_radius;
+  const double min_gap = 2.0 * own.rider_radius;
   const double half_road = own.road_width / 2.0;
 
   // Collect riders ahead within x_lookahead
@@ -141,7 +142,7 @@ bool LateralSolver::is_blocked(
     if (i == rider_idx)
       continue;
     const double lon_offset = riders[i].lon_pos - own.lon_pos;
-    if (lon_offset > 0.0 && lon_offset < params_.x_lookahead)
+    if (lon_offset > 0.0 && lon_offset < riders[i].bike_length)
       ahead_lat.push_back(riders[i].lat_pos);
   }
 
@@ -151,19 +152,19 @@ bool LateralSolver::is_blocked(
   std::sort(ahead_lat.begin(), ahead_lat.end());
 
   // Left edge to first rider
-  if ((ahead_lat.front() - params_.rider_radius) - (-half_road) >= min_gap)
+  if ((ahead_lat.front() - own.rider_radius) - (-half_road) >= min_gap)
     return false;
 
   // Between adjacent riders
   for (size_t i = 0; i + 1 < ahead_lat.size(); ++i) {
-    const double gap = (ahead_lat[i + 1] - params_.rider_radius) -
-                       (ahead_lat[i] + params_.rider_radius);
+    const double gap = (ahead_lat[i + 1] - own.rider_radius) -
+                       (ahead_lat[i] + own.rider_radius);
     if (gap >= min_gap)
       return false;
   }
 
   // Last rider to right edge
-  if (half_road - (ahead_lat.back() + params_.rider_radius) >= min_gap)
+  if (half_road - (ahead_lat.back() + own.rider_radius) >= min_gap)
     return false;
 
   return true; // every gap is too narrow
@@ -236,18 +237,17 @@ LateralSolver::compute_shove(const LateralRiderState& a,
   const int direction_b = -direction_a; // B goes the opposite way
                                         //
   // --- resistance fractions (no dt dependence) ---
-  const double resist_a = a.mass * (0.5 + 0.5 * a.w_prime_frac);
-  const double resist_b = b.mass * (0.5 + 0.5 * b.w_prime_frac);
+  const double resist_a = a.mass * (0.5 + 0.5 * a.surplus_power);
+  const double resist_b = b.mass * (0.5 + 0.5 * b.surplus_power);
   const double resist_total = resist_a + resist_b;
 
   const double frac_a = resist_b / resist_total;
   const double frac_b = resist_a / resist_total;
 
   // --- contact floor: rate * dt ---
+  const double contact_dist = a.rider_radius + b.rider_radius;
   const double overlap_frac =
-      std::clamp((2.0 * params_.rider_radius - std::fabs(pair.lat_sep)) /
-                     (2.0 * params_.rider_radius),
-                 0.0, 1.0);
+      std::clamp((contact_dist - fabs(pair.lat_sep)) / contact_dist, 0.0, 1.0);
   const double contact_floor = overlap_frac * params_.k_contact * dt;
 
   // --- active budget: clamp on RATE, then * dt ---
@@ -365,8 +365,9 @@ LateralSolver::solve(const std::vector<LateralRiderState>& riders,
     delta_acc[pair.b_idx] += out.b_lat_delta;
     penalty_acc[pair.a_idx] *= out.a_speed_penalty;
     penalty_acc[pair.b_idx] *= out.b_speed_penalty;
-    SDL_Log("SHOVE %d vs %d deltaA= %.4f deltaB= %.4f", riders[pair.a_idx].id,
-            riders[pair.b_idx].id, out.a_lat_delta, out.b_lat_delta);
+    // SDL_Log("SHOVE %d vs %d deltaA= %.4f deltaB= %.4f",
+    // riders[pair.a_idx].id,
+    //         riders[pair.b_idx].id, out.a_lat_delta, out.b_lat_delta);
   }
 
   // --- [4] Compose: free-movement candidate + contact delta, clamped ---

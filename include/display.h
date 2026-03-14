@@ -13,7 +13,7 @@
 #include <unordered_map>
 
 // determines px offset per meter of lateral offset
-static constexpr double kLatPxPerM = 20.0;
+static constexpr double kLatPxPerM = 0.5;
 
 struct RenderContext {
   SDL_Renderer* renderer;

@@ -70,13 +70,23 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
   const Vector2d cam_pos = cam->get_pos();
 
-  for (const auto& [id, rs] : ctx->riders) {
+  // TODO - sort by lat_pos descending so we draw correct order
+  std::vector<std::pair<int, RiderRenderState>> sorted_riders(
+      ctx->riders.begin(), ctx->riders.end());
+
+  // Sort the vector by lat_pos in descending order
+  std::sort(sorted_riders.begin(), sorted_riders.end(),
+            [](const auto& a, const auto& b) {
+              return a.second.lat_pos > b.second.lat_pos; // > for descending
+            });
+
+  for (const auto& [id, rs] : sorted_riders) {
     const RiderVisualModel& model = resolve_visual_model(rs.visual_type);
 
     double dist = rs.pos - cam_pos[0];
     double half_world_w = cam->get_world_width() / 2;
-    double extra = model.wheelbase + 2 * model.wheel_radius;
-    if ((dist > (half_world_w + extra) || (dist < -half_world_w))) {
+    double bike_len = model.wheelbase + 2 * model.wheel_radius;
+    if ((dist > (half_world_w + bike_len) || (dist < -half_world_w))) {
       continue;
     }
 
@@ -117,7 +127,7 @@ RiderDrawable::RiderScreenGeom RiderDrawable::compute_screen_geom(
   Vector2d fg = cam.world_to_screen(pos2d);
   Vector2d fw = cam.world_to_screen(front_wheel_world);
   Vector2d rw = cam.world_to_screen(rear_wheel_world);
-  const double lat_offset_px = lat_pos * kLatPxPerM;
+  const double lat_offset_px = lat_pos * kLatPxPerM * cam.get_scale();
   fg.y() -= lat_offset_px;
   fw.y() -= lat_offset_px;
   rw.y() -= lat_offset_px;

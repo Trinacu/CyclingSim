@@ -1,0 +1,419 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+# dso: game
+#
+# Total Lost Samples: 0
+#
+# Samples: 20K of event 'cpu/cycles/Pu'
+# Event count (approx.): 6349144982
+#
+# Children      Self  Command  Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+# ........  ........  .......  ....................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+     1.07%     0.00%  game     [.] 0000000000000000
+            |
+            ---0
+
+     1.02%     0.03%  game     [.] Course::get_altitude(double) const
+            |          
+             --1.00%--Course::get_altitude(double) const
+                       0x40ca5e0000000000
+                       |          
+                        --0.79%--0x1
+
+     1.02%     0.00%  game     [.] 0x98485b28538b48ff
+            |
+            ---0x98485b28538b48ff
+               Course::get_altitude(double) const
+               0x40ca5e0000000000
+               |          
+                --0.82%--0x1
+
+     1.02%     0.00%  game     [.] 0x40ca5e0000000000
+            |
+            ---0x40ca5e0000000000
+               |          
+                --0.82%--0x1
+
+     0.85%     0.00%  game     [.] 0x0000000000000001
+            |
+            ---0x1
+
+     0.39%     0.39%  game     [.] Course::find_segment(double) const
+     0.39%     0.39%  game     [.] ImGui::Begin(char const*, bool*, int)
+     0.38%     0.00%  game     [.] 0x00000000801f0fc3
+     0.36%     0.00%  game     [.] 0x00000000401a2ce0
+     0.35%     0.35%  game     [.] ImGui::NewFrame()
+     0.32%     0.32%  game     [.] sim_step_rider
+     0.24%     0.24%  game     [.] PhysicsEngine::step_lateral_behavior()
+     0.23%     0.23%  game     [.] Rider::update(double)
+     0.22%     0.22%  game     [.] LateralSolver::find_proximity_pairs(std::vector<LateralRiderState, std::allocator<LateralRiderState> > const&) const
+     0.17%     0.00%  game     [.] 0x0000020000000001
+     0.16%     0.16%  game     [.] energy_update
+     0.15%     0.00%  game     [.] 0xaf8b4808ec834853
+     0.15%     0.00%  game     [.] SimulationRenderer::~SimulationRenderer()
+     0.15%     0.00%  game     [.] 0x000000003f77dd30
+     0.15%     0.15%  game     [.] PhysicsEngine::compute_surplus_power(Rider const&) const
+     0.14%     0.14%  game     [.] ImGui::NavUpdate()
+     0.13%     0.13%  game     [.] LateralSolver::solve(std::vector<LateralRiderState, std::allocator<LateralRiderState> > const&, double) const
+     0.11%     0.11%  game     [.] void std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> >::_M_assign<std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> > const&, std::__detail::_ReuseOrAllocNode<std::allocator<std::__detail::_Hash_node<std::pair<int const, RiderSnapshot>, false> > > >(std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> > const&, std::__detail::_ReuseOrAllocNode<std::allocator<std::__detail::_Hash_node<std::pair<int const, RiderSnapshot>, false> > >&)
+     0.11%     0.11%  game     [.] void std::__insertion_sort<__gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, __gnu_cxx::__ops::_Iter_comp_iter<LateralSolver::find_proximity_pairs(std::vector<LateralRiderState, std::allocator<LateralRiderState> > const&) const::{lambda(int, int)#1}> >(__gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, __gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, __gnu_cxx::__ops::_Iter_comp_iter<LateralSolver::find_proximity_pairs(std::vector<LateralRiderState, std::allocator<LateralRiderState> > const&) const::{lambda(int, int)#1}>)
+     0.10%     0.00%  game     [.] 0x0000000000000095
+     0.10%     0.00%  game     [.] 0x3f70a3d73d75c28f
+     0.09%     0.09%  game     [.] pow_speed
+     0.09%     0.09%  game     [.] resistive_force
+     0.09%     0.00%  game     [.] 0x00000000401a6190
+     0.09%     0.09%  game     [.] SimulationRenderer::render_frame()
+     0.08%     0.08%  game     [.] PhysicsEngine::fill_snapshot(FrameSnapshot&) const
+     0.08%     0.08%  game     [.] ImGui::EndFrame()
+     0.08%     0.08%  game     [.] RiderDrawable::render(RenderContext const*)
+     0.08%     0.07%  game     [.] CourseDrawable::render(RenderContext const*)
+     0.08%     0.08%  game     [.] ImGui::ErrorRecoveryTryToRecoverWindowState(ImGuiErrorRecoveryState const*)
+     0.08%     0.00%  game     [.] 0x0000000100010000
+     0.08%     0.00%  game     [.] 0x40239d013a92a305
+     0.07%     0.07%  game     [.] ImGui::Render()
+     0.07%     0.00%  game     [.] 0x0000000000000051
+     0.07%     0.00%  game     [.] 0x3fed1eb851eb851f
+     0.07%     0.07%  game     [.] Button::render(RenderContext const*)
+     0.06%     0.00%  game     [.] 0x6564697223230074
+     0.06%     0.00%  game     [.] 0x3fe3e76c00006563
+     0.06%     0.00%  game     [.] 0x3fe3e76c00796772
+     0.06%     0.06%  game     [.] ImDrawList::AddPolyline(ImVec2 const*, int, unsigned int, int, float) [clone .part.0]
+     0.06%     0.06%  game     [.] ImFontAtlasUpdateNewFrame(ImFontAtlas*, int, bool)
+     0.06%     0.00%  game     [.] 0x0000000000000045
+     0.06%     0.00%  game     [.] 0x0000000000000002
+     0.06%     0.06%  game     [.] ImGui_ImplSDL3_NewFrame()
+     0.06%     0.00%  game     [.] 0xf8148b5600000001
+     0.05%     0.05%  game     [.] LateralSolver::free_movement(LateralRiderState const&, double) const
+     0.05%     0.00%  game     [.] 0x44200000447a0000
+     0.05%     0.05%  game     [.] void std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::_M_construct<true>(char const*, unsigned long)
+     0.05%     0.05%  game     [.] Simulation::start_realtime()
+     0.05%     0.00%  game     [.] 0x3ff0000000000000
+     0.05%     0.05%  game     [.] std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> >::_M_move_assign(std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> >&&, std::integral_constant<bool, true>) [clone .isra.0]
+     0.05%     0.05%  game     [.] Simulation::step_fixed(double)
+     0.05%     0.05%  game     [.] VStack::render_imgui(RenderContext const*)
+     0.05%     0.05%  game     [.] ImDrawList::_ResetForNewFrame()
+     0.04%     0.04%  game     [.] std::_Hashtable<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, SDL_Texture*>, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, SDL_Texture*> >, std::__detail::_Select1st, std::equal_to<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<true, false, true> >::find(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const
+     0.04%     0.00%  game     [.] 0x3f0000003f000000
+     0.04%     0.04%  game     [.] ImGui::RenderWindowDecorations(ImGuiWindow*, ImRect const&, bool, bool, int, unsigned int const*, float)
+     0.04%     0.04%  game     [.] ImFont::RenderText(ImDrawList*, float, ImVec2 const&, unsigned int, ImVec4 const&, char const*, char const*, float, int)
+     0.04%     0.04%  game     [.] ImGui::FindWindowByName(char const*)
+     0.04%     0.04%  game     [.] CalcWindowSizeAfterConstraint(ImGuiWindow*, ImVec2 const&) [clone .isra.0]
+     0.04%     0.04%  game     [.] Course::get_slope(double) const
+     0.04%     0.00%  game     [.] 0x000000000000000d
+     0.04%     0.04%  game     [.] Rider::snapshot() const
+     0.04%     0.04%  game     [.] ImGui::GetCurrentContext()
+     0.04%     0.00%  game     [.] 0x00000000401567e0
+     0.03%     0.03%  game     [.] ImGui::UpdateInputEvents(bool)
+     0.03%     0.00%  game     [.] 0x0000000040159f18
+     0.03%     0.00%  game     [.] 0x0000000040158798
+     0.03%     0.00%  game     [.] 0x0000000040158758
+     0.03%     0.00%  game     [.] 0x0000000040158498
+     0.03%     0.00%  game     [.] 0x0000000040161488
+     0.03%     0.03%  game     [.] ImGui::ItemAdd(ImRect const&, unsigned int, ImRect const*, int)
+     0.03%     0.00%  game     [.] 0x232300746c756166
+     0.03%     0.03%  game     [.] Stopwatch::render(RenderContext const*)
+     0.03%     0.03%  game     [.] ImGui::UpdateCurrentFontSize(float)
+     0.03%     0.03%  game     [.] ScreenManager::update()
+     0.03%     0.03%  game     [.] TimeControlPanel::render(RenderContext const*)
+     0.03%     0.00%  game     [.] 0x0000000000000004
+     0.03%     0.03%  game     [.] ImFontAtlasDebugLogTextureRequests(ImFontAtlas*)
+     0.03%     0.03%  game     [.] UIRoot::render(RenderContext const*)
+     0.03%     0.03%  game     [.] std::__detail::_Hash_node<std::pair<int const, RiderSnapshot>, false>* std::__detail::_ReuseOrAllocNode<std::allocator<std::__detail::_Hash_node<std::pair<int const, RiderSnapshot>, false> > >::operator()<std::pair<int const, RiderSnapshot> const&>(std::pair<int const, RiderSnapshot> const&)
+     0.03%     0.03%  game     [.] LateralSolver::compute_shove(LateralRiderState const&, LateralRiderState const&, LateralSolver::ContactPair const&, double) const
+     0.03%     0.03%  game     [.] void std::__introsort_loop<__gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, long, __gnu_cxx::__ops::_Iter_comp_iter<LateralSolver::find_proximity_pairs(std::vector<LateralRiderState, std::allocator<LateralRiderState> > const&) const::{lambda(int, int)#1}> >(__gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, __gnu_cxx::__normal_iterator<int*, std::vector<int, std::allocator<int> > >, long, __gnu_cxx::__ops::_Iter_comp_iter<LateralSolver::find_proximity_pairs(std::vector<LateralRiderState, std::allocator<LateralRiderState> > const&) const::{lambda(int, int)#1}>)
+     0.03%     0.02%  game     [.] VStack::render(RenderContext const*)
+     0.03%     0.03%  game     [.] ImGui::ColorConvertFloat4ToU32(ImVec4 const&)
+     0.03%     0.00%  game     [.] 0x0000000000000025
+     0.03%     0.03%  game     [.] ImFontCalcTextSizeEx(ImFont*, float, float, float, char const*, char const*, char const*, char const**, ImVec2*, int)
+     0.03%     0.03%  game     [.] RiderDrawable::draw_rider(RenderContext const*, RiderVisualModel const&, RiderVisualState const&, RiderDrawable::RiderScreenGeom const&, Camera const&) const
+     0.03%     0.03%  game     [.] ImGui::ErrorRecoveryStoreState(ImGuiErrorRecoveryState*)
+     0.03%     0.03%  game     [.] ImDrawList::AddRectFilled(ImVec2 const&, ImVec2 const&, unsigned int, float, int)
+     0.03%     0.00%  game     [.] 0x00000000401a3760
+     0.03%     0.03%  game     [.] ImDrawList::PrimReserve(int, int)
+     0.03%     0.00%  game     [.] 0x000000003f77db00
+     0.03%     0.03%  game     [.] TimeFactorSlider::render(RenderContext const*)
+     0.03%     0.03%  game     [.] CalcWindowAutoFitSize(ImGuiWindow*, ImVec2 const&, int)
+     0.03%     0.03%  game     [.] ImGui_ImplSDLRenderer3_RenderDrawData(ImDrawData*, SDL_Renderer*)
+     0.03%     0.00%  game     [.] 0x00000000401637a8
+     0.03%     0.00%  game     [.] 0x0000000000000006
+     0.03%     0.03%  game     [.] ImDrawList::_OnChangedClipRect()
+     0.03%     0.03%  game     [.] LateralOverview::draw_texture(RenderContext const*)
+     0.02%     0.00%  game     [.] 0x0000000000841f0f
+     0.02%     0.02%  game     [.] ImFont::GetFontBaked(float, float)
+     0.02%     0.02%  game     [.] ImFontBaked::FindGlyph(unsigned short)
+     0.02%     0.02%  game     [.] SDL_AppIterate
+     0.02%     0.02%  game     [.] ImGui::UpdateHoveredWindowAndCaptureFlags(ImVec2 const&)
+     0.02%     0.00%  game     [.] 0x000000003f9541d0
+     0.02%     0.00%  game     [.] 0x3ff787c68b267232
+     0.02%     0.02%  game     [.] ImGui::RenderTextClipped(ImVec2 const&, ImVec2 const&, char const*, char const*, ImVec2 const*, ImVec2 const&, ImRect const*)
+     0.02%     0.00%  game     [.] 0x000000f500000003
+     0.02%     0.02%  game     [.] ImDrawList::PrimRect(ImVec2 const&, ImVec2 const&, unsigned int)
+     0.02%     0.02%  game     [.] std::__detail::_Map_base<int, std::pair<int const, RiderRenderState>, std::allocator<std::pair<int const, RiderRenderState> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true>, true>::operator[](int const&)
+     0.02%     0.02%  game     [.] ImGui::IsMouseHoveringRect(ImVec2 const&, ImVec2 const&, bool)
+     0.02%     0.01%  game     [.] HStack::render(RenderContext const*)
+     0.02%     0.02%  game     [.] PhysicsEngine::set_rider_effort(int, double)
+     0.02%     0.02%  game     [.] Course::get_road_width(double) const
+     0.02%     0.02%  game     [.] SimulationScreen::update()
+     0.02%     0.02%  game     [.] ImGui::GetColorU32(int, float)
+     0.02%     0.02%  game     [.] GetMergedModsFromKeys()
+     0.02%     0.02%  game     [.] ValueField::set_text(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+     0.02%     0.02%  game     [.] ImGui::RenderTextClippedEx(ImDrawList*, ImVec2 const&, ImVec2 const&, char const*, char const*, ImVec2 const*, ImVec2 const&, ImRect const*)
+     0.02%     0.01%  game     [.] MinimapWidget::render(RenderContext const*)
+     0.02%     0.02%  game     [.] ImHashStr(char const*, unsigned long, unsigned int)
+     0.02%     0.02%  game     [.] ImGui::ButtonBehavior(ImRect const&, unsigned int, bool*, bool*, int)
+     0.02%     0.02%  game     [.] ImGui::UpdateMouseMovingWindowNewFrame()
+     0.02%     0.02%  game     [.] VStack::handle_event(SDL_Event const*)
+     0.02%     0.02%  game     [.] ImDrawList::AddRect(ImVec2 const&, ImVec2 const&, unsigned int, float, int, float)
+     0.02%     0.02%  game     [.] ImGui::RenderArrow(ImDrawList*, ImVec2, unsigned int, ImGuiDir, float)
+     0.02%     0.02%  game     [.] SimulationRenderer::update()
+     0.02%     0.00%  game     [.] 0x3ff775d2d69d51cc
+     0.02%     0.02%  game     [.] ImGuiMenuColumns::Update(float, bool)
+     0.02%     0.02%  game     [.] ImGuiStorage::GetVoidPtrRef(unsigned int, void*)
+     0.02%     0.00%  game     [.] 0x000000003f8963b8
+     0.02%     0.02%  game     [.] LateralOverview::render(RenderContext const*)
+     0.02%     0.00%  game     [.] 0x50232300746f6c70
+     0.02%     0.02%  game     [.] ImHashData(void const*, unsigned long, unsigned int)
+     0.02%     0.00%  game     [.] 0x0000000100000002
+     0.02%     0.02%  game     [.] ImGui::ButtonEx(char const*, ImVec2 const&, int)
+     0.02%     0.02%  game     [.] UIRoot::render_imgui(RenderContext const*)
+     0.01%     0.00%  game     [.] 0x00007f9f9c0012d0
+     0.01%     0.00%  game     [.] 0x00000000401a2258
+     0.01%     0.01%  game     [.] ImGui::ErrorRecoveryTryToRecoverState(ImGuiErrorRecoveryState const*)
+     0.01%     0.00%  game     [.] 0x00007f9f9c001790
+     0.01%     0.01%  game     [.] ImGui::FindHoveredWindowEx(ImVec2 const&, bool, ImGuiWindow**, ImGuiWindow**)
+     0.01%     0.01%  game     [.] Course::get_wind(double) const
+     0.01%     0.00%  game     [.] 0x00000000401277a0
+     0.01%     0.01%  game     [.] ImGui::SetShortcutRouting(int, int, unsigned int)
+     0.01%     0.01%  game     [.] RiderValueField::render_with_snapshot(RenderContext const*, RiderRenderState const*)
+     0.01%     0.01%  game     [.] ImGui::GetIO()
+     0.01%     0.01%  game     [.] Simulation::consume_latest_frame_pair(FrameSnapshot&, FrameSnapshot&)
+     0.01%     0.01%  game     [.] ImGui::RenderNavCursor(ImRect const&, unsigned int, int)
+     0.01%     0.01%  game     [.] ImGui::IsMouseDragging(int, float)
+     0.01%     0.00%  game     [.] 0x3f847ae147ae147b
+     0.01%     0.01%  game     [.] ImDrawList::PushTexture(ImTextureRef)
+     0.01%     0.01%  game     [.] Rider::set_effort(double)
+     0.01%     0.00%  game     [.] 0x0000000040159208
+     0.01%     0.00%  game     [.] 0x00000000401594f0
+     0.01%     0.01%  game     [.] UIRoot::handle_event(SDL_Event const*)
+     0.01%     0.00%  game     [.] 0x001f0f0000000000
+     0.01%     0.00%  game     [.] 0x0000000040159500
+     0.01%     0.00%  game     [.] 0x00000000401a2d40
+     0.01%     0.01%  game     [.] TimeFactorSlider::handle_event(SDL_Event const*)
+     0.01%     0.01%  game     [.] ImGui_ImplSDLRenderer3_NewFrame()
+     0.01%     0.01%  game     [.] ImGui::Shortcut(int, int, unsigned int)
+     0.01%     0.00%  game     [.] SDL_HashString
+     0.01%     0.01%  game     [.] SimulationScreen::render()
+     0.01%     0.00%  game     [.] 0x0000034f0000034f
+     0.01%     0.01%  game     [.] ImGui::PushClipRect(ImVec2 const&, ImVec2 const&, bool)
+     0.01%     0.00%  game     [.] 0x000000130000002b
+     0.01%     0.00%  game     [.] 0x0000001300000023
+     0.01%     0.01%  game     [.] ImFont::CalcTextSizeA(float, float, float, char const*, char const*, char const**)
+     0.01%     0.01%  game     [.] ImDrawListSharedData::SetCircleTessellationMaxError(float)
+     0.01%     0.00%  game     [.] 0x406bcd74191988e6
+     0.01%     0.00%  game     [.] 0x706f50232300746c
+     0.01%     0.00%  game     [.] 0x406d0b9310de1aa6
+     0.01%     0.01%  game     [.] void std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> >::_M_assign_elements<std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> > const&>(std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> > const&)
+     0.01%     0.01%  game     [.] std::_Hashtable<int, std::pair<int const, RiderRenderState>, std::allocator<std::pair<int const, RiderRenderState> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> >::find(int const&) const
+     0.01%     0.01%  game     [.] HStack::handle_event(SDL_Event const*)
+     0.01%     0.00%  game     [.] 0x408c884c0b583c5f
+     0.01%     0.01%  game     [.] ImGui::CollapseButton(unsigned int, ImVec2 const&)
+     0.01%     0.01%  game     [.] ImGui::UpdateMouseMovingWindowEndFrame()
+     0.01%     0.01%  game     [.] Camera::world_to_screen(Eigen::Matrix<double, 1, 2, 1, 1, 2>) const
+     0.01%     0.00%  game     [.] 0x746f6c7072656469
+     0.01%     0.01%  game     [.] ImGuiWindow::GetID(char const*, char const*)
+     0.01%     0.01%  game     [.] ImGui_ImplSDL3_UpdateIme()
+     0.01%     0.00%  game     [.] 0x408ffe27f166785f
+     0.01%     0.01%  game     [.] ImFontAtlasUpdateDrawListsSharedData(ImFontAtlas*)
+     0.01%     0.00%  game     [.] 0x00000000401f25b0
+     0.01%     0.01%  game     [.] ScreenManager::handle_event(SDL_Event const*)
+     0.01%     0.00%  game     [.] 0x0000000000000003
+     0.01%     0.00%  game     [.] 0x3fe3e76c00000000
+     0.01%     0.00%  game     [.] 0x405ede197ed5f4ca
+     0.01%     0.00%  game     [.] 0x40196cc27b44750a
+     0.01%     0.00%  game     [.] 0x000006a0000006a0
+     0.01%     0.01%  game     [.] RiderPanel::render_imgui(RenderContext const*)
+     0.01%     0.01%  game     [.] Drawable::handle_event(SDL_Event const*)
+     0.01%     0.01%  game     [.] ImGui::PopClipRect()
+     0.01%     0.01%  game     [.] ImDrawList::AddConvexPolyFilled(ImVec2 const*, int, unsigned int) [clone .part.0]
+     0.01%     0.00%  game     [.] 0x40848873b410f50f
+     0.01%     0.00%  game     [.] 0x408d39e420fdaa6f
+     0.01%     0.01%  game     [.] RiderPanel::render(RenderContext const*)
+     0.01%     0.00%  game     [.] 0x4082b6e222612327
+     0.01%     0.00%  game     [.] 0x334c445300010000
+     0.01%     0.01%  game     [.] Rider::get_speed() const
+     0.01%     0.00%  game     [.] 0x4088cbb4966956e7
+     0.01%     0.00%  game     [.] 0x0000014a0000014a
+     0.01%     0.00%  game     [.] 0x408544f47ef3c867
+     0.01%     0.01%  game     [.] exp@plt
+     0.01%     0.00%  game     [.] 0x408d97254712c1e7
+     0.01%     0.01%  game     [.] Simulation::publish_snapshot()
+     0.01%     0.00%  game     [.] 0x2eeca933df2c8941
+     0.01%     0.01%  game     [.] std::_Function_handler<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > (RiderRenderState const&), SimulationScreen::SimulationScreen(AppState*)::{lambda(RiderRenderState const&)#4}>::_M_invoke(std::_Any_data const&, RiderRenderState const&)
+     0.01%     0.00%  game     [.] 0xbc3422356b2b55d9
+     0.01%     0.00%  game     [.] 0xbfe344cb3cebafdd
+     0.01%     0.01%  game     [.] ImDrawList::PopClipRect()
+     0.01%     0.00%  game     [.] 0x0000013f0000013f
+     0.01%     0.00%  game     [.] 0x4087043985c900ef
+     0.01%     0.00%  game     [.] 0x3fd3bdfb378e31d9
+     0.01%     0.00%  game     [.] 0x4084badf99d1feb8
+     0.01%     0.00%  game     [.] 0x00000000000f4240
+     0.01%     0.00%  game     [.] 0x408f6a794892ac67
+     0.01%     0.01%  game     [.] std::_Hashtable<int, std::pair<int const, RiderSnapshot>, std::allocator<std::pair<int const, RiderSnapshot> >, std::__detail::_Select1st, std::equal_to<int>, std::hash<int>, std::__detail::_Mod_range_hashing, std::__detail::_Default_ranged_hash, std::__detail::_Prime_rehash_policy, std::__detail::_Hashtable_traits<false, false, true> >::clear()
+     0.01%     0.00%  game     [.] 0x0000022e0000022e
+     0.01%     0.01%  game     [.] Course::get_crr(double) const
+     0.01%     0.00%  game     [.] 0x000003a3000003a3
+     0.01%     0.00%  game     [.] 0x4074000000000000
+     0.01%     0.00%  game     [.] 0x407236cc09d8e331
+     0.01%     0.00%  game     [.] 0xbd39abc923611b3e
+     0.01%     0.00%  game     [.] 0xab8cc48d3055e0e2
+     0.01%     0.00%  game     [.] 0x00000000401a2598
+     0.01%     0.00%  game     [.] 0x0000016500000165
+     0.01%     0.00%  game     [.] 0x4072e849752b7ab5
+     0.01%     0.01%  game     [.] std::_Function_handler<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > (RiderRenderState const&), SimulationScreen::SimulationScreen(AppState*)::{lambda(RiderRenderState const&)#1}>::_M_invoke(std::_Any_data const&, RiderRenderState const&)
+     0.01%     0.00%  game     [.] 0xbfd3bdfb378e31be
+     0.01%     0.00%  game     [.] 0x0000062200000623
+     0.01%     0.00%  game     [.] 0x3ff787c68b2671a6
+     0.01%     0.00%  game     [.] 0x000003d0000003d0
+     0.01%     0.00%  game     [.] 0x0000026e0000026e
+     0.01%     0.00%  game     [.] 0x40761bb28543b30d
+     0.01%     0.00%  game     [.] 0x0000025500000255
+     0.01%     0.00%  game     [.] 0x408a537dd76965c7
+     0.01%     0.00%  game     [.] 0x000006ca000006ca
+     0.01%     0.00%  game     [.] 0x408259f4cb7c630f
+     0.01%     0.01%  game     [.] ImGui::End()
+     0.01%     0.00%  game     [.] 0x0000038700000387
+     0.01%     0.00%  game     [.] 0x0000030000000300
+     0.01%     0.01%  game     [.] ImGui::PushFocusScope(unsigned int)
+     0.01%     0.00%  game     [.] 0x4090ae8fc69dc674
+     0.01%     0.01%  game     [.] AddWindowToDrawData(ImGuiWindow*, int)
+     0.01%     0.00%  game     [.] 0x000003e9000003e9
+     0.01%     0.01%  game     [.] ImGui::CalcItemSize(ImVec2, float, float)
+     0.01%     0.00%  game     [.] 0x0000017300000173
+     0.01%     0.01%  game     [.] ImDrawList::_OnChangedTexture()
+     0.00%     0.00%  game     [.] 0x40740005791cd21d
+     0.00%     0.00%  game     [.] 0x0000032700000327
+     0.00%     0.00%  game     [.] 0x0000000040158780
+     0.00%     0.00%  game     [.] ValueField::render(RenderContext const*)
+     0.00%     0.00%  game     [.] 0x000005f3000005f3
+     0.00%     0.00%  game     [.] format_time(double, char*)
+     0.00%     0.00%  game     [.] 0x3ff775d2e4d07ef4
+     0.00%     0.00%  game     [.] 0x00007ffd00006b63
+     0.00%     0.00%  game     [.] 0x4074769fbac4c02b
+     0.00%     0.00%  game     [.] 0x75706f5023230074
+     0.00%     0.00%  game     [.] 0x000004ed000004ed
+     0.00%     0.00%  game     [.] 0x000000bf000000bf
+     0.00%     0.00%  game     [.] 0x0000021500000215
+     0.00%     0.00%  game     [.] format_number[abi:cxx11](double, int)
+     0.00%     0.00%  game     [.] 0x000005ca000005ca
+     0.00%     0.00%  game     [.] 0x3ff787c687d43a00
+     0.00%     0.00%  game     [.] SDL_AppEvent
+     0.00%     0.00%  game     [.] 0x0000000100000000
+     0.00%     0.00%  game     [.] 0x000000003fd3d650
+     0.00%     0.00%  game     [.] 0x000003d4000003d4
+     0.00%     0.00%  game     [.] 0x3f8000003d23d70a
+     0.00%     0.00%  game     [.] ImGui::UpdateWindowParentAndRootLinks(ImGuiWindow*, int, ImGuiWindow*)
+     0.00%     0.00%  game     [.] CalcNextScrollFromScrollTargetAndClamp(ImGuiWindow*)
+     0.00%     0.00%  game     [.] 0x0000069c0000069c
+     0.00%     0.00%  game     [.] 0x000004e0000004e0
+     0.00%     0.00%  game     [.] 0x000005d4000005d4
+     0.00%     0.00%  game     [.] ImGuiMenuColumns::CalcNextTotalWidth(bool)
+     0.00%     0.00%  game     [.] SDL_GetPerformanceCounter@plt
+     0.00%     0.00%  game     [.] std::chrono::_V2::steady_clock::now()@plt
+     0.00%     0.00%  game     [.] RiderDrawable::update_animation(RiderVisualState&, double, double, double)
+     0.00%     0.00%  game     [.] 0x000005ee000005ee
+     0.00%     0.00%  game     [.] 0x0000060700000607
+     0.00%     0.00%  game     [.] 0x40905c0a0c25a4e4
+     0.00%     0.00%  game     [.] 0x000000130000002c
+     0.00%     0.00%  game     [.] 0x000000003fa20398
+     0.00%     0.00%  game     [.] 0xb069abcf4a0d9fa5
+     0.00%     0.00%  game     [.] 0x0000057c0000057c
+     0.00%     0.00%  game     [.] 0x0000002f0000002f
+     0.00%     0.00%  game     [.] 0x00000004d75d71c1
+     0.00%     0.00%  game     [.] 0x0000002a0000002a
+     0.00%     0.00%  game     [.] Drawable::render_imgui(RenderContext const*)
+     0.00%     0.00%  game     [.] 0x000003b8000003b8
+     0.00%     0.00%  game     [.] 0x000000ef000000ef
+     0.00%     0.00%  game     [.] 0x0000010000000100
+     0.00%     0.00%  game     [.] 0x0000019900000199
+     0.00%     0.00%  game     [.] 0x3fe3e76c00000002
+     0.00%     0.00%  game     [.] 0x000006d1000006d1
+     0.00%     0.00%  game     [.] 0x0000046c0000046c
+     0.00%     0.00%  game     [.] 0x0000015100000151
+     0.00%     0.00%  game     [.] 0x000000bd000000bd
+     0.00%     0.00%  game     [.] 0x0000035f0000035f
+     0.00%     0.00%  game     [.] 0x00007f9f9c001bc0
+     0.00%     0.00%  game     [.] 0x0000065600000656
+     0.00%     0.00%  game     [.] 0x000002c6000002c6
+     0.00%     0.00%  game     [.] TextureManager::get_texture(char const*) const
+     0.00%     0.00%  game     [.] 0x00007ffd00001fa0
+     0.00%     0.00%  game     [.] 0x0000000118c8f982
+     0.00%     0.00%  game     [.] 0x0000017800000178
+     0.00%     0.00%  game     [.] BaseEditableField::handle_event(SDL_Event const*)
+     0.00%     0.00%  game     [.] 0x000003a2000003a2
+     0.00%     0.00%  game     [.] 0x000001a4000001a4
+     0.00%     0.00%  game     [.] 0x00000004bf668dea
+     0.00%     0.00%  game     [.] 0x39c5a6a2c14ec72d
+     0.00%     0.00%  game     [.] 0x000002d4000002d4
+     0.00%     0.00%  game     [.] ImDrawList::PathRect(ImVec2 const&, ImVec2 const&, float, int)
+     0.00%     0.00%  game     [.] 0x00000000401a6ca0
+     0.00%     0.00%  game     [.] 0x0000029800000298
+     0.00%     0.00%  game     [.] ImDrawList::AddDrawCmd()
+     0.00%     0.00%  game     [.] 0x000006ee000006ee
+     0.00%     0.00%  game     [.] 0x000000c8000000c8
+     0.00%     0.00%  game     [.] SimulationScreen::handle_event(SDL_Event const*)
+     0.00%     0.00%  game     [.] ImGui::SetCurrentFont(ImFont*, float, float)
+     0.00%     0.00%  game     [.] 0x0000031b0000031b
+     0.00%     0.00%  game     [.] 0x408e306258049f48
+     0.00%     0.00%  game     [.] ImGui::GetMouseCursor()
+     0.00%     0.00%  game     [.] SDL_GetKeyboardFocus@plt
+     0.00%     0.00%  game     [.] 0x0000000000000035
+     0.00%     0.00%  game     [.] 0x0000043800000438
+     0.00%     0.00%  game     [.] 0x00000000bae3151a
+     0.00%     0.00%  game     [.] energy_wbal_fraction
+     0.00%     0.00%  game     [.] 0x00000000e7d179b4
+     0.00%     0.00%  game     [.] ImGui::ItemHoverable(ImRect const&, unsigned int, int)
+     0.00%     0.00%  game     [.] SetCurrentWindow(ImGuiWindow*)
+     0.00%     0.00%  game     [.] 0x0000033400000334
+     0.00%     0.00%  game     [.] 0x000004c3000004c3
+     0.00%     0.00%  game     [.] 0x0000055b0000055b
+     0.00%     0.00%  game     [.] 0x000000004046e290
+     0.00%     0.00%  game     [.] ImGui::PopFont()
+     0.00%     0.00%  game     [.] 0x0000030500000306
+     0.00%     0.00%  game     [.] 0x7265646972232300
+     0.00%     0.00%  game     [.] 0x4074d7839796c31d
+     0.00%     0.00%  game     [.] memcpy@plt
+     0.00%     0.00%  game     [.] ImGui_ImplSDL3_ProcessEvent(SDL_Event const*)
+     0.00%     0.00%  game     [.] 0x00000000c413e3f2
+     0.00%     0.00%  game     [.] 0x000003f5000003f6
+     0.00%     0.00%  game     [.] 0x0000052500000525
+     0.00%     0.00%  game     [.] 0x0000040600000406
+     0.00%     0.00%  game     [.] 0x0000004600000046
+     0.00%     0.00%  game     [.] 0x0000015700000157
+     0.00%     0.00%  game     [.] ImGuiIO::AddMousePosEvent(float, float)
+     0.00%     0.00%  game     [.] 0x00000000d2d9fb04
+     0.00%     0.00%  game     [.] 0x407591c9770bba92
+     0.00%     0.00%  game     [.] ImDrawList::PushClipRect(ImVec2 const&, ImVec2 const&, bool)
+     0.00%     0.00%  game     [.] 0x0000046400000464
+     0.00%     0.00%  game     [.] 0x0000013300000133
+     0.00%     0.00%  game     [.] 0x40154d155925d44f
+     0.00%     0.00%  game     [.] 0x3f83a723f42f8e77
+     0.00%     0.00%  game     [.] 0x4033995e1241a94d
+     0.00%     0.00%  game     [.] 0x000004bc000004bc
+     0.00%     0.00%  game     [.] Rider::apply_lateral_update(double, double, double)
+     0.00%     0.00%  game     [.] 0x40653b5a8c04e4e7
+     0.00%     0.00%  game     [.] ImGui_ImplStbTrueType_FontBakedLoadGlyph(ImFontAtlas*, ImFontConfig*, ImFontBaked*, void*, unsigned short, ImFontGlyph*, float*)
+     0.00%     0.00%  game     [.] 0x006674742e6e6165
+     0.00%     0.00%  game     [.] 0x3ff787c7af26c2a0
+     0.00%     0.00%  game     [.] MetricRow::render_for_rider(RenderContext const*, RiderRenderState const*)
+     0.00%     0.00%  game     [.] 0x3ff78f86be884f47
+     0.00%     0.00%  game     [.] PhysicsEngine::step_and_snapshot(double, FrameSnapshot&)
+     0.00%     0.00%  game     [.] 0x4080659a63bba10c
+     0.00%     0.00%  game     [.] 0x3ff79dcbcc1e4047
+     0.00%     0.00%  game     [.] ImPlotColormapData::_AppendTable(int)
+     0.00%     0.00%  game     [.] 0xff524ec4ff68a855
+
+
+#
+# (Tip: Use --symfs <dir> if your symbol files are in non-standard locations)
+#
