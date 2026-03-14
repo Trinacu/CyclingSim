@@ -62,7 +62,6 @@ CollisionParams default_params() {
   p.J_max = 100.0;
 
   p.max_lat_correction = 10.0;
-  p.tight_gamma = 1.0;
 
   return p;
 }

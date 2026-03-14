@@ -15,23 +15,15 @@ class Bike;
 struct RiderConfig;
 
 struct CollisionParams {
-  // --- blockade force model ---
-  double v_min = 1.0;   // m/s — safe lower bound for divisions involving speed
-  double F_max = 300.0; // N   — clamp on blocking resistance force
-  double k_t = 1.0;     // scaling: tightness → lateral resistance force
-  double tight_gamma =
-      2.0; // exponent; higher = sharper resistance ramp as gap closes
-
-  // --- shove impulse model ---
-  // double shove_kJ = 0.002; // (W·s) → lateral impulse proxy conversion factor
-  double shove_kJ = 1e-8; // (W·s) → lateral impulse proxy conversion factor
-  double J_max = 30.0;    // N·s  — clamp on shove impulse per step
-
   // Overlap-proportional baseline separation rate.
   // Guarantees divergence even at zero surplus power and equal parameters.
   // full overlap -> k_contact m/s separation.
-  double k_contact =
-      0.07; // m/s — overlap_frac × k_contact = floor displacement
+  double k_contact = 0.07;
+
+  // --- shove impulse model ---
+  // shove_kJ determines additional push due to power output difference
+  double shove_kJ = 1e-8; // (W·s) → lateral impulse proxy conversion factor
+  double J_max = 30.0;    // N·s  — clamp on shove impulse per step
 
   // --- lateral integration ---
   double lat_damping = 8.0; // 1/s  — exponential velocity damping coefficient
