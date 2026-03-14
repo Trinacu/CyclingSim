@@ -12,6 +12,9 @@
 #include <SDL3/SDL.h>
 #include <unordered_map>
 
+// determines px offset per meter of lateral offset
+static constexpr double kLatPxPerM = 20.0;
+
 struct RenderContext {
   SDL_Renderer* renderer;
   std::weak_ptr<Camera> camera_weak;
@@ -76,7 +79,7 @@ private:
   };
 
   RiderScreenGeom compute_screen_geom(const Camera& cam, const Vector2d& pos2d,
-                                      double slope,
+                                      double slope, double lat_pos,
                                       const RiderVisualModel& model,
                                       double wheel_angle) const;
 

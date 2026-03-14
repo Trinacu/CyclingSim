@@ -35,6 +35,7 @@ public:
   virtual double get_slope(double pos) const = 0;
   virtual double get_altitude(double pos) const = 0;
   virtual double get_crr(double pos) const = 0;
+  virtual double get_road_width(double pos) const = 0;
   virtual Wind get_wind(double pos) const = 0;
   // virtual bool isCheckpoint(double pos) const = 0;
   virtual ~ICourseView() = default;
@@ -62,6 +63,7 @@ public:
   double get_altitude(double pos) const override;
   double get_slope(double pos) const override;
   double get_crr(double pos) const override;
+  double get_road_width(double pos) const override;
   Wind get_wind(double pos) const override;
 
   int find_segment(double pos) const;

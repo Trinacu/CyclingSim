@@ -38,13 +38,12 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer = std::make_unique<SimulationRenderer>(
       s->renderer, s->resources.get(), s->sim.get(), cam);
 
-  TTF_Font* default_font =
-      state->resources->get_fontManager()->get_font("default");
+  TTF_Font* default_font = s->resources->get_fontManager()->get_font("default");
   TTF_Font* stopwatch_font =
-      state->resources->get_fontManager()->get_font("stopwatch");
+      s->resources->get_fontManager()->get_font("stopwatch");
 
   sim_renderer->add_world_drawable(
-      std::make_unique<CourseDrawable>(state->sim->get_engine()->get_course()));
+      std::make_unique<CourseDrawable>(s->sim->get_engine()->get_course()));
   sim_renderer->add_world_drawable(std::make_unique<RiderDrawable>());
 
   auto ui = std::make_unique<UIRoot>(screensize[0], screensize[1]);
@@ -79,25 +78,28 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   ui->add(UIAnchor::TopCenter, 20,
           std::make_unique<TimeControlPanel>(400, 20, 40, default_font,
-                                             state->sim.get()));
+                                             s->sim.get()));
 
+  auto bottom_right = std::make_unique<HStack>(8);
+  bottom_right->add(
+      std::make_unique<LateralOverview>(200, 200, s->course.get()));
   Vector2d mapsize = {400, 100};
+  bottom_right->add(std::make_unique<MinimapWidget>(
+      0, 0, mapsize[0], mapsize[1], s->course.get()));
 
-  ui->add(UIAnchor::BottomRight, 8,
-          std::make_unique<MinimapWidget>(0, 0, mapsize[0], mapsize[1],
-                                          s->course.get()));
+  ui->add(UIAnchor::BottomRight, 8, std::move(bottom_right));
 
   auto bottom_left = std::make_unique<VStack>(8);
 
   bottom_left->add(std::make_unique<EditableNumberField>(
-      0, 0, 80, 26, default_font, state->window, [this](double v) {
+      0, 0, 80, 26, default_font, s->window, [this](double v) {
         state->sim->set_rider_effort(selected_rider, v);
         const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
         SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
       }));
 
   bottom_left->add(std::make_unique<EditableStringField>(
-      0, 0, 120, 26, default_font, state->window,
+      0, 0, 120, 26, default_font, s->window,
       [](const std::string& s) { SDL_Log("%s", s.c_str()); }));
 
   ui->add(UIAnchor::BottomLeft, 20, std::move(bottom_left));

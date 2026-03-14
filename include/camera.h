@@ -2,6 +2,7 @@
 #define CAMERA_H
 
 #include "course.h"
+#include "pch.hpp"
 #include "snapshot.h"
 #include <optional>
 #include <unordered_map>
@@ -33,7 +34,9 @@ public:
   void set_center(Vector2d p) { pos = p; }
 
   // Accessors
+  Vector2d get_screensize() const { return screensize; }
   Vector2d get_pos() const { return pos; }
+  double get_world_width() const { return screensize.x() / scale; }
 
 private:
   const Course* course;

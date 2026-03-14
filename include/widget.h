@@ -2,6 +2,7 @@
 #ifndef WIDGET_H
 #define WIDGET_H
 
+#include "SDL3/SDL_render.h"
 #include "display.h"
 #include "layout_types.h"
 #include "sim.h"
@@ -60,6 +61,43 @@ public:
 
   void update_texture(const RenderContext* ctx);
   void render(const RenderContext* ctx) override;
+};
+
+class LateralOverview : public Widget, public ILayoutWidget {
+public:
+  LateralOverview(int w, int h, const Course* course);
+  ~LateralOverview() {}
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  void render(const RenderContext* ctx) override;
+
+private:
+  const Course* course;
+  SDL_Texture* tex = nullptr; // baked once
+  int x_ = 0, y_ = 0;
+  int w_, h_;
+
+  static constexpr float kPad = 6.f;          // px inset from widget edge
+  static constexpr float kRiderRadius = 4.5f; // px, circle radius for rider dot
+  static constexpr int kCircleSegs = 16; // triangle-fan segments for circle
+
+  // Map (lon_pos, lat_pos) → pixel position within the widget.
+  // lon_min/lon_max  — visible longitudinal range from camera
+  // road_half        — half the road width at camera centre
+  SDL_FPoint to_widget(double lon_pos, double lat_pos, double lon_min,
+                       double lon_max, double road_half) const;
+
+  // Filled circle via SDL_RenderGeometry triangle fan.
+  static void fill_circle(SDL_Renderer* r, SDL_FPoint centre, float radius,
+                          SDL_FColor colour);
+
+  void draw_texture(const RenderContext* ctx);
+
+  // Colour assigned to each rider based on team_id.
+  static SDL_FColor rider_colour(int team_id);
 };
 
 class MinimapWidget : public Widget, public ILayoutWidget {

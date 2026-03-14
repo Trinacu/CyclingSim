@@ -43,6 +43,9 @@ Rider::Rider(RiderConfig config_)
   p.crr = config_.bike.crr;
   p.drivetrain_loss = config_.bike.dt_loss;
 
+  lat_pos = (std::rand() % 100 - 50.0) / 200.0;
+  SDL_Log("%.2f", lat_pos);
+
   rider_state_init(&state, &p);
 
   if (config_.name == "Power")
@@ -70,7 +73,12 @@ Vector2d Rider::get_pos2d() const { return _pos2d; }
 
 void Rider::set_pos2d(Vector2d pos) { _pos2d = pos; }
 
-void Rider::reset() { rider_reset(&state); }
+void Rider::reset() {
+  rider_reset(&state);
+  lat_pos = 0.0;
+  lat_vel = 0.0;
+  lat_target = std::nullopt;
+}
 
 void Rider::update(double dt) {
   if (!course)
@@ -101,6 +109,13 @@ void Rider::update(double dt) {
   /* --- sync UI-facing state --- */
   double altitude = course->get_altitude(state.pos);
   _pos2d = Vector2d{state.pos, altitude};
+}
+
+void Rider::apply_lateral_update(double new_lat_pos, double new_lat_vel,
+                                 double speed_penalty) {
+  lat_pos = new_lat_pos;
+  lat_vel = new_lat_vel;
+  state.speed *= speed_penalty;
 }
 
 void Rider::set_effort(double new_effort) { state.target_effort = new_effort; }
@@ -152,6 +167,7 @@ RiderSnapshot Rider::snapshot() const {
       .pos = this->state.pos,
       .slope = this->state.slope,
       .pos2d = this->_pos2d,
+      .lat_pos = this->lat_pos,
       .power = this->state.power,
       .effort = this->state.effort,
       .max_effort = this->state.max_effort,

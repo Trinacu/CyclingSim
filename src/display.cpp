@@ -68,8 +68,17 @@ void RiderDrawable::render(const RenderContext* ctx) {
   if (!cam)
     return;
 
+  const Vector2d cam_pos = cam->get_pos();
+
   for (const auto& [id, rs] : ctx->riders) {
     const RiderVisualModel& model = resolve_visual_model(rs.visual_type);
+
+    double dist = rs.pos - cam_pos[0];
+    double half_world_w = cam->get_world_width() / 2;
+    double extra = model.wheelbase + 2 * model.wheel_radius;
+    if ((dist > (half_world_w + extra) || (dist < -half_world_w))) {
+      continue;
+    }
 
     auto [it, inserted] = visuals.try_emplace(id);
     RiderVisualState& vis = it->second;
@@ -88,17 +97,16 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     update_animation(vis, ctx->interp_sim_time, rs.effort, rs.max_effort);
 
-    const RiderScreenGeom geom =
-        compute_screen_geom(*cam, rs.pos2d, rs.slope, model, vis.wheel_angle);
+    const RiderScreenGeom geom = compute_screen_geom(
+        *cam, rs.pos2d, rs.slope, rs.lat_pos, model, vis.wheel_angle);
 
     draw_rider(ctx, model, vis, geom, *cam);
   }
 }
 
-RiderDrawable::RiderScreenGeom
-RiderDrawable::compute_screen_geom(const Camera& cam, const Vector2d& pos2d,
-                                   double slope, const RiderVisualModel& model,
-                                   double wheel_angle) const {
+RiderDrawable::RiderScreenGeom RiderDrawable::compute_screen_geom(
+    const Camera& cam, const Vector2d& pos2d, double slope, double lat_pos,
+    const RiderVisualModel& model, double wheel_angle) const {
 
   const double tilt_rad = std::atan(slope);
 
@@ -106,10 +114,18 @@ RiderDrawable::compute_screen_geom(const Camera& cam, const Vector2d& pos2d,
       pos2d + rotate(model.front_wheel_offset, tilt_rad);
   Vector2d rear_wheel_world = pos2d + rotate(model.rear_wheel_offset, tilt_rad);
 
+  Vector2d fg = cam.world_to_screen(pos2d);
+  Vector2d fw = cam.world_to_screen(front_wheel_world);
+  Vector2d rw = cam.world_to_screen(rear_wheel_world);
+  const double lat_offset_px = lat_pos * kLatPxPerM;
+  fg.y() -= lat_offset_px;
+  fw.y() -= lat_offset_px;
+  rw.y() -= lat_offset_px;
+
   return RiderScreenGeom{
-      .front_ground_screen = cam.world_to_screen(pos2d),
-      .front_wheel_screen = cam.world_to_screen(front_wheel_world),
-      .rear_wheel_screen = cam.world_to_screen(rear_wheel_world),
+      .front_ground_screen = fg,
+      .front_wheel_screen = fw,
+      .rear_wheel_screen = rw,
       .tilt_deg = tilt_rad * 180.0 / M_PI,
       .wheel_angle_deg = wheel_angle * 180.0 / M_PI + (tilt_rad * 180.0 / M_PI),
   };

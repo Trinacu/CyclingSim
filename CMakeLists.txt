@@ -47,6 +47,7 @@ target_include_directories(common_deps INTERFACE
     ${SDL3_IMAGE_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include
 )
+# file(GLOB_RECURSE GAME_HEADERS "${CMAKE_SOURCE_DIR}/include/*.h")
 
 target_link_directories(common_deps INTERFACE
     ${SDL3_LIBRARY_DIRS}

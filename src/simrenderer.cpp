@@ -70,6 +70,7 @@ void SimulationRenderer::render_frame() {
     rs.pos2d = s0.pos2d * (1.0 - ctx.alpha) + s1.pos2d * ctx.alpha;
     rs.slope = s0.slope * (1.0 - ctx.alpha) + s1.slope * ctx.alpha;
     rs.effort = s0.effort * (1.0 - ctx.alpha) + s1.effort * ctx.alpha;
+    rs.lat_pos = s0.lat_pos * (1.0 - ctx.alpha) + s1.lat_pos * ctx.alpha;
 
     // Non-interpolated from curr_frame
     rs.id = s1.id;
@@ -78,6 +79,7 @@ void SimulationRenderer::render_frame() {
     rs.power = s1.power;
     rs.speed = s1.speed;
     rs.pos = s1.pos;
+    rs.lat_pos = s1.lat_pos;
     rs.visual_type = s1.visual_type;
     rs.team_id = s1.team_id;
     rs.power_breakdown = s1.power_breakdown;

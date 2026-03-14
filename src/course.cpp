@@ -59,11 +59,14 @@ double Course::get_altitude(double pos) const {
 
 double Course::get_slope(double pos) const {
   return points[find_segment(pos)].slope;
-  // return segments[find_segment(pos)].slope;
 }
 
 double Course::get_crr(double pos) const {
   return segments[find_segment(pos)].crr;
+}
+
+double Course::get_road_width(double pos) const {
+  return segments[find_segment(pos)].road_width;
 }
 
 // TODO - fix this to query whatever holds the values?

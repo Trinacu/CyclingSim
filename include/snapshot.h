@@ -24,6 +24,7 @@ static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
 struct RiderRenderState {
   // interpolated
   Vector2d pos2d;
+  double lat_pos;
   double slope;
   double effort;
 
@@ -46,6 +47,7 @@ struct RiderSnapshot {
   double pos;
   double slope;
   Vector2d pos2d;
+  double lat_pos;
   double power;
   double effort;
   double max_effort;

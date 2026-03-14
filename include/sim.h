@@ -2,8 +2,11 @@
 #ifndef SIM_H
 #define SIM_H
 
+#include "collision_params.h"
 #include "course.h"
 #include "effortschedule.h"
+#include "lateral_behavior.h"
+#include "lateral_solver.h"
 #include "rider.h"
 #include "snapshot.h"
 #include <memory>
@@ -12,23 +15,6 @@
 #include <atomic>
 #include <unordered_map>
 #include <vector>
-
-struct CollisionParams {
-  double rider_radius = 0.5; // m
-  double x_lookahead = 2.2;  // m, how far ahead counts as "blocking"
-  double x_contact = 1.2;    // m, when we consider 2D overlap / projection
-
-  double v_min = 1.0;       // m/s for safe division
-  double F_max = 300.0;     // N clamp on blocking resist force
-  double k_t = 1.0;         // scaling for tightness->force
-  double tight_gamma = 2.0; // exponent on tightness
-
-  double shove_kJ = 0.002; // converts (W * dt) to lateral impulse-ish
-  double J_max = 30.0;     // clamp shove impulse proxy
-
-  double lat_damping = 8.0;         // 1/s strong damping
-  double max_lat_correction = 0.10; // m per step cap in projection
-};
 
 class PhysicsEngine {
 private:
@@ -39,6 +25,34 @@ private:
   void fill_snapshot(FrameSnapshot& out) const;
 
   CollisionParams params;
+  LateralSolver lateral_solver_; // stateless; holds a copy of params
+
+  // Optional per-rider behavior: absent → purely force-driven (lat_target
+  // nullopt).
+  // shared_ptr because behavior instances may be shared across riders
+  // (e.g. every team member uses the same BlockBehavior instance).
+  std::unordered_map<RiderId, std::shared_ptr<ILateralBehavior>> behaviors_;
+
+  // lat_states_ is built once in step_lateral_behavior() and reused by
+  // step_lateral_solve().  lat_updates_ is written by the solver and consumed
+  // by step_lateral_apply().
+  std::vector<LateralRiderState> lat_states_;
+  std::vector<LateralUpdate> lat_updates_;
+
+  void step_longitudinal(double dt);
+  void step_lateral_behavior();       // builds lat_states_, queries behaviors
+  void step_lateral_solve(double dt); // calls lateral_solver_.solve()
+  void step_lateral_apply();          // writes lat_updates_ back into riders
+
+  // Approximate surplus power: rider output minus resistive losses at current
+  // speed.  Used to populate LateralRiderState::surplus_power.
+  // Intentionally a rough estimate — it is used only to size the shove budget,
+  // not to drive longitudinal physics.
+  double compute_surplus_power(const Rider& r) const;
+
+  // Build a LateralContext for one rider from the current lat_states_ snapshot.
+  // Nearby riders are filtered to those within params.x_lookahead.
+  LateralContext build_context(RiderId id) const;
 
 public:
   explicit PhysicsEngine(const Course* c);
@@ -56,6 +70,11 @@ public:
   void set_rider_effort(int id, double effort);
 
   void step_and_snapshot(double dt, FrameSnapshot& out);
+
+  // Replaces any previously assigned behavior.  nullptr → clear_rider_behavior.
+  void set_rider_behavior(RiderId id,
+                          std::shared_ptr<ILateralBehavior> behavior);
+  void clear_rider_behavior(RiderId id);
 
   ~PhysicsEngine() = default;
 };

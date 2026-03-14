@@ -11,6 +11,7 @@
 #include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <iostream>
+#include <optional>
 
 struct SDL_Texture;
 
@@ -63,6 +64,10 @@ private:
   Vector2d _pos2d;
   double heading;
 
+  double lat_pos = 0.0;
+  double lat_vel = 0.0;
+  std::optional<double> lat_target = 0.0;
+
   double timestep;
 
   Bike bike;
@@ -100,7 +105,6 @@ public:
 
   bool finished() { return state.pos >= course->get_total_length(); }
 
-  RiderUid get_uid() const { return uid; }
   RiderId get_id() const { return id; }
 
   void set_effort(double new_effort);
@@ -117,7 +121,15 @@ public:
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
 
-  RiderConfig get_config() { return config; }
+  RiderConfig get_config() const { return config; }
+
+  double get_lat_pos() const { return lat_pos; }
+  double get_lat_vel() const { return lat_vel; }
+  std::optional<double> get_lat_target() const { return lat_target; }
+  void set_lat_target(std::optional<double> target) { lat_target = target; }
+  void clear_lat_target() { lat_target = std::nullopt; }
+  void apply_lateral_update(double new_lat_pos, double new_lat_vel,
+                            double speed_penalty);
 
   double pow_speed(double new_speed);
   double pow_speed_prime(double new_speed) const;

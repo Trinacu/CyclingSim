@@ -3,4 +3,4 @@
 # Clean the build directory and rebuild with bear for compilation database
 rm -rf build
 cmake -S . -B build
-cmake --build build
+bear -- cmake --build build

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "SDL3/SDL_log.h"
+#include "SDL3/SDL_oldnames.h"
 #include "SDL3/SDL_pixels.h"
 #include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_render.h"
@@ -184,10 +185,103 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
   return tex;
 }
 
+LateralOverview::LateralOverview(int w_, int h_, const Course* c)
+    : course(c), w_(w_), h_(h_) {}
+
+LayoutSize LateralOverview::get_preferred_size() const { return {w_, h_}; }
+
+void LateralOverview::set_bounds(LayoutRect r) {
+  x_ = r.x;
+  y_ = r.y;
+  // w and h are fixed at construction and don't change.
+}
+
+void LateralOverview::draw_texture(const RenderContext* ctx) {
+  tex = SDL_CreateTexture(ctx->renderer, SDL_PIXELFORMAT_RGBA8888,
+                          SDL_TEXTUREACCESS_TARGET, w_, h_);
+  SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderTarget(ctx->renderer, tex);
+  SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 0);
+  SDL_RenderClear(ctx->renderer);
+
+  // draw filled polygon below the line (optional, nicer look)
+  // ...
+
+  SDL_SetRenderDrawColor(ctx->renderer, 40, 40, 40, 255);
+  SDL_RenderLine(ctx->renderer, w_ / 2.0, 0, w_ / 2.0, h_);
+  SDL_SetRenderDrawColor(ctx->renderer, 255, 255, 255, 255);
+  SDL_RenderLine(ctx->renderer, w_ - kPad, 0, w_ - kPad, h_);
+  SDL_RenderLine(ctx->renderer, kPad, 0, kPad, h_);
+
+  auto cam = ctx->camera_weak.lock();
+  if (!cam)
+    return;
+
+  double lon_min = cam->get_pos()[0] - cam->get_world_width() / 2;
+  double lon_max = cam->get_pos()[0] + cam->get_world_width() / 2;
+
+  for (const auto& [_, rs] : ctx->riders) {
+    SDL_FPoint pos = to_widget(rs.pos, rs.lat_pos, lon_min, lon_max,
+                               course->get_road_width(rs.pos) / 2);
+    SDL_FRect rect = {pos.x, pos.y, 3, 3};
+    SDL_RenderRect(ctx->renderer, &rect);
+  }
+
+  SDL_SetRenderTarget(ctx->renderer, nullptr); // restore
+}
+
+SDL_FPoint LateralOverview::to_widget(double lon_pos, double lat_pos,
+                                      double lon_min, double lon_max,
+                                      double road_half) const {
+  float y = (lon_max - lon_pos) / (lon_max - lon_min) * h_;
+  float x = w_ / 2.0 + lat_pos / road_half * w_;
+  return SDL_FPoint{x, y};
+}
+
+void LateralOverview::render(const RenderContext* ctx) {
+  if (ctx->riders.empty())
+    return;
+
+  draw_texture(ctx);
+
+  // background
+  SDL_SetRenderDrawColor(ctx->renderer, 20, 20, 20, 200);
+  SDL_FRect bg{(float)x_, (float)y_, (float)w_, (float)h_};
+  SDL_RenderFillRect(ctx->renderer, &bg);
+
+  SDL_FRect dst = bg;
+  SDL_RenderTexture(ctx->renderer, tex, nullptr, &dst);
+  // for (const auto& [id, rs] : ctx->riders) {
+  //   const RiderVisualModel& model = resolve_visual_model(rs.visual_type);
+  //
+  //   auto [it, inserted] = visuals.try_emplace(id);
+  //   RiderVisualState& vis = it->second;
+  //
+  //   if (inserted) {
+  //     vis.last_anim_sim_time = ctx->interp_sim_time;
+  //     vis.anim_phase = 0.0;
+  //     vis.wheel_angle = 0.0;
+  //   }
+  //
+  //   // Wheel rotation from distance travelled
+  //   if (std::isnan(vis.last_pos))
+  //     vis.last_pos = rs.pos2d.x();
+  //   vis.wheel_angle += (rs.pos2d.x() - vis.last_pos) / model.wheel_radius;
+  //   vis.last_pos = rs.pos2d.x();
+  //
+  //   update_animation(vis, ctx->interp_sim_time, rs.effort, rs.max_effort);
+  //
+  //   const RiderScreenGeom geom = compute_screen_geom(
+  //       *cam, rs.pos2d, rs.slope, rs.lat_pos, model, vis.wheel_angle);
+  //
+  //   draw_rider(ctx, model, vis, geom, *cam);
+  // }
+}
+
 /* MINIMAP */
 
 MinimapWidget::MinimapWidget(int x, int y, int w, int h, const Course* course)
-    : x(x), y(y), w(w), h(h), course(course) {
+    : course(course), x(x), y(y), w(w), h(h) {
   world_x_min = world_x_max = course->points[0].x;
   world_y_min = world_y_max = course->points[0].y;
 
