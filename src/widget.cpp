@@ -188,6 +188,8 @@ SDL_Texture* Stopwatch::create_base(SDL_Renderer* renderer) {
 LateralOverview::LateralOverview(int w_, int h_, const Course* c)
     : course(c), w_(w_), h_(h_) {}
 
+LateralOverview::~LateralOverview() { SDL_DestroyTexture(tex); }
+
 LayoutSize LateralOverview::get_preferred_size() const { return {w_, h_}; }
 
 void LateralOverview::set_bounds(LayoutRect r) {
@@ -196,16 +198,18 @@ void LateralOverview::set_bounds(LayoutRect r) {
   // w and h are fixed at construction and don't change.
 }
 
-void LateralOverview::draw_texture(const RenderContext* ctx) {
-  tex = SDL_CreateTexture(ctx->renderer, SDL_PIXELFORMAT_RGBA8888,
-                          SDL_TEXTUREACCESS_TARGET, w_, h_);
+void LateralOverview::ensure_target(SDL_Renderer* r) {
+  if (tex)
+    return;
+  tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET,
+                          w_, h_);
   SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+}
+
+void LateralOverview::draw_into_target(const RenderContext* ctx) {
   SDL_SetRenderTarget(ctx->renderer, tex);
   SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 0);
   SDL_RenderClear(ctx->renderer);
-
-  // draw filled polygon below the line (optional, nicer look)
-  // ...
 
   SDL_SetRenderDrawColor(ctx->renderer, 40, 40, 40, 255);
   SDL_RenderLine(ctx->renderer, w_ / 2.0, 0, w_ / 2.0, h_);
@@ -214,8 +218,10 @@ void LateralOverview::draw_texture(const RenderContext* ctx) {
   SDL_RenderLine(ctx->renderer, kPad, 0, kPad, h_);
 
   auto cam = ctx->camera_weak.lock();
-  if (!cam)
+  if (!cam) {
+    SDL_SetRenderTarget(ctx->renderer, nullptr);
     return;
+  }
 
   double lon_min = cam->get_pos()[0] - cam->get_world_width() / 2;
   double lon_max = cam->get_pos()[0] + cam->get_world_width() / 2;
@@ -227,7 +233,7 @@ void LateralOverview::draw_texture(const RenderContext* ctx) {
     SDL_RenderRect(ctx->renderer, &rect);
   }
 
-  SDL_SetRenderTarget(ctx->renderer, nullptr); // restore
+  SDL_SetRenderTarget(ctx->renderer, nullptr);
 }
 
 SDL_FPoint LateralOverview::to_widget(double lon_pos, double lat_pos,
@@ -242,40 +248,15 @@ void LateralOverview::render(const RenderContext* ctx) {
   if (ctx->riders.empty())
     return;
 
-  draw_texture(ctx);
+  ensure_target(ctx->renderer);
+  draw_into_target(ctx);
 
   // background
   SDL_SetRenderDrawColor(ctx->renderer, 20, 20, 20, 200);
   SDL_FRect bg{(float)x_, (float)y_, (float)w_, (float)h_};
   SDL_RenderFillRect(ctx->renderer, &bg);
 
-  SDL_FRect dst = bg;
-  SDL_RenderTexture(ctx->renderer, tex, nullptr, &dst);
-  // for (const auto& [id, rs] : ctx->riders) {
-  //   const RiderVisualModel& model = resolve_visual_model(rs.visual_type);
-  //
-  //   auto [it, inserted] = visuals.try_emplace(id);
-  //   RiderVisualState& vis = it->second;
-  //
-  //   if (inserted) {
-  //     vis.last_anim_sim_time = ctx->interp_sim_time;
-  //     vis.anim_phase = 0.0;
-  //     vis.wheel_angle = 0.0;
-  //   }
-  //
-  //   // Wheel rotation from distance travelled
-  //   if (std::isnan(vis.last_pos))
-  //     vis.last_pos = rs.pos2d.x();
-  //   vis.wheel_angle += (rs.pos2d.x() - vis.last_pos) / model.wheel_radius;
-  //   vis.last_pos = rs.pos2d.x();
-  //
-  //   update_animation(vis, ctx->interp_sim_time, rs.effort, rs.max_effort);
-  //
-  //   const RiderScreenGeom geom = compute_screen_geom(
-  //       *cam, rs.pos2d, rs.slope, rs.lat_pos, model, vis.wheel_angle);
-  //
-  //   draw_rider(ctx, model, vis, geom, *cam);
-  // }
+  SDL_RenderTexture(ctx->renderer, tex, nullptr, &bg);
 }
 
 /* MINIMAP */
@@ -406,6 +387,23 @@ Button::Button(int x_, int y_, int w_, int h_, std::string label_,
     : x(x_), y(y_), w(w_), h(h_), label(std::move(label_)), font(font_),
       on_click(std::move(cb)) {}
 
+Button::~Button() { SDL_DestroyTexture(label_tex); }
+
+void Button::build_label_text(SDL_Renderer* r) {
+  SDL_Surface* surf = TTF_RenderText_Blended(font, label.c_str(), 0,
+                                             SDL_Color{255, 255, 255, 255});
+  if (!surf)
+    return;
+  label_tex = SDL_CreateTextureFromSurface(r, surf);
+  SDL_DestroySurface(surf);
+}
+
+void Button::set_label(std::string new_label) {
+  label = new_label;
+  SDL_DestroyTexture(label_tex);
+  label_tex = nullptr;
+}
+
 LayoutSize Button::get_preferred_size() const { return {w, h}; }
 
 void Button::set_bounds(LayoutRect r) {
@@ -429,25 +427,15 @@ void Button::render(const RenderContext* ctx) {
   SDL_FRect bg{(float)x, (float)y, (float)w, (float)h};
   SDL_RenderFillRect(r, &bg);
 
-  // Render text
-  SDL_Surface* surf = TTF_RenderText_Blended(font, label.c_str(), 0,
-                                             SDL_Color{255, 255, 255, 255});
-  if (!surf)
-    return;
+  if (!label_tex)
+    build_label_text(r);
 
-  SDL_Texture* tex = SDL_CreateTextureFromSurface(r, surf);
-  if (!tex) {
-    SDL_DestroySurface(surf);
-    return;
+  if (label_tex) {
+    float tw, th;
+    SDL_GetTextureSize(label_tex, &tw, &th);
+    SDL_FRect dst{x + (w - tw) * 0.5f, y + (h - th) * 0.5f, tw, th};
+    SDL_RenderTexture(r, label_tex, nullptr, &dst);
   }
-
-  float tx = x + (w - surf->w) * 0.5f;
-  float ty = y + (h - surf->h) * 0.5f;
-  SDL_FRect dst{tx, ty, (float)surf->w, (float)surf->h};
-  SDL_RenderTexture(r, tex, nullptr, &dst);
-
-  SDL_DestroyTexture(tex);
-  SDL_DestroySurface(surf);
 }
 
 bool Button::handle_event(const SDL_Event* e) {
@@ -485,12 +473,16 @@ bool Button::handle_event(const SDL_Event* e) {
 
 PauseButton::PauseButton(int x, int y, int w, int h, Simulation* sim,
                          TTF_Font* font)
-    : Button(x, y, w, h, sim->is_paused() ? "Resume" : "Pause", font, [sim]() {
-        if (sim->is_paused())
-          sim->resume();
-        else
-          sim->pause();
-      }) {}
+    : Button(x, y, w, h, sim->is_paused() ? "Resume" : "Pause", font,
+             [sim, this]() {
+               if (sim->is_paused()) {
+                 sim->resume();
+                 set_label("Pause");
+               } else {
+                 sim->pause();
+                 set_label("Resume");
+               }
+             }) {}
 
 void PauseButton::render(const RenderContext* ctx) {
   // Update label before drawing
@@ -583,7 +575,6 @@ bool TimeFactorSlider::handle_event(const SDL_Event* e) {
 TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
                                    Simulation* sim_)
     : x(x_), y(y_), h(h_), sim(sim_) {
-
   int widget_h = h_ / 2;
   int widget_y = h_ / 4; // relative to panel top
 
@@ -611,7 +602,6 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
   make_factor_button(1.0);
   make_factor_button(20.0);
 
-  next_x += gap_w + button_w;
   child_rel_positions.push_back({next_x - x, widget_y});
   children.push_back(std::make_unique<PauseButton>(next_x, widget_y, button_w,
                                                    widget_h, sim, font));
@@ -626,10 +616,9 @@ LayoutSize TimeControlPanel::get_preferred_size() const {
   //   + (gap_w + button_w)       <- existing extra skip (preserved)
   //   + button_w                 <- pause button width
   //   + gap_w                    <- right margin
-  int right_edge = gap_w + valfield_w + gap_w + slider_w + gap_w +
-                   3 * (gap_w + button_w) + (gap_w + button_w) + button_w +
-                   gap_w;
-  return {right_edge, h};
+  int w =
+      gap_w + valfield_w + gap_w + slider_w + gap_w + 4 * (gap_w + button_w);
+  return {w, h};
 }
 
 void TimeControlPanel::do_layout(int base_x, int base_y) {
@@ -653,10 +642,8 @@ void TimeControlPanel::render(const RenderContext* ctx) {
 
   // (Optional) panel background
   SDL_SetRenderDrawColor(r, 40, 40, 40, 200);
-  SDL_FRect bg{
-      (float)x, (float)y,
-      static_cast<float>(valfield_w + slider_w + 3 * button_w + 6 * gap_w),
-      static_cast<float>(h)};
+  SDL_FRect bg{(float)x, (float)y, static_cast<float>(w),
+               static_cast<float>(h)};
   SDL_RenderFillRect(r, &bg);
 
   char buf[8];
@@ -758,9 +745,8 @@ void ValueField::render(const RenderContext* ctx) {
 }
 
 RiderValueField::RiderValueField(int x, int y, int w, int h, TTF_Font* font,
-                                 size_t rider_id, DataGetter getter_)
-    : ValueField(x, y, w, h, font), target_rider_id(rider_id), getter(getter_) {
-}
+                                 DataGetter getter_)
+    : ValueField(x, y, w, h, font), getter(getter_) {}
 
 void RiderValueField::render_with_snapshot(const RenderContext* ctx,
                                            const RiderRenderState* snap) {
@@ -776,14 +762,13 @@ void RiderValueField::render_with_snapshot(const RenderContext* ctx,
 
 // ======================= METRIC ROW =======================
 
-MetricRow::MetricRow(int x_, int y_, TTF_Font* f, size_t id, std::string label,
+MetricRow::MetricRow(int x_, int y_, TTF_Font* f, std::string label,
                      std::string unit, RiderValueField::DataGetter getter)
-    : x(x_), y(y_), font(f), label_txt(label), unit_txt(unit) {
-
+    : label_txt(label), unit_txt(unit), font(f), x(x_), y(y_) {
   // Create the child ValueField (Width 80, Height 24)
   // We position it relative to our X + label_width
   field = std::make_unique<RiderValueField>(x + label_width, y, 80, 24, font,
-                                            id, getter);
+                                            getter);
 }
 
 MetricRow::~MetricRow() {
@@ -881,14 +866,7 @@ void RiderPanel::add_row(std::string label, std::string unit,
   int row_height = 30;                                // height + spacing
   int current_offset = rows.size() * row_height + 30; // +30 for title space
 
-  // pass 0 as dummy, we overrider it
-  // Ideally, MetricRow should also be refactored, but here is a
-  // quick inheritance trick:
-
-  // Better yet, let's make MetricRow dynamic too.
-  // But to save refactoring EVERYTHING, let's use a "Dynamic ID" constant?
-  // No, cleaner to just pass the ID in render.
-  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, 0, label,
+  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, label,
                                          unit, getter);
   rows.push_back(std::move(row));
 }
@@ -914,7 +892,7 @@ void RiderPanel::render(const RenderContext* ctx) {
     SDL_DestroySurface(s);
   }
 
-  // Draw Title
+  // TODO = Draw Title - this seems to double up what we just did?
   if (!title_tex) {
     SDL_Surface* s = TTF_RenderText_Blended(font, title.c_str(), 0,
                                             {255, 255, 0, 255}); // Yellow title

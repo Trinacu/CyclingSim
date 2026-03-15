@@ -121,6 +121,7 @@ public:
 
   void pause();
   void resume();
+  void toggle_pause();
   bool is_paused() const;
   void stop();
 

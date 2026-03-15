@@ -362,6 +362,8 @@ void Simulation::pause() { paused = true; }
 
 void Simulation::resume() { paused = false; }
 
+void Simulation::toggle_pause() { paused = !paused; }
+
 bool Simulation::is_paused() const { return paused; }
 
 void Simulation::stop() { running = false; }

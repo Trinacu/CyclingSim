@@ -17,7 +17,22 @@ public:
   RenderLayer layer() const override { return RenderLayer::UI; }
   virtual void render(const RenderContext* ctx) override = 0;
   virtual ~Widget() = default;
+  virtual void render_imgui(const RenderContext* ctx) {}
   bool visible = true;
+};
+
+class ProgressBar : public Widget, public ILayoutWidget {
+public:
+  ProgressBar(int x, int y, int w, int h);
+
+private:
+  SDL_Color color = SDL_Color{80, 255, 40, 255};
+  int width = 0, height = 0; // Texture dimensions
+
+  SDL_Texture* texture = nullptr;
+  SDL_Texture* bg_texture = nullptr;
+
+  int padding = 6;
 };
 
 class Stopwatch : public Widget, public ILayoutWidget {
@@ -66,7 +81,7 @@ public:
 class LateralOverview : public Widget, public ILayoutWidget {
 public:
   LateralOverview(int w, int h, const Course* course);
-  ~LateralOverview() {}
+  ~LateralOverview();
 
   // ILayoutWidget
   LayoutSize get_preferred_size() const override;
@@ -94,7 +109,8 @@ private:
   static void fill_circle(SDL_Renderer* r, SDL_FPoint centre, float radius,
                           SDL_FColor colour);
 
-  void draw_texture(const RenderContext* ctx);
+  void ensure_target(SDL_Renderer* r); // replaces draw_texture alloc logic
+  void draw_into_target(const RenderContext* ctx); // renamed, no alloc inside
 
   // Colour assigned to each rider based on team_id.
   static SDL_FColor rider_colour(int team_id);
@@ -132,6 +148,8 @@ public:
   Button(int x, int y, int w, int h, std::string label, TTF_Font* font,
          Callback cb);
 
+  ~Button();
+
   // ILayoutWidget
   LayoutSize get_preferred_size() const override;
   void set_bounds(LayoutRect r) override;
@@ -146,6 +164,12 @@ private:
   Callback on_click;
   bool hovered = false;
   bool pressed = false;
+  SDL_Texture* label_tex = nullptr;
+
+  void build_label_text(SDL_Renderer* r);
+
+protected:
+  void set_label(std::string label);
 };
 
 class TimeFactorButton : public Button {
@@ -239,11 +263,10 @@ public:
   using DataGetter = std::function<std::string(const RiderRenderState&)>;
 
 private:
-  size_t target_rider_id;
   DataGetter getter;
 
 public:
-  RiderValueField(int x, int y, int w, int h, TTF_Font* font, size_t rider_id,
+  RiderValueField(int x, int y, int w, int h, TTF_Font* font,
                   DataGetter getter);
 
   void render_with_snapshot(const RenderContext* ctx,
@@ -262,7 +285,7 @@ public:
   bool handle_event(const SDL_Event* e) override;
 
 private:
-  int x, y, h;
+  int x, y, w, h;
   int valfield_w = 50;
   int slider_w = 120;
   int button_w = 50;
@@ -295,8 +318,8 @@ private:
   int padding = 10;
 
 public:
-  MetricRow(int x, int y, TTF_Font* font, size_t id, std::string label,
-            std::string unit, RiderValueField::DataGetter getter);
+  MetricRow(int x, int y, TTF_Font* font, std::string label, std::string unit,
+            RiderValueField::DataGetter getter);
 
   ~MetricRow();
 

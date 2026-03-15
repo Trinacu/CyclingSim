@@ -214,13 +214,8 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
       20, 20, 120, 30, "Back to simulation", f,
       [this]() { state->screens->replace(ScreenType::Simulation); }));
 
-  renderer->add_drawable(
-      std::make_unique<Button>(20, 60, 120, 30, "Pause", f, [this]() {
-        if (state->sim->is_paused())
-          state->sim->resume();
-        else
-          state->sim->pause();
-      }));
+  renderer->add_drawable(std::make_unique<Button>(
+      20, 60, 150, 30, "Pause", f, [this]() { state->sim->toggle_pause(); }));
 }
 
 PlotScreen::~PlotScreen() = default;
