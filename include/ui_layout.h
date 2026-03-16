@@ -8,7 +8,7 @@
 
 class VStack : public Widget, public ILayoutWidget {
 public:
-  explicit VStack(int gap = 4, int padding = 0);
+  explicit VStack(int gap = 4, int padding = 0, HAlign halign = HAlign::Left);
 
   // Takes ownership of the child widget.
   void add(std::unique_ptr<Widget> child);
@@ -30,6 +30,7 @@ private:
   int origin_y = 0;
   int gap;
   int padding;
+  HAlign halign;
   bool dirty = true;
 
   std::vector<std::unique_ptr<Widget>> children;
@@ -37,7 +38,7 @@ private:
 
 class HStack : public Widget, public ILayoutWidget {
 public:
-  explicit HStack(int gap = 4, int padding = 0);
+  explicit HStack(int gap = 4, int padding = 0, VAlign valign = VAlign::Top);
 
   void add(std::unique_ptr<Widget> child);
 
@@ -58,6 +59,7 @@ private:
   int origin_y = 0;
   int gap;
   int padding;
+  VAlign valign;
   bool dirty = true;
 
   std::vector<std::unique_ptr<Widget>> children;

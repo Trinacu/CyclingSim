@@ -1,12 +1,14 @@
 // src/ui_layout.cpp
 #include "ui_layout.h"
+#include "layout_types.h"
 #include <algorithm>
 
 // ================================================================
 //  VStack
 // ================================================================
 
-VStack::VStack(int gap_, int padding_) : gap(gap_), padding(padding_) {}
+VStack::VStack(int gap_, int padding_, HAlign halign_)
+    : gap(gap_), padding(padding_), halign(halign_) {}
 
 void VStack::add(std::unique_ptr<Widget> child) {
   children.push_back(std::move(child));
@@ -43,17 +45,32 @@ void VStack::set_bounds(LayoutRect r) {
 }
 
 void VStack::do_layout() {
+  const int inner_w = get_preferred_size().w - 2 * padding;
+
   int cursor_y = origin_y + padding;
 
   for (auto& child : children) {
-    if (auto* lw = dynamic_cast<ILayoutWidget*>(child.get())) {
-      LayoutSize s = lw->get_preferred_size();
-      lw->set_bounds({origin_x + padding, cursor_y, s.w, s.h});
-      cursor_y += s.h + gap;
-    }
-    // Non-layout children are left at their own stored positions.
-  }
+    auto* lw = dynamic_cast<ILayoutWidget*>(child.get());
+    if (!lw)
+      continue;
 
+    LayoutSize s = lw->get_preferred_size();
+
+    int x_offset = 0;
+    switch (halign) {
+    case HAlign::Left:
+      x_offset = 0;
+      break;
+    case HAlign::Center:
+      x_offset = (inner_w - s.w) / 2;
+      break;
+    case HAlign::Right:
+      x_offset = inner_w - s.w;
+      break;
+    }
+    lw->set_bounds({origin_x + padding + x_offset, cursor_y, s.w, s.h});
+    cursor_y += s.h + gap;
+  }
   dirty = false;
 }
 
@@ -84,7 +101,8 @@ void VStack::render_imgui(const RenderContext* ctx) {
 //  HStack
 // ================================================================
 
-HStack::HStack(int gap_, int padding_) : gap(gap_), padding(padding_) {}
+HStack::HStack(int gap_, int padding_, VAlign valign_)
+    : gap(gap_), padding(padding_), valign(valign_) {}
 
 void HStack::add(std::unique_ptr<Widget> child) {
   children.push_back(std::move(child));
@@ -117,14 +135,33 @@ void HStack::set_bounds(LayoutRect r) {
 }
 
 void HStack::do_layout() {
+  const int inner_h = get_preferred_size().h - 2 * padding;
+
   int cursor_x = origin_x + padding;
 
   for (auto& child : children) {
-    if (auto* lw = dynamic_cast<ILayoutWidget*>(child.get())) {
-      LayoutSize s = lw->get_preferred_size();
-      lw->set_bounds({cursor_x, origin_y + padding, s.w, s.h});
-      cursor_x += s.w + gap;
+    auto* lw = dynamic_cast<ILayoutWidget*>(child.get());
+    if (!lw)
+      continue;
+
+    LayoutSize s = lw->get_preferred_size();
+
+    // Compute Y offset from the stack's top inner edge based on alignment.
+    int y_offset = 0;
+    switch (valign) {
+    case VAlign::Top:
+      y_offset = 0;
+      break;
+    case VAlign::Center:
+      y_offset = (inner_h - s.h) / 2;
+      break;
+    case VAlign::Bottom:
+      y_offset = inner_h - s.h;
+      break;
     }
+
+    lw->set_bounds({cursor_x, origin_y + padding + y_offset, s.w, s.h});
+    cursor_x += s.w + gap;
   }
 
   dirty = false;

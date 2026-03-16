@@ -16,6 +16,9 @@ struct LayoutRect {
   int x, y, w, h;
 };
 
+enum class HAlign { Left, Center, Right };
+enum class VAlign { Top, Center, Bottom };
+
 // ================================================================
 //  ILayoutWidget
 //

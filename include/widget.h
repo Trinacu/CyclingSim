@@ -315,7 +315,6 @@ private:
 
   int x, y;
   int label_width = 80; // Fixed width so boxes align vertically
-  int padding = 10;
 
 public:
   MetricRow(int x, int y, TTF_Font* font, std::string label, std::string unit,
@@ -352,6 +351,7 @@ public:
 
 private:
   int x, y;
+  int padding = 6;
   RiderId id = -1;
   TTF_Font* font;
 
@@ -362,6 +362,8 @@ private:
 
   // All the rows
   std::vector<std::unique_ptr<MetricRow>> rows;
+
+  void build_fields();
 };
 
 /* EDITABLE FIELDS */

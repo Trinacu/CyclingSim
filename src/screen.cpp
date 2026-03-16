@@ -4,6 +4,7 @@
 #include "backends/imgui_impl_sdl3.h"
 #include "backends/imgui_impl_sdlrenderer3.h"
 #include "imgui.h"
+#include "layout_types.h"
 #include "pch.hpp"
 #include "plotrenderer.h"
 #include "plotting.h"
@@ -54,19 +55,6 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
   rider_panel = panel.get(); // screen owns the reference
 
-  panel->add_row("Speed", "km/h", [](const RiderRenderState& s) {
-    return format_number(3.6 * s.speed, 2);
-  });
-  panel->add_row("Power", "W", [](const RiderRenderState& s) {
-    return format_number(s.power, 0); // Precision 0 for watts
-  });
-  panel->add_row("Dist", "km", [](const RiderRenderState& s) {
-    return format_number(s.pos / 1000.0, 3);
-  });
-  panel->add_row("Grad", "%", [](const RiderRenderState& s) {
-    return format_number(s.slope * 100.0);
-  });
-
   top_left->add(std::move(panel));
   ui->add(UIAnchor::TopLeft, 10, std::move(top_left));
 
@@ -80,7 +68,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
           std::make_unique<TimeControlPanel>(400, 20, 40, default_font,
                                              s->sim.get()));
 
-  auto bottom_right = std::make_unique<HStack>(8);
+  auto bottom_right = std::make_unique<HStack>(8, 0, VAlign::Bottom);
   bottom_right->add(
       std::make_unique<LateralOverview>(200, 200, s->course.get()));
   Vector2d mapsize = {400, 100};

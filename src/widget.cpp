@@ -260,6 +260,9 @@ void LateralOverview::render(const RenderContext* ctx) {
 }
 
 /* MINIMAP */
+// TODO - have the vertical scale be 1 so it shows proportional
+// except when small vert changes, give a minimum, and with big
+// changes give a maximum
 
 MinimapWidget::MinimapWidget(int x, int y, int w, int h, const Course* course)
     : course(course), x(x), y(y), w(w), h(h) {
@@ -825,7 +828,24 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 
 // ======================= RIDER PANEL =======================
 // WARNING - this assumes the font isnt deallocated
-RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {}
+RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {
+  build_fields();
+}
+
+void RiderPanel::build_fields() {
+  add_row("Speed", "km/h", [](const RiderRenderState& s) {
+    return format_number(3.6 * s.speed, 2);
+  });
+  add_row("Power", "W", [](const RiderRenderState& s) {
+    return format_number(s.power, 0); // Precision 0 for watts
+  });
+  add_row("Dist", "km", [](const RiderRenderState& s) {
+    return format_number(s.pos / 1000.0, 3);
+  });
+  add_row("Grad", "%", [](const RiderRenderState& s) {
+    return format_number(s.slope * 100.0);
+  });
+}
 
 LayoutSize RiderPanel::get_preferred_size() const {
   // Width: label (80) + field (80) + gap (10) + approx unit text (30)
@@ -841,9 +861,9 @@ void RiderPanel::set_bounds(LayoutRect r) {
 
   // Reposition all metric rows to match the new panel origin.
   int row_height = 30;
-  int current_y = y + 30; // +30 for the title
+  int current_y = y + padding + 30; // +30 for the title
   for (auto& row : rows) {
-    row->set_position(x, current_y);
+    row->set_position(x + padding, current_y);
     current_y += row_height;
   }
 
@@ -866,8 +886,8 @@ void RiderPanel::add_row(std::string label, std::string unit,
   int row_height = 30;                                // height + spacing
   int current_offset = rows.size() * row_height + 30; // +30 for title space
 
-  auto row = std::make_unique<MetricRow>(x, y + current_offset, font, label,
-                                         unit, getter);
+  auto row = std::make_unique<MetricRow>(x + padding, y + current_offset, font,
+                                         label, unit, getter);
   rows.push_back(std::move(row));
 }
 
@@ -900,9 +920,9 @@ void RiderPanel::render(const RenderContext* ctx) {
     SDL_DestroySurface(s);
   }
 
-  float w, h;
-  SDL_GetTextureSize(title_tex, &w, &h);
-  SDL_FRect r = {(float)x, (float)y, w, h};
+  float tw, th;
+  SDL_GetTextureSize(title_tex, &tw, &th);
+  SDL_FRect r = {(float)x + padding, (float)y + padding, tw, th};
   SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
 
   // HACK for now: Iterate rows, find their internal fields, and update their
