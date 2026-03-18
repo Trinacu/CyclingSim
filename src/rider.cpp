@@ -7,8 +7,6 @@
 
 #include "snapshot.h"
 
-int Rider::global_id_counter = 0;
-
 bool is_close(double value, double target, double tol, double rtol) {
   return std::fabs(value - target) <= tol + rtol * std::fabs(target);
 }
@@ -32,8 +30,8 @@ Bike Bike::create_tt() {
 Team::Team(const char* name_) : name(name_) { id = 0; }
 
 Rider::Rider(RiderConfig config_)
-    : config(config_), uid(global_id_counter++), id(config_.rider_id),
-      bike(config_.bike), team(config_.team), name(config_.name) {
+    : config(config_), id(config_.rider_id), bike(config_.bike),
+      team(config_.team), name(config_.name) {
   RiderInitParams p{};
   p.ftp_base = config_.ftp_base;
   p.w_prime = config_.w_prime_base;
@@ -166,7 +164,6 @@ void Rider::update_power_breakdown(double old_speed) {
 
 RiderSnapshot Rider::snapshot() const {
   return RiderSnapshot{
-      .uid = this->uid,
       .id = this->id,
       .name = this->name,
       .pos = this->state.pos,
@@ -174,6 +171,7 @@ RiderSnapshot Rider::snapshot() const {
       .pos2d = this->_pos2d,
       .lat_pos = this->lat_pos,
       .power = this->state.power,
+      .wbal_fraction = this->get_energy_fraction(),
       .effort = this->state.effort,
       .max_effort = this->state.max_effort,
       .speed = this->state.speed,

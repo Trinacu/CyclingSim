@@ -77,6 +77,7 @@ void SimulationRenderer::render_frame() {
     rs.name = s1.name;
     rs.max_effort = s1.max_effort;
     rs.power = s1.power;
+    rs.wbal_fraction = s1.wbal_fraction;
     rs.speed = s1.speed;
     rs.pos = s1.pos;
     rs.lat_pos = s1.lat_pos;
@@ -110,7 +111,7 @@ RiderId SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
 
   double min_dist = 20.0;
   bool found = false;
-  RiderUid found_id = 0;
+  RiderId found_id = 0;
 
   for (auto& [id, snap] : frame_curr.riders) {
     double dx = snap.pos2d.x() - world_pos.x();

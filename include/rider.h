@@ -60,9 +60,7 @@ struct RiderConfig {
 class Rider {
 private:
   RiderConfig config;
-  static RiderUid global_id_counter; // class var
-  const RiderUid uid;                // instance unique ID
-  const RiderId id;                  // stable config ID - UI must not use uid
+  const RiderId id; // stable config ID - UI must not use uid
 
   Vector2d _pos2d;
   double heading;

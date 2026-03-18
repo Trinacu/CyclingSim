@@ -2,6 +2,7 @@
 #ifndef WIDGET_H
 #define WIDGET_H
 
+#include "SDL3/SDL_pixels.h"
 #include "SDL3/SDL_render.h"
 #include "display.h"
 #include "layout_types.h"
@@ -9,6 +10,7 @@
 #include "snapshot.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <functional>
 
 std::string format_number(double value, int precision = 1);
 
@@ -21,18 +23,65 @@ public:
   bool visible = true;
 };
 
-class ProgressBar : public Widget, public ILayoutWidget {
+class ProgressBar : public Widget, public ILayoutWidget, public IRiderWidget {
 public:
-  ProgressBar(int x, int y, int w, int h);
+  using ValueFn = std::function<double()>;
+  using RiderDataFn = std::function<double(const RiderRenderState&)>;
+  using ColorFn = std::function<SDL_Color(double)>;
+
+  // Standalone — pointer binding
+  ProgressBar(int x, int y, int w, int h, const double* value_ptr,
+              SDL_Color bg_color, SDL_Color fill_color, double min_val = 0.0,
+              double max_val = 1.0);
+
+  // Standalone — getter binding
+  ProgressBar(int x, int y, int w, int h, ValueFn getter, SDL_Color bg_color,
+              SDL_Color fill_color, double min_val = 0.0, double max_val = 1.0);
+
+  // Rider-bound — looks up id in ctx->riders at render time
+  ProgressBar(int x, int y, int w, int h, RiderId id, RiderDataFn getter,
+              SDL_Color bg_color, SDL_Color fill_color, double min_val = 0.0,
+              double max_val = 1.0);
+
+  ~ProgressBar();
+
+  // Configuration — safe to call before or after first render
+  void set_label(std::string text, TTF_Font* font);
+  void set_fill_color(SDL_Color c);
+  void set_color_fn(ColorFn fn);
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  // Widget
+  void render(const RenderContext* ctx) override;
+
+  // IRiderWidget
+  void set_rider_id(RiderId id) override;
 
 private:
-  SDL_Color color = SDL_Color{80, 255, 40, 255};
-  int width = 0, height = 0; // Texture dimensions
+  void build_label_tex(SDL_Renderer* r);
+  void draw(SDL_Renderer* r, double t); // t is already normalized [0,1]
 
-  SDL_Texture* texture = nullptr;
-  SDL_Texture* bg_texture = nullptr;
+  int x, y, w, h;
+  double min_val, max_val;
 
-  int padding = 6;
+  ValueFn source; // set by standalone constructors
+
+  struct RiderBinding {
+    RiderId id;
+    RiderDataFn getter;
+  };
+  std::optional<RiderBinding> rider_binding; // set by rider constructor
+
+  std::string label_str;
+  TTF_Font* label_font = nullptr;
+  SDL_Texture* label_tex = nullptr;
+
+  ColorFn color_fn;
+  SDL_Color fill_color = {80, 200, 80, 255};
+  SDL_Color bg_color = {40, 40, 40, 200};
 };
 
 class Stopwatch : public Widget, public ILayoutWidget {
@@ -302,32 +351,40 @@ private:
   void do_layout(int base_x, int base_y);
 };
 
-class MetricRow {
+// After:
+class MetricRow : public Widget, public ILayoutWidget, public IRiderWidget {
+public:
+  MetricRow(int x, int y, TTF_Font* font, RiderId id, std::string label,
+            std::string unit, RiderValueField::DataGetter getter);
+
+  ~MetricRow();
+
+  // ILayoutWidget
+  LayoutSize get_preferred_size() const override;
+  void set_bounds(LayoutRect r) override;
+
+  // Widget
+  void render(const RenderContext* ctx) override;
+
+  // IRiderWidget
+  void set_rider_id(RiderId id) override;
+
 private:
   std::string label_txt;
   std::string unit_txt;
   TTF_Font* font;
+  RiderId rider_id;
 
-  // Components
+  // render_with_snapshot is called only here — not part of any public interface
   std::unique_ptr<RiderValueField> field;
   SDL_Texture* label_tex = nullptr;
   SDL_Texture* unit_tex = nullptr;
 
   int x, y;
-  int label_width = 80; // Fixed width so boxes align vertically
-
-public:
-  MetricRow(int x, int y, TTF_Font* font, std::string label, std::string unit,
-            RiderValueField::DataGetter getter);
-
-  ~MetricRow();
-
-  // void render(const RenderContext* ctx) override;
-  void render_for_rider(const RenderContext* ctx, const RiderRenderState* snap);
-
-  // Helper to calculate total height for the panel
-  int get_height() const { return 30; } // simplified
-  void set_position(int new_x, int new_y);
+  static constexpr int label_width = 80;
+  static constexpr int row_h = 30;
+  static constexpr int field_w = 80;
+  static constexpr int field_h = 24;
 };
 
 class RiderPanel : public Widget, public ILayoutWidget {
@@ -339,6 +396,10 @@ public:
   // Usage: panel->add_row("Speed", "km/h", [](auto s){ return ... });
   void add_row(std::string label, std::string unit,
                RiderValueField::DataGetter getter);
+  void add_bar(std::string label, ProgressBar::RiderDataFn getter,
+               SDL_Color bg_color = {15, 150, 15, 255},
+               SDL_Color fill_color = {20, 200, 20, 255}, double min = 0.0,
+               double max = 1.0);
 
   // ILayoutWidget
   LayoutSize get_preferred_size() const override;
@@ -351,18 +412,18 @@ public:
 
 private:
   int x, y;
-  int padding = 6;
   RiderId id = -1;
   TTF_Font* font;
+  bool dirty = true;
 
   std::string title;
   SDL_Texture* title_tex = nullptr;
-
   bool show_plot = false;
 
   // All the rows
-  std::vector<std::unique_ptr<MetricRow>> rows;
+  std::vector<std::unique_ptr<Widget>> children;
 
+  void do_layout();
   void build_fields();
 };
 

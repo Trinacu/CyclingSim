@@ -2,6 +2,8 @@
 #ifndef LAYOUT_TYPES_H
 #define LAYOUT_TYPES_H
 
+#include "mytypes.h"
+
 // ================================================================
 //  Plain geometry types — no SDL, no simulation dependencies.
 //  Included by both widget.h (for ILayoutWidget inheritance) and
@@ -36,6 +38,12 @@ public:
   virtual LayoutSize get_preferred_size() const = 0;
   virtual void set_bounds(LayoutRect r) = 0;
   virtual ~ILayoutWidget() = default;
+};
+
+class IRiderWidget {
+public:
+  virtual ~IRiderWidget() = default;
+  virtual void set_rider_id(RiderId id) = 0;
 };
 
 #endif

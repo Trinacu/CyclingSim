@@ -33,6 +33,7 @@ struct RiderRenderState {
   std::string name;
   double max_effort;
   double power;
+  double wbal_fraction;
   double speed;
   double pos;
   BikeType visual_type;
@@ -41,7 +42,6 @@ struct RiderRenderState {
 };
 
 struct RiderSnapshot {
-  const RiderUid uid;
   RiderId id;
   std::string name;
   double pos;
@@ -49,6 +49,7 @@ struct RiderSnapshot {
   Vector2d pos2d;
   double lat_pos;
   double power;
+  double wbal_fraction;
   double effort;
   double max_effort;
   double speed;

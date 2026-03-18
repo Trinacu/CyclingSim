@@ -37,6 +37,114 @@ void format_time(double seconds, char* text) {
   snprintf(text, 11, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
 }
 
+// ======================= PROGRESS BAR =======================
+
+ProgressBar::ProgressBar(int x_, int y_, int w_, int h_,
+                         const double* value_ptr, SDL_Color bg_color_,
+                         SDL_Color fill_color_, double min, double max)
+    : x(x_), y(y_), w(w_), h(h_), min_val(min), max_val(max),
+      source([value_ptr]() { return *value_ptr; }), fill_color(fill_color_),
+      bg_color(bg_color_) {}
+
+ProgressBar::ProgressBar(int x_, int y_, int w_, int h_, ValueFn getter,
+                         SDL_Color bg_color_, SDL_Color fill_color_, double min,
+                         double max)
+    : x(x_), y(y_), w(w_), h(h_), min_val(min), max_val(max),
+      source(std::move(getter)), fill_color(fill_color_), bg_color(bg_color_) {}
+
+ProgressBar::ProgressBar(int x_, int y_, int w_, int h_, RiderId id,
+                         RiderDataFn getter, SDL_Color bg_color_,
+                         SDL_Color fill_color_, double min, double max)
+    : x(x_), y(y_), w(w_), h(h_), min_val(min), max_val(max),
+      rider_binding(RiderBinding{id, std::move(getter)}),
+      fill_color(fill_color_), bg_color(bg_color_) {}
+
+ProgressBar::~ProgressBar() { SDL_DestroyTexture(label_tex); }
+
+void ProgressBar::set_label(std::string text, TTF_Font* font) {
+  label_str = std::move(text);
+  label_font = font;
+  // Invalidate any previously baked texture if called after first render
+  SDL_DestroyTexture(label_tex);
+  label_tex = nullptr;
+}
+
+void ProgressBar::set_fill_color(SDL_Color c) { fill_color = c; }
+void ProgressBar::set_color_fn(ColorFn fn) { color_fn = std::move(fn); }
+
+LayoutSize ProgressBar::get_preferred_size() const { return {w, h}; }
+
+void ProgressBar::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
+  w = r.w;
+  h = r.h;
+  // label is centered inside the bar; position changes invalidate it
+  SDL_DestroyTexture(label_tex);
+  label_tex = nullptr;
+}
+
+void ProgressBar::set_rider_id(RiderId id) {
+  if (rider_binding)
+    rider_binding->id = id;
+}
+
+void ProgressBar::build_label_tex(SDL_Renderer* r) {
+  if (!label_font || label_str.empty())
+    return;
+  SDL_Surface* surf = TTF_RenderText_Blended(label_font, label_str.c_str(), 0,
+                                             {255, 255, 255, 255});
+  if (!surf)
+    return;
+  label_tex = SDL_CreateTextureFromSurface(r, surf);
+  SDL_DestroySurface(surf);
+}
+
+void ProgressBar::render(const RenderContext* ctx) {
+  double raw = 0.0;
+
+  if (rider_binding) {
+    auto it = ctx->riders.find(rider_binding->id);
+    if (it == ctx->riders.end())
+      return;
+    raw = rider_binding->getter(it->second);
+  } else if (source) {
+    raw = source();
+  } else {
+    return;
+  }
+
+  double range = max_val - min_val;
+  double t =
+      (range != 0.0) ? std::clamp((raw - min_val) / range, 0.0, 1.0) : 0.0;
+
+  draw(ctx->renderer, t);
+}
+
+void ProgressBar::draw(SDL_Renderer* r, double t) {
+  SDL_SetRenderDrawColor(r, bg_color.r, bg_color.g, bg_color.b, bg_color.a);
+  SDL_FRect bg{(float)x, (float)y, (float)w, (float)h};
+  SDL_RenderFillRect(r, &bg);
+
+  // Fill
+  SDL_Color fc = color_fn ? color_fn(t) : fill_color;
+  SDL_SetRenderDrawColor(r, fc.r, fc.g, fc.b, fc.a);
+  SDL_FRect fill{(float)x, (float)y, (float)(w * t), (float)h};
+  SDL_RenderFillRect(r, &fill);
+
+  // Label — baked once, centered in the bar
+  if (!label_str.empty()) {
+    if (!label_tex)
+      build_label_tex(r);
+    if (label_tex) {
+      float tw, th;
+      SDL_GetTextureSize(label_tex, &tw, &th);
+      SDL_FRect dst{x + (w - tw) * 0.5f, y + (h - th) * 0.5f, tw, th};
+      SDL_RenderTexture(r, label_tex, nullptr, &dst);
+    }
+  }
+}
+
 LayoutSize Stopwatch::get_preferred_size() const {
   // If the background has already been created by a prior render pass,
   // return the actual baked dimensions.
@@ -765,32 +873,38 @@ void RiderValueField::render_with_snapshot(const RenderContext* ctx,
 
 // ======================= METRIC ROW =======================
 
-MetricRow::MetricRow(int x_, int y_, TTF_Font* f, std::string label,
+MetricRow::MetricRow(int x_, int y_, TTF_Font* f, RiderId id, std::string label,
                      std::string unit, RiderValueField::DataGetter getter)
-    : label_txt(label), unit_txt(unit), font(f), x(x_), y(y_) {
-  // Create the child ValueField (Width 80, Height 24)
-  // We position it relative to our X + label_width
-  field = std::make_unique<RiderValueField>(x + label_width, y, 80, 24, font,
-                                            getter);
+    : x(x_), y(y_), font(f), rider_id(id), label_txt(std::move(label)),
+      unit_txt(std::move(unit)) {
+  field = std::make_unique<RiderValueField>(x + label_width, y, field_w,
+                                            field_h, font, getter);
 }
 
 MetricRow::~MetricRow() {
-  if (label_tex)
-    SDL_DestroyTexture(label_tex);
-  if (unit_tex)
-    SDL_DestroyTexture(unit_tex);
+  SDL_DestroyTexture(label_tex);
+  SDL_DestroyTexture(unit_tex);
 }
 
-void MetricRow::set_position(int new_x, int new_y) {
-  x = new_x;
-  y = new_y;
-  // Update child position
+void MetricRow::set_rider_id(RiderId id) { rider_id = id; }
+
+LayoutSize MetricRow::get_preferred_size() const {
+  // label_width + field_w + padding + approx unit text width
+  return {label_width + field_w + 5 + 30, row_h};
+}
+
+void MetricRow::set_bounds(LayoutRect r) {
+  x = r.x;
+  y = r.y;
   field->set_position(x + label_width, y);
 }
 
-void MetricRow::render_for_rider(const RenderContext* ctx,
-                                 const RiderRenderState* snap) {
-  // 1. Render static labels once
+void MetricRow::render(const RenderContext* ctx) {
+  auto it = ctx->riders.find(rider_id);
+  if (it == ctx->riders.end())
+    return;
+  const RiderRenderState& rs = it->second;
+
   if (!label_tex) {
     SDL_Surface* s = TTF_RenderText_Blended(font, label_txt.c_str(), 0,
                                             {200, 200, 200, 255});
@@ -804,24 +918,20 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
     SDL_DestroySurface(s);
   }
 
-  // 2. Draw Label (Left)
   if (label_tex) {
     float w, h;
     SDL_GetTextureSize(label_tex, &w, &h);
-    // Vertically center label relative to the row height (approx 24)
-    SDL_FRect r = {(float)x, (float)y + (24 - h) / 2, w, h};
+    SDL_FRect r = {(float)x, (float)y + (field_h - h) / 2.f, w, h};
     SDL_RenderTexture(ctx->renderer, label_tex, nullptr, &r);
   }
 
-  // Call the specific render on the field
-  field->render_with_snapshot(ctx, snap);
+  field->render_with_snapshot(ctx, &rs);
 
   if (unit_tex) {
     float w, h;
     SDL_GetTextureSize(unit_tex, &w, &h);
-    // Position: X + label + field_width + padding
     SDL_FRect r = {(float)(x + label_width + field->get_width() + 5),
-                   (float)y + (24 - h) / 2, w, h};
+                   (float)y + (field_h - h) / 2.f, w, h};
     SDL_RenderTexture(ctx->renderer, unit_tex, nullptr, &r);
   }
 }
@@ -830,6 +940,14 @@ void MetricRow::render_for_rider(const RenderContext* ctx,
 // WARNING - this assumes the font isnt deallocated
 RiderPanel::RiderPanel(int x_, int y_, TTF_Font* f) : x(x_), y(y_), font(f) {
   build_fields();
+}
+
+void RiderPanel::set_rider_id(RiderId new_id) {
+  id = new_id;
+  for (auto& child : children) {
+    if (auto* rw = dynamic_cast<IRiderWidget*>(child.get()))
+      rw->set_rider_id(new_id);
+  }
 }
 
 void RiderPanel::build_fields() {
@@ -845,36 +963,46 @@ void RiderPanel::build_fields() {
   add_row("Grad", "%", [](const RiderRenderState& s) {
     return format_number(s.slope * 100.0);
   });
+
+  add_bar(
+      "W' bal", [](const RiderRenderState& rs) { return rs.wbal_fraction; },
+      SDL_Color{200, 20, 20, 255});
+  add_bar("W' bal",
+          [](const RiderRenderState& rs) { return rs.wbal_fraction; });
 }
 
 LayoutSize RiderPanel::get_preferred_size() const {
-  // Width: label (80) + field (80) + gap (10) + approx unit text (30)
-  const int panel_w = 200;
-  // Height: title row (30) + one row per metric
-  const int panel_h = 30 + static_cast<int>(rows.size()) * 30;
-  return {panel_w, panel_h};
+  int total_h = 30; // title
+  int max_w = 200;  // minimum panel width
+  for (const auto& child : children) {
+    if (const auto* lw = dynamic_cast<const ILayoutWidget*>(child.get())) {
+      LayoutSize s = lw->get_preferred_size();
+      total_h += s.h;
+      max_w = std::max(max_w, s.w);
+    }
+  }
+  return {max_w, total_h};
 }
 
 void RiderPanel::set_bounds(LayoutRect r) {
   x = r.x;
   y = r.y;
-
-  // Reposition all metric rows to match the new panel origin.
-  int row_height = 30;
-  int current_y = y + padding + 30; // +30 for the title
-  for (auto& row : rows) {
-    row->set_position(x + padding, current_y);
-    current_y += row_height;
-  }
-
-  // Invalidate the title texture so it is redrawn at the correct position.
-  if (title_tex) {
-    SDL_DestroyTexture(title_tex);
-    title_tex = nullptr;
-  }
+  dirty = true;
+  SDL_DestroyTexture(title_tex);
+  title_tex = nullptr;
 }
 
-void RiderPanel::set_rider_id(RiderId id_) { id = id_; }
+void RiderPanel::do_layout() {
+  int cursor_y = y + 30; // 30px reserved for title
+  for (auto& child : children) {
+    if (auto* lw = dynamic_cast<ILayoutWidget*>(child.get())) {
+      LayoutSize s = lw->get_preferred_size();
+      lw->set_bounds({x, cursor_y, s.w, s.h});
+      cursor_y += s.h;
+    }
+  }
+  dirty = false;
+}
 
 RiderPanel::~RiderPanel() {
   if (title_tex)
@@ -883,24 +1011,41 @@ RiderPanel::~RiderPanel() {
 
 void RiderPanel::add_row(std::string label, std::string unit,
                          RiderValueField::DataGetter getter) {
-  int row_height = 30;                                // height + spacing
-  int current_offset = rows.size() * row_height + 30; // +30 for title space
+  children.push_back(std::make_unique<MetricRow>(
+      x, y, font, id, std::move(label), std::move(unit), getter));
+  dirty = true;
+}
 
-  auto row = std::make_unique<MetricRow>(x + padding, y + current_offset, font,
-                                         label, unit, getter);
-  rows.push_back(std::move(row));
+void RiderPanel::add_bar(std::string label, ProgressBar::RiderDataFn getter,
+                         SDL_Color bg_color, SDL_Color fill_color, double min,
+                         double max) {
+  auto bar = std::make_unique<ProgressBar>(x, y, 160, 16, id, std::move(getter),
+                                           bg_color, fill_color, min, max);
+  bar->set_label(std::move(label), font);
+  bar->set_color_fn([](double t) -> SDL_Color {
+    if (t > 0.5)
+      return {80, 200, 80, 255};
+    if (t > 0.2)
+      return {220, 180, 0, 255};
+    return {220, 60, 60, 255};
+  });
+  children.push_back(std::move(bar));
+  dirty = true;
+  int row_height = 30;
 }
 
 void RiderPanel::render(const RenderContext* ctx) {
   if (id < 0)
     return;
 
+  if (dirty)
+    do_layout();
+
   auto it = ctx->riders.find(id);
   if (it == ctx->riders.end())
     return;
 
   const RiderRenderState& rs = it->second;
-
   if (title != rs.name) {
     title = rs.name;
     if (title_tex)
@@ -912,24 +1057,18 @@ void RiderPanel::render(const RenderContext* ctx) {
     SDL_DestroySurface(s);
   }
 
-  // TODO = Draw Title - this seems to double up what we just did?
-  if (!title_tex) {
-    SDL_Surface* s = TTF_RenderText_Blended(font, title.c_str(), 0,
-                                            {255, 255, 0, 255}); // Yellow title
-    title_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
-    SDL_DestroySurface(s);
+  if (title_tex) {
+    float tw, th;
+    SDL_GetTextureSize(title_tex, &tw, &th);
+    SDL_FRect r = {(float)x, (float)y, tw, th};
+    SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
   }
-
-  float tw, th;
-  SDL_GetTextureSize(title_tex, &tw, &th);
-  SDL_FRect r = {(float)x + padding, (float)y + padding, tw, th};
-  SDL_RenderTexture(ctx->renderer, title_tex, nullptr, &r);
 
   // HACK for now: Iterate rows, find their internal fields, and update their
   // ID? Proper way: Refactor ValueField::render to take a snapshot, not look
   // it up itself. Draw all rows
-  for (auto& row : rows)
-    row->render_for_rider(ctx, &rs);
+  for (auto& child : children)
+    child->render(ctx);
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {
