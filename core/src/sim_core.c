@@ -341,6 +341,7 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
   if (effort < 0.0)
     effort = 0.0;
 
+  r->effort = effort;
   r->power = effort * r->ftp;
 
   /* solve speed */

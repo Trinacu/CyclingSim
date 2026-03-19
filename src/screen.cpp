@@ -54,6 +54,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
   rider_panel = panel.get(); // screen owns the reference
+  panel->add_effort_slider(s->sim.get());
 
   top_left->add(std::move(panel));
   ui->add(UIAnchor::TopLeft, 10, std::move(top_left));
@@ -78,13 +79,6 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   ui->add(UIAnchor::BottomRight, 8, std::move(bottom_right));
 
   auto bottom_left = std::make_unique<VStack>(8);
-
-  bottom_left->add(std::make_unique<EditableNumberField>(
-      0, 0, 80, 26, default_font, s->window, [this](double v) {
-        state->sim->set_rider_effort(selected_rider, v);
-        const Rider* r = state->sim->get_engine()->get_rider_by_id(0);
-        SDL_Log("%s effort set to %d %%", r->name.c_str(), int(100 * v));
-      }));
 
   bottom_left->add(std::make_unique<EditableStringField>(
       0, 0, 120, 26, default_font, s->window,

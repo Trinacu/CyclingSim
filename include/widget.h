@@ -16,9 +16,9 @@ std::string format_number(double value, int precision = 1);
 
 class Widget : public Drawable {
 public:
+  virtual ~Widget() = default;
   RenderLayer layer() const override { return RenderLayer::UI; }
   virtual void render(const RenderContext* ctx) override = 0;
-  virtual ~Widget() = default;
   virtual void render_imgui(const RenderContext* ctx) {}
   bool visible = true;
 };
@@ -245,30 +245,6 @@ public:
   void render(const RenderContext* ctx) override;
 };
 
-class TimeFactorSlider : public Widget, public ILayoutWidget {
-public:
-  TimeFactorSlider(int x_, int y_, int w_, int h_, Simulation* sim_)
-      : x(x_), y(y_), w(w_), h(h_), sim(sim_) {}
-
-  // ILayoutWidget
-  LayoutSize get_preferred_size() const override;
-  void set_bounds(LayoutRect r) override;
-
-  void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override;
-
-private:
-  int x, y, w, h;
-  double neutral_point = 0.3; // where factor = 1.0
-  int marker_width = 4;
-  bool dragging = false;
-  double slider_pos = 0.5; // slider position 0..1
-  Simulation* sim;
-
-  double slider_to_factor(double t);
-  double factor_to_slider(double f);
-};
-
 class ValueField : public Widget, public ILayoutWidget {
 protected:
   int x, y, w, h;
@@ -315,6 +291,7 @@ private:
   DataGetter getter;
 
 public:
+  // this should only be called from MetricRow!
   RiderValueField(int x, int y, int w, int h, TTF_Font* font,
                   DataGetter getter);
 
@@ -400,6 +377,7 @@ public:
                SDL_Color bg_color = {15, 150, 15, 255},
                SDL_Color fill_color = {20, 200, 20, 255}, double min = 0.0,
                double max = 1.0);
+  void add_effort_slider(Simulation* sim, double max_effort = 2.0);
 
   // ILayoutWidget
   LayoutSize get_preferred_size() const override;
@@ -407,6 +385,7 @@ public:
 
   void render(const RenderContext* ctx) override;
   void render_imgui(const RenderContext* ctx) override;
+  bool handle_event(const SDL_Event* e) override;
 
   void render_plot_overlay(const RenderContext* ctx);
 

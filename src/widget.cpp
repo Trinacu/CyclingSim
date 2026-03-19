@@ -6,7 +6,6 @@
 #include <string>
 
 #include "SDL3/SDL_log.h"
-#include "SDL3/SDL_oldnames.h"
 #include "SDL3/SDL_pixels.h"
 #include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_render.h"
@@ -14,7 +13,9 @@
 #include "display.h"
 #include "imgui.h"
 #include "implot.h"
+#include "sim.h"
 #include "simrenderer.h"
+#include "sliders.h"
 #include "snapshot.h"
 #include "widget.h"
 
@@ -603,86 +604,6 @@ void PauseButton::render(const RenderContext* ctx) {
   Button::render(ctx);
 }
 
-LayoutSize TimeFactorSlider::get_preferred_size() const { return {w, h}; }
-
-void TimeFactorSlider::set_bounds(LayoutRect r) {
-  x = r.x;
-  y = r.y;
-  w = r.w;
-  h = r.h;
-}
-
-double TimeFactorSlider::slider_to_factor(double t) {
-  if (t <= neutral_point) {
-    double s = t / neutral_point;
-    return 0.1 + s * (1.0 - 0.1);
-  } else {
-    double s = (t - neutral_point) / neutral_point;
-    return std::pow(10.0, s * 2.0); // 1 → 100
-  }
-}
-
-double TimeFactorSlider::factor_to_slider(double f) {
-  if (f <= 1.0) {
-    double s = (f - 0.1) / (1.0 - 0.1);
-    return s * neutral_point;
-  } else {
-    double s = std::log10(f) / 2.0;
-    return neutral_point + s * neutral_point;
-  }
-}
-
-void TimeFactorSlider::render(const RenderContext* ctx) {
-  SDL_Renderer* r = ctx->renderer;
-
-  // background bar
-  SDL_SetRenderDrawColor(r, 120, 120, 120, 255);
-  SDL_FRect bar{(float)x, (float)y + h * 0.4f, (float)w, h * 0.2f};
-  SDL_RenderFillRect(r, &bar);
-
-  // neutral point - factor = 1.0
-  float markerX = x + neutral_point * w - marker_width / 2.0;
-  SDL_SetRenderDrawColor(r, 120, 120, 120, 255);
-  SDL_FRect marker{markerX, (float)y, static_cast<float>(marker_width),
-                   (float)h};
-  SDL_RenderFillRect(r, &marker);
-
-  // knob
-  double t = factor_to_slider(ctx->time_factor);
-  float knobX = x + t * w - h / 4.0;
-  SDL_SetRenderDrawColor(r, 240, 240, 240, 255);
-  SDL_FRect knob{knobX, static_cast<float>(y + h / 4.0), (float)h / 2,
-                 (float)h / 2};
-  SDL_RenderFillRect(r, &knob);
-}
-
-bool TimeFactorSlider::handle_event(const SDL_Event* e) {
-  switch (e->type) {
-  case SDL_EVENT_MOUSE_BUTTON_DOWN:
-    if (e->button.x >= x && e->button.x <= x + w && e->button.y >= y &&
-        e->button.y <= y + h) {
-      dragging = true;
-      return true;
-    }
-    break;
-
-  case SDL_EVENT_MOUSE_BUTTON_UP:
-    dragging = false;
-    break;
-
-  case SDL_EVENT_MOUSE_MOTION:
-    if (dragging) {
-      double local = (e->motion.x - x) / (double)w;
-      local = std::clamp(local, 0.0, 1.0);
-      double f = slider_to_factor(local);
-      sim->set_time_factor(f);
-      return true;
-    }
-    break;
-  }
-  return false;
-}
-
 TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
                                    Simulation* sim_)
     : x(x_), y(y_), h(h_), sim(sim_) {
@@ -698,8 +619,12 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
   next_x += valfield_w + gap_w;
 
   child_rel_positions.push_back({next_x - x, widget_y});
-  children.push_back(std::make_unique<TimeFactorSlider>(
-      next_x, widget_y, slider_w, widget_h, sim));
+  PiecewiseMappingConfig time_cfg;
+  auto slider = std::make_unique<PiecewiseSlider>(next_x, widget_y, slider_w,
+                                                  widget_h, time_cfg);
+  slider->on_change = [sim_](double v) { sim_->set_time_factor(v); };
+  slider->get_value = [](const RenderContext* ctx) { return ctx->time_factor; };
+  children.push_back(std::move(slider));
   next_x += slider_w + gap_w;
 
   auto make_factor_button = [&](double val) {
@@ -969,6 +894,9 @@ void RiderPanel::build_fields() {
       SDL_Color{200, 20, 20, 255});
   add_bar("W' bal",
           [](const RiderRenderState& rs) { return rs.wbal_fraction; });
+  // TODO - seems like now we have to pass sim into RiderPanel so that we can
+  // get it to EffortSlider?
+  // add_effort_slider(sim, )
 }
 
 LayoutSize RiderPanel::get_preferred_size() const {
@@ -1034,6 +962,13 @@ void RiderPanel::add_bar(std::string label, ProgressBar::RiderDataFn getter,
   int row_height = 30;
 }
 
+void RiderPanel::add_effort_slider(Simulation* sim, double max_effort) {
+  auto es = std::make_unique<EffortSlider>(x, y, 160, 20, sim);
+  es->set_rider_id(id);
+  children.push_back(std::move(es));
+  dirty = true;
+}
+
 void RiderPanel::render(const RenderContext* ctx) {
   if (id < 0)
     return;
@@ -1069,6 +1004,14 @@ void RiderPanel::render(const RenderContext* ctx) {
   // it up itself. Draw all rows
   for (auto& child : children)
     child->render(ctx);
+}
+
+bool RiderPanel::handle_event(const SDL_Event* e) {
+  // if we have overlapping widgets, we need to iterate in reverse
+  for (auto& child : children)
+    if (child->handle_event(e))
+      return true;
+  return false;
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {
