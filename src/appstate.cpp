@@ -60,10 +60,12 @@ AppState::AppState() {
   rider_configs.push_back(cfg);
   cfg = {5, "Kojo", 320, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {6, "Hari", 290, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {6, "Hari", 400, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {7, "Luka", 360, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {7, "Luka", 320, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
+  // cfg = {8, "Buggy", 500, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  // rider_configs.push_back(cfg);
   sim->add_riders(rider_configs);
 
   screens = std::make_unique<ScreenManager>(this);

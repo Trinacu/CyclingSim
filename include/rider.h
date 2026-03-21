@@ -3,6 +3,7 @@
 #define RIDER_H
 
 #include "course.h"
+#include "group.h"
 #include "mytypes.h"
 #include "pch.hpp"
 #include "sim_core.h"
@@ -61,19 +62,20 @@ class Rider {
 private:
   RiderConfig config;
   const RiderId id; // stable config ID - UI must not use uid
+  GroupId group_id;
+  GroupRole group_role = GroupRole::Unassigned;
+
+  double heading = 0;
 
   Vector2d _pos2d;
-  double heading;
-
   double lat_pos = 0.0;
   double lat_vel = 0.0;
   std::optional<double> lat_target = 0.0;
 
-  double timestep;
+  // double timestep;
 
   Bike bike;
   Team team;
-  TextureManager* tex_manager;
   const ICourseView* course;
 
   void set_cda_factor(double cda_factor_);
@@ -81,7 +83,7 @@ private:
 
   void update_power_breakdown(double old_speed);
 
-  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
+  // std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 
   // C core
   RiderState state;
@@ -109,6 +111,10 @@ public:
   RiderId get_id() const { return id; }
 
   void set_effort(double new_effort);
+
+  GroupRole get_group_role() const { return group_role; }
+  void set_group_role(GroupRole role) { group_role = role; }
+  void clear_desired_group_role() { group_role = GroupRole::Unassigned; }
 
   double get_pos() const;
   double get_speed() const;

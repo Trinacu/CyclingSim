@@ -4,6 +4,7 @@
 
 #include "camera.h"
 #include "course.h"
+#include "group.h"
 #include "snapshot.h"
 #include "texturemanager.h"
 #include "visualmodel.h"
@@ -26,6 +27,7 @@ struct RenderContext {
   double interp_sim_time = 0.0; // for animation sim timing
                                 //
   std::unordered_map<int, RiderRenderState> riders;
+  GroupSnapshot groups;
 };
 
 enum class RenderLayer : int { Course = 0, Riders = 1, UI = 2, COUNT };
@@ -51,8 +53,10 @@ public:
 };
 
 struct RiderVisualState {
-  double wheel_angle = 0.0;                         // radians
-  double anim_phase = std::rand() * 1.0 / RAND_MAX; // 0..1 for sprite animation
+  double wheel_angle = 0.0; // radians
+  double anim_phase = 0.0;
+  // double anim_phase = std::rand() * 1.0 / RAND_MAX; // 0..1 for sprite
+  // animation
 
   double last_pos = std::numeric_limits<double>::quiet_NaN();
   double last_anim_sim_time = std::numeric_limits<double>::quiet_NaN();

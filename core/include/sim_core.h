@@ -96,7 +96,8 @@ typedef struct {
   double drivetrain_loss; /* fraction */
 
   /* aerodynamics */
-  double cda_rider;      /* already includes cda_factor */
+  double cda_rider; /* already includes cda_factor */
+  double cda_factor;
   double cda_wheel_drag; /* wheel / frame */
 
   /* control */

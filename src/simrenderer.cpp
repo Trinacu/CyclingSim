@@ -71,22 +71,31 @@ void SimulationRenderer::render_frame() {
     rs.lat_pos = s0.lat_pos * (1.0 - ctx.alpha) + s1.lat_pos * ctx.alpha;
 
     // Non-interpolated from curr_frame
-    rs.slope = s1.slope;
-    rs.effort = s1.effort;
     rs.id = s1.id;
     rs.name = s1.name;
     rs.effort = s1.effort;
     rs.max_effort = s1.max_effort;
+    rs.pos = s1.pos;
+    rs.slope = s1.slope;
+    rs.heading = s1.heading;
+    rs.speed = s1.speed;
+    rs.effort = s1.effort;
     rs.power = s1.power;
     rs.wbal_fraction = s1.wbal_fraction;
-    rs.speed = s1.speed;
-    rs.pos = s1.pos;
+
     rs.visual_type = s1.visual_type;
     rs.team_id = s1.team_id;
-    rs.power_breakdown = s1.power_breakdown;
+
+    rs.group_id = s1.group_id;
+    rs.group_role = s1.group_role;
+    // rs.power_breakdown = s1.power_breakdown;
 
     ctx.riders[id] = std::move(rs);
   }
+
+  ctx.groups = frame_curr.groups;
+  // NOTE This is a value copy of a std::vector<Group>. At N ≤ 20 riders this is
+  // well under 1 KB. No allocation concern.
 
   camera->update(ctx.riders);
 

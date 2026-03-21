@@ -5,6 +5,8 @@
 #include "collision_params.h"
 #include "course.h"
 #include "effortschedule.h"
+#include "group.h"
+#include "grouping_params.h"
 #include "lateral_behavior.h"
 #include "lateral_solver.h"
 #include "rider.h"
@@ -26,6 +28,15 @@ private:
 
   CollisionParams params;
   LateralSolver lateral_solver_; // stateless; holds a copy of params
+                                 //
+  GroupingParams group_params_;
+  GroupTracker group_tracker_;
+
+  // Pre-allocated buffers — cleared and refilled each tick, never
+  // heap-allocated in the hot path.  Same pattern as lat_states_ and
+  // lat_updates_.
+  std::vector<GroupMember> group_input_;
+  std::unordered_map<RiderId, GroupRole> role_decls_;
 
   // Optional per-rider behavior: absent → purely force-driven (lat_target
   // nullopt).
@@ -44,6 +55,11 @@ private:
   void step_lateral_solve(double dt); // calls lateral_solver_.solve()
   void step_lateral_apply();          // writes lat_updates_ back into riders
 
+  void build_group_input();   // populates group_input_ from current rider state
+  void step_group_classify(); // calls group_tracker_.update()
+  void
+  step_group_role_apply(); // calls group_tracker_.apply_role_declarations()
+
   // Approximate surplus power: rider output minus resistive losses at current
   // speed.  Used to populate LateralRiderState::surplus_power.
   // Intentionally a rough estimate — it is used only to size the shove budget,
@@ -53,6 +69,10 @@ private:
   // Build a LateralContext for one rider from the current lat_states_ snapshot.
   // Nearby riders are filtered to those within params.x_lookahead.
   LateralContext build_context(RiderId id) const;
+  // Build a GroupContext for one rider from the current GroupTracker snapshot.
+  // Called after step_group_classify() and step_group_role_apply() have run,
+  // so the snapshot reflects the fully-resolved state for this tick.
+  GroupContext build_group_context(RiderId id) const;
 
 public:
   explicit PhysicsEngine(const Course* c);

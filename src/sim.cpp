@@ -1,4 +1,5 @@
 #include "sim.h"
+#include "group.h"
 #include "lateral_solver.h"
 #include "rider.h"
 #include "snapshot.h"
@@ -13,7 +14,7 @@
 // default-initialised before lateral_solver_ is constructed from it.
 // This is correct regardless of the order listed in the initialiser list.
 PhysicsEngine::PhysicsEngine(const Course* c)
-    : course(c), lateral_solver_(params) {}
+    : course(c), lateral_solver_(params), group_tracker_(group_params_) {}
 
 bool PhysicsEngine::add_rider(const RiderConfig cfg) {
   auto r = std::make_unique<Rider>(cfg);
@@ -42,6 +43,9 @@ bool PhysicsEngine::add_rider(const RiderConfig cfg) {
 //   the current step — no off-by-one between longitudinal and lateral.
 
 void PhysicsEngine::update(double dt) {
+  step_group_classify();
+  step_group_role_apply();
+  // step_draft_apply();
   step_longitudinal(dt);
   step_lateral_behavior();
   step_lateral_solve(dt);
@@ -57,8 +61,13 @@ void PhysicsEngine::step_and_snapshot(double dt, FrameSnapshot& out) {
 void PhysicsEngine::fill_snapshot(FrameSnapshot& out) const {
   // this needs to be called under phys_lock, but we lock in sim::step_fixed
   out.riders.clear();
-  for (const auto& [id, r] : riders)
-    out.riders.emplace(id, r->snapshot());
+  for (const auto& [id, r] : riders) {
+    auto snap = r->snapshot();
+    snap.group_id = group_tracker_.get_group_id(id);
+    snap.group_role = group_tracker_.get_role(id);
+    out.riders.emplace(id, std::move(snap));
+  }
+  out.groups = group_tracker_.get_snapshot(); // value copy; small at N<=20
 }
 
 const std::unordered_map<RiderId, std::unique_ptr<Rider>>&
@@ -186,6 +195,38 @@ void PhysicsEngine::step_lateral_apply() {
   }
 }
 
+void PhysicsEngine::build_group_input() {
+  group_input_.clear();
+  group_input_.reserve(riders.size());
+  for (const auto& [id, r] : riders) {
+    group_input_.push_back(GroupMember{
+        .id = id,
+        .lon_pos = r->get_pos(),
+        .speed = r->get_speed(),
+        .role = GroupRole::Unassigned,
+    });
+  }
+}
+
+void PhysicsEngine::step_group_classify() {
+  build_group_input();
+  group_tracker_.update(group_input_);
+
+  // for (const auto& g : group_tracker_.get_snapshot())
+  //   SDL_Log("Group %d (%s): %d riders, front %.0f m, span %.0f m", g.ordinal,
+  //           g.display_name.c_str(), g.size(), g.front_pos(), g.back_pos());
+}
+
+void PhysicsEngine::step_group_role_apply() {
+  role_decls_.clear();
+  for (const auto& [id, r] : riders) {
+    const GroupRole role = r->get_group_role();
+    if (role != GroupRole::Unassigned)
+      role_decls_[id] = role;
+  }
+  group_tracker_.apply_role_declarations(role_decls_);
+}
+
 // --- Private helpers ---
 
 // Approximate power consumed by longitudinal resistance at current speed.
@@ -237,6 +278,64 @@ LateralContext PhysicsEngine::build_context(RiderId id) const {
           .w_prime_frac = s.w_prime_frac,
       });
     }
+  }
+
+  return ctx;
+}
+
+GroupContext PhysicsEngine::build_group_context(RiderId id) const {
+  GroupContext ctx;
+
+  const GroupId gid = group_tracker_.get_group_id(id);
+  if (gid == kNoGroup)
+    return ctx; // rider not in snapshot; return default
+
+  const GroupSnapshot& snap = group_tracker_.get_snapshot();
+
+  // gid == ordinal == index into snap (guaranteed by GroupTracker)
+  if (gid < 0 || gid >= static_cast<int>(snap.size()))
+    return ctx;
+
+  const Group& group = snap[gid];
+
+  ctx.own_group_id = gid;
+  ctx.own_role = group_tracker_.get_role(id);
+  ctx.group_ordinal = group.ordinal;
+  ctx.group_size = group.size();
+  ctx.paceline_size = static_cast<int>(group.paceline.size());
+  ctx.body_size = static_cast<int>(group.body.size());
+
+  // Paceline position: index of this rider in group.paceline
+  // (already sorted front-to-back by apply_role_declarations)
+  ctx.paceline_position = -1;
+  for (int i = 0; i < static_cast<int>(group.paceline.size()); ++i) {
+    if (group.paceline[i].id == id) {
+      ctx.paceline_position = i;
+      break;
+    }
+  }
+  ctx.is_paceline_front = (ctx.paceline_position == 0);
+
+  // is_group_front: true if this rider has the highest lon_pos in the group
+  const double own_pos = [&]() -> double {
+    for (const auto& m : group.all_members())
+      if (m.id == id)
+        return m.lon_pos;
+    return -1.0;
+  }();
+  ctx.is_group_front = (own_pos >= group.front_pos() - 1e-6);
+
+  // gap_to_group_ahead: distance from own group's front to the rear
+  // of the group with ordinal (gid - 1)
+  if (gid == 0) {
+    ctx.gap_to_group_ahead = -1.0; // we are the front group
+  } else {
+    const Group& ahead = snap[gid - 1];
+    ctx.gap_to_group_ahead = ahead.back_pos() - group.front_pos();
+    // Clamp to zero — a negative value means groups are overlapping,
+    // which the classifier should prevent but guard against anyway.
+    if (ctx.gap_to_group_ahead < 0.0)
+      ctx.gap_to_group_ahead = 0.0;
   }
 
   return ctx;

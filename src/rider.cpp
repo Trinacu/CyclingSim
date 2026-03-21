@@ -46,8 +46,8 @@ Rider::Rider(RiderConfig config_)
   p.crr = config_.bike.crr;
   p.drivetrain_loss = config_.bike.dt_loss;
 
-  lat_pos = (std::rand() % 100 - 50.0) / 200.0;
-  SDL_Log("%.2f", lat_pos);
+  // lat_pos = (std::rand() % 100 - 50.0) / 200.0;
+  // SDL_Log("%.2f", lat_pos);
 
   rider_state_init(&state, &p);
 
@@ -71,10 +71,6 @@ RiderConfig Rider::default_config(Team team_) {
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
-
-Vector2d Rider::get_pos2d() const { return _pos2d; }
-
-void Rider::set_pos2d(Vector2d pos) { _pos2d = pos; }
 
 void Rider::reset() {
   rider_reset(&state);
@@ -118,7 +114,7 @@ void Rider::apply_lateral_update(double new_lat_pos, double new_lat_vel,
                                  double speed_penalty) {
   lat_pos = new_lat_pos;
   lat_vel = new_lat_vel;
-  state.speed *= speed_penalty;
+  // state.speed *= speed_penalty;
 }
 
 void Rider::set_effort(double new_effort) { state.target_effort = new_effort; }
@@ -165,20 +161,20 @@ void Rider::update_power_breakdown(double old_speed) {
 RiderSnapshot Rider::snapshot() const {
   return RiderSnapshot{
       .id = this->id,
+      .group_id = this->group_id,
+      .group_role = this->group_role,
       .name = this->name,
+      .max_effort = this->state.max_effort,
       .pos = this->state.pos,
       .slope = this->state.slope,
-      .pos2d = this->_pos2d,
-      .lat_pos = this->lat_pos,
+      .heading = this->heading,
+      .speed = this->state.speed,
+      .effort = this->state.effort,
       .power = this->state.power,
       .wbal_fraction = this->get_energy_fraction(),
-      .effort = this->state.effort,
-      .max_effort = this->state.max_effort,
-      .speed = this->state.speed,
-      .km_h = this->get_speed() * 3.6,
-      .heading = this->heading,
+      .lat_pos = this->lat_pos,
+      .pos2d = this->_pos2d,
       .team_id = this->team.id,
       .visual_type = this->bike.type,
-      .power_breakdown = this->power_breakdown,
   };
 }

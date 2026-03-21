@@ -2,6 +2,7 @@
 #define SNAPSHOT_H
 
 #include "Eigen/Core"
+#include "group.h"
 #include "mytypes.h"
 #include "pch.hpp"
 #include "visualmodel.h"
@@ -22,44 +23,53 @@ static constexpr const char* POWER_LABELS[] = {"Aero", "Roll",  "Bear",
                                                "Grav", "Inert", "Drive"};
 
 struct RiderRenderState {
-  // interpolated
-  Vector2d pos2d;
-  double lat_pos;
-  double slope;
-  double effort;
-
-  // curr_frame values - no lerp
   RiderId id;
+  GroupId group_id = kNoGroup;
+  GroupRole group_role = GroupRole::Unassigned;
   std::string name;
   double max_effort;
+  double pos;
+  double slope;
+  double speed;
+  double effort;
   double power;
   double wbal_fraction;
-  double speed;
-  double pos;
-  BikeType visual_type;
+
+  // added
+  double heading;
+
+  // interpolated
+  double lat_pos;
+  Vector2d pos2d;
+
   int team_id;
-  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
+
+  BikeType visual_type;
+  // std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 };
 
 struct RiderSnapshot {
   RiderId id;
+  GroupId group_id;
+  GroupRole group_role;
   std::string name;
+  double max_effort;
   double pos;
   double slope;
-  Vector2d pos2d;
-  double lat_pos;
+  double heading;
+  double speed;
+  double effort;
   double power;
   double wbal_fraction;
-  double effort;
-  double max_effort;
-  double speed;
-  double km_h;
-  double heading;
+
+  // interpolated
+  double lat_pos;
+  Vector2d pos2d;
+
   int team_id;
 
   BikeType visual_type;
-
-  std::array<double, (int)PowerTerm::COUNT> power_breakdown;
+  // std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 };
 
 using SnapshotMap = std::unordered_map<int, RiderSnapshot>;
@@ -72,6 +82,7 @@ struct FrameSnapshot {
   double real_time = 0.0;   // seconds (steady clock / SDL time) when captured
 
   SnapshotMap riders;
+  GroupSnapshot groups;
 };
 
 #endif

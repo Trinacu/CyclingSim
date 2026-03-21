@@ -178,7 +178,7 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
   energy_init(&r->energy, params->ftp_base, params->w_prime,
               params->max_effort);
 
-  r->solver = SIM_SOLVER_POWER_BALANCE;
+  r->solver = SIM_SOLVER_ACCEL_FORCE;
 
   // printf("%.1f %.2f %.1f %.2f %.1f %.1f %.2f %.1f %.1f\n", r->pos, r->speed,
   //        r->slope, r->target_effort, r->power, r->mass_rider, r->cda_rider,
@@ -197,7 +197,7 @@ static double pow_speed(double v_new, double v_old, double dt,
                         const RiderState* r, const EnvState* env) {
   double v_air = v_new + env->headwind;
 
-  double cda_total = r->cda_rider + r->cda_wheel_drag;
+  double cda_total = (r->cda_rider + r->cda_wheel_drag) * r->cda_factor;
   double drag_coeff = 0.5 * env->rho * cda_total;
 
   double total_mass = r->mass_rider + r->mass_bike;
@@ -219,7 +219,7 @@ static double pow_speed_prime(double v, double dt, const RiderState* r,
                               const EnvState* env) {
   double v_air = v + env->headwind;
 
-  double cda_total = r->cda_rider + r->cda_wheel_drag;
+  double cda_total = (r->cda_rider + r->cda_wheel_drag) * r->cda_factor;
   double drag_coeff = 0.5 * env->rho * cda_total;
 
   double total_mass = r->mass_rider + r->mass_bike;
@@ -237,7 +237,7 @@ static double resistive_force(double v, const RiderState* r,
                               const EnvState* env) {
   double v_air = v + env->headwind;
 
-  double cda = r->cda_rider + r->cda_wheel_drag;
+  double cda = (r->cda_rider + r->cda_wheel_drag) * r->cda_factor;
   double drag = 0.5 * env->rho * cda * v_air * v_air;
 
   double total_mass = r->mass_rider + r->mass_bike;

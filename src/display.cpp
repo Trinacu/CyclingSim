@@ -25,6 +25,20 @@ double effort_to_freq(double effort, double max_effort) {
   return anim_rpm / 60;
 }
 
+// Draws a thin coloured rectangle outline around a screen rect.
+// Used as a group membership indicator behind the rider sprite.
+static void draw_group_halo(SDL_Renderer* r, SDL_FRect rect, SDL_FColor col,
+                            float expand = 4.0f) {
+  SDL_FRect halo{
+      rect.x - expand,
+      rect.y - expand,
+      rect.w + 2.0f * expand,
+      rect.h + 2.0f * expand,
+  };
+  SDL_SetRenderDrawColorFloat(r, col.r, col.g, col.b, col.a * 0.7f);
+  SDL_RenderRect(r, &halo);
+}
+
 CourseDrawable::CourseDrawable(const Course* course_) : course(course_) {}
 
 void CourseDrawable::render(const RenderContext* ctx) {
@@ -109,6 +123,19 @@ void RiderDrawable::render(const RenderContext* ctx) {
 
     const RiderScreenGeom geom = compute_screen_geom(
         *cam, rs.pos2d, rs.slope, rs.lat_pos, model, vis.wheel_angle);
+
+    // Group membership indicator — drawn behind the sprite
+    if (rs.group_id != kNoGroup) {
+      const float wheel_diam = cam->get_scale() * 2.0f * model.wheel_radius;
+      const SDL_FRect rider_rect{
+          float(geom.rear_wheel_screen.x()) - 4.0f,
+          float(geom.front_wheel_screen.y()) - wheel_diam,
+          float(geom.front_wheel_screen.x() - geom.rear_wheel_screen.x()) +
+              8.0f,
+          wheel_diam * 2.5f,
+      };
+      draw_group_halo(ctx->renderer, rider_rect, group_colour(rs.group_id));
+    }
 
     draw_rider(ctx, model, vis, geom, *cam);
   }

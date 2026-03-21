@@ -335,10 +335,17 @@ void LateralOverview::draw_into_target(const RenderContext* ctx) {
   double lon_min = cam->get_pos()[0] - cam->get_world_width() / 2;
   double lon_max = cam->get_pos()[0] + cam->get_world_width() / 2;
 
+  // for (const auto& [_, rs] : ctx->riders) {
+  //   SDL_FPoint pos = to_widget(rs.pos, rs.lat_pos, lon_min, lon_max,
+  //                              course->get_road_width(rs.pos) / 2);
+  //   SDL_FRect rect = {pos.x, pos.y, 3, 3};
+  //   SDL_RenderRect(ctx->renderer, &rect);
+  // }
+
   for (const auto& [_, rs] : ctx->riders) {
     SDL_FPoint pos = to_widget(rs.pos, rs.lat_pos, lon_min, lon_max,
                                course->get_road_width(rs.pos) / 2);
-    SDL_FRect rect = {pos.x, pos.y, 3, 3};
+    SDL_FRect rect = {pos.x - 2, pos.y - 2, 4, 4};
     SDL_RenderRect(ctx->renderer, &rect);
   }
 
@@ -1015,69 +1022,70 @@ bool RiderPanel::handle_event(const SDL_Event* e) {
 }
 
 void RiderPanel::render_imgui(const RenderContext* ctx) {
-  if (id < 0)
-    return;
-
-  auto it = ctx->riders.find(id);
-  if (it == ctx->riders.end())
-    return;
-
-  const RiderRenderState& rs = it->second;
-
-  // compute where the plot goes based on panel position
-  ImVec2 pos((float)x, (float)y + 140);
-  ImVec2 size(300, 300);
-
-  ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
-  ImGui::SetNextWindowSize(size, ImGuiCond_Always);
-
-  ImGuiWindowFlags win_flags =
-      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
-      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground;
-
-  static double data1[static_cast<size_t>(PowerTerm::COUNT)];
-  for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
-    data1[i] = static_cast<float>(rs.power_breakdown[i]);
-  }
-  // clamp so we don't show negative inertia term
-  // thought ideally we'd only show the output of the other terms
-  // but that'd require subtracting the change from before or sth similar?
-  data1[static_cast<size_t>(PowerTerm::Inertia)] =
-      std::max(0.0, data1[static_cast<size_t>(PowerTerm::Inertia)]);
-  static ImPlotPieChartFlags flags = 0;
-  bool open = ImGui::Begin("##riderplot", nullptr, win_flags);
-
-  // DragFloat controls
-  // ImGui::SetNextItemWidth(250);
+  // if (id < 0)
+  //   return;
+  //
+  // auto it = ctx->riders.find(id);
+  // if (it == ctx->riders.end())
+  //   return;
+  //
+  // const RiderRenderState& rs = it->second;
+  //
+  // // compute where the plot goes based on panel position
+  // ImVec2 pos((float)x, (float)y + 140);
+  // ImVec2 size(300, 300);
+  //
+  // ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+  // ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+  //
+  // ImGuiWindowFlags win_flags =
+  //     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+  //     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
+  //     | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground;
+  //
+  // static double data1[static_cast<size_t>(PowerTerm::COUNT)];
   // for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
-  //   char label[32];
-  //   snprintf(label, sizeof(label), POWER_LABELS[i], i);
-  //   ImGui::DragFloat(label, &data1[i], 0.01f, 0, 1);
+  //   data1[i] = static_cast<float>(rs.power_breakdown[i]);
   // }
-
-  if (open) {
-    if (ImGui::Button(show_plot ? "Hide plot" : "Show plot")) {
-      show_plot = !show_plot;
-    }
-
-    if (show_plot) {
-      if (ImPlot::BeginPlot("##Pie1",
-                            ImVec2(ImGui::GetTextLineHeight() * 16,
-                                   ImGui::GetTextLineHeight() * 16),
-                            ImPlotFlags_Equal | ImPlotFlags_NoMouseText)) {
-        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations,
-                          ImPlotAxisFlags_NoDecorations);
-        ImPlot::SetupAxesLimits(0, 1, 0, 1);
-        ImPlot::PlotPieChart(POWER_LABELS, data1,
-                             static_cast<int>(PowerTerm::COUNT), 0.5, 0.5, 0.4,
-                             "%.2f", 90, flags);
-        ImPlot::EndPlot();
-      }
-    }
-  }
-
-  ImGui::End();
+  // // clamp so we don't show negative inertia term
+  // // thought ideally we'd only show the output of the other terms
+  // // but that'd require subtracting the change from before or sth similar?
+  // data1[static_cast<size_t>(PowerTerm::Inertia)] =
+  //     std::max(0.0, data1[static_cast<size_t>(PowerTerm::Inertia)]);
+  // static ImPlotPieChartFlags flags = 0;
+  // bool open = ImGui::Begin("##riderplot", nullptr, win_flags);
+  //
+  // // DragFloat controls
+  // // ImGui::SetNextItemWidth(250);
+  // // for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
+  // //   char label[32];
+  // //   snprintf(label, sizeof(label), POWER_LABELS[i], i);
+  // //   ImGui::DragFloat(label, &data1[i], 0.01f, 0, 1);
+  // // }
+  //
+  // if (open) {
+  //   if (ImGui::Button(show_plot ? "Hide plot" : "Show plot")) {
+  //     show_plot = !show_plot;
+  //   }
+  //
+  //   if (show_plot) {
+  //     if (ImPlot::BeginPlot("##Pie1",
+  //                           ImVec2(ImGui::GetTextLineHeight() * 16,
+  //                                  ImGui::GetTextLineHeight() * 16),
+  //                           ImPlotFlags_Equal | ImPlotFlags_NoMouseText)) {
+  //       ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations,
+  //                         ImPlotAxisFlags_NoDecorations);
+  //       ImPlot::SetupAxesLimits(0, 1, 0, 1);
+  //       ImPlot::PlotPieChart(POWER_LABELS, data1,
+  //                            static_cast<int>(PowerTerm::COUNT), 0.5, 0.5,
+  //                            0.4,
+  //                            "%.2f", 90, flags);
+  //       ImPlot::EndPlot();
+  //     }
+  //   }
+  // }
+  //
+  // ImGui::End();
 }
 
 bool BaseEditableField::handle_event(const SDL_Event* e) {
