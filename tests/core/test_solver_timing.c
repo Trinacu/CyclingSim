@@ -75,7 +75,7 @@ int main(void) {
   base.ftp = 300.0;
   base.target_effort = 0.8;
 
-  energy_init(&base.energy, 300.0, 20000.0, 1.5);
+  energy_init(&base.energy, 300.0, 20000.0, 2.0, 1.5);
 
   /* ---------- run solvers ---------- */
 

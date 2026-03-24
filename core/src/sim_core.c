@@ -6,6 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 
+static const double O_PART = 0.21;
+static const double PRESS0 = 101.3;
+static const double H = 8400.0;
+static const double C = 8.0;
+static const double O_PRESS0 = O_PART * PRESS0;
+
 /* ------------------------------
  * Internal helpers
  * ------------------------------ */
@@ -60,13 +66,14 @@ static double equivalent_mass(const RiderState* r) {
  * ------------------------------ */
 
 void energy_init(EnergyState* e, double ftp, double w_prime,
-                 double max_effort_base) {
+                 double ftp_degrade_threshold, double max_effort_base) {
   if (!e)
     return;
 
   e->ftp_base = ftp;
   e->ftp = ftp;
   e->w_prime = w_prime;
+  e->ftp_degrade_threshold = ftp_degrade_threshold;
   e->max_effort_base = max_effort_base;
 
   /* Tuned to match your C++ defaults */
@@ -93,7 +100,6 @@ void energy_update(EnergyState* e, double power, double dt) {
   if (!e || dt <= 0.0)
     return;
 
-  // TODO - degrade ftp
   e->w_expended += power * dt;
 
   if (power > e->ftp) {
@@ -158,11 +164,13 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
 
   r->target_effort = 0.5;
   r->power = 0.0;
+  r->sealevel_sat = 1.0; // placeholder, calculated later
 
   r->mass_rider = params->mass_rider;
   r->cda_rider = params->cda;
   r->ftp = params->ftp_base;
   r->max_effort = params->max_effort;
+  r->oxy_p50 = params->oxy_p50;
 
   r->max_drive_force = params->max_drive_force;
 
@@ -176,7 +184,7 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
   r->heading = 0.0;
 
   energy_init(&r->energy, params->ftp_base, params->w_prime,
-              params->max_effort);
+              params->ftp_degrade_threshold, params->max_effort);
 
   r->solver = SIM_SOLVER_ACCEL_FORCE;
 
@@ -328,10 +336,42 @@ static int solve_speed_newton(double power, double* speed_io, double dt,
   return 0;
 }
 
+double rel_press(double alt) { return exp(-alt / H); }
+double alv_press(double alt) { return O_PART * rel_press(alt) * PRESS0 - C; }
+double rel_alv_press(double alt) {
+  return (rel_press(alt) * O_PRESS0 - C) / (O_PRESS0 - C);
+}
+double saturation(double alt, double midpt) {
+  double n = 2.7;
+  double alv = pow(alv_press(alt), n);
+  return alv / (alv + pow(midpt, n));
+}
+
+double altitude_ftp_factor(double alt, double p50, RiderState* r) {
+  if (r->sealevel_sat == 1)
+    r->sealevel_sat = saturation(0, p50);
+  return saturation(alt, p50) / r->sealevel_sat;
+}
+
+double fatigue_ftp_factor(EnergyState* e) {
+  double factor = e->ftp_base * 3600;
+  double thresh = e->ftp_degrade_threshold * factor;
+  if (e->w_expended > thresh) {
+    return 1.0 - (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
+  }
+  return 1.0;
+}
+
 void sim_step_rider(RiderState* r, const EnvState* env, double dt,
                     StepDiagnostics* diag) {
   if (!r || !env || dt <= 0.0)
     return;
+
+  /* FTP degradation */
+  double alt_f = altitude_ftp_factor(env->altitude, r->oxy_p50, r);
+  double fatigue_f = fatigue_ftp_factor(&r->energy);
+  r->energy.ftp = r->energy.ftp_base * alt_f * fatigue_f;
+  r->ftp = r->energy.ftp;
 
   /* 1. Effort limiting */
   double effort_cap = energy_effort_limit(&r->energy);

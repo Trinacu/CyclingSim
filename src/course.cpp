@@ -48,7 +48,7 @@ Course Course::create_endulating() {
       {100, 0, 0, 0, 8},    {200, 0.1, 0, 0, 8},  {200, 0, 0, 0, 8},
       {2000, 0.1, 0, 0, 8}, {2000, 0, 0, 0, 8},   {2000, 0.1, 0, 0, 8},
       {2000, 0, 0, 0, 8},   {5000, 0.05, 0, 0, 8}};
-  return Course(v, 0.0);
+  return Course(v, 1000.0);
 }
 
 double Course::get_altitude(double pos) const {

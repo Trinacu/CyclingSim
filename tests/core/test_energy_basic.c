@@ -6,7 +6,7 @@ static int nearly(double a, double b, double eps) { return fabs(a - b) < eps; }
 
 int main(void) {
   EnergyState e;
-  energy_init(&e, 300.0, 20000.0, 1.5);
+  energy_init(&e, 300.0, 20000.0, 2.0, 1.5);
 
   const double dt = 0.1;
 

@@ -3,7 +3,7 @@
 
 int main(void) {
   EnergyState e;
-  energy_init(&e, 300.0, 20000.0, 6);
+  energy_init(&e, 300.0, 20000.0, 2.0, 6);
 
   const double dt = 1;
 

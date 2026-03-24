@@ -23,11 +23,13 @@ typedef enum {
 
 typedef struct {
   /* --- base parameters --- */
-  double ftp_base;        /* Functional threshold power (W) */
-  double ftp;             /* actual ftp that degrades */
-  double w_prime;         /* Total anaerobic capacity (J) */
-  double w_expended;      /* total W' expended - used for ftp degradation */
-  double max_effort_base; /* Max relative effort when fresh */
+  double ftp_base;   /* Functional threshold power (W) */
+  double ftp;        /* actual ftp that degrades */
+  double w_prime;    /* Total anaerobic capacity (J) */
+  double w_expended; /* total W' expended - used for ftp degradation */
+  double ftp_degrade_threshold; /* when ftp starts degrading */
+  double ftp_degrade_rate; /* every hour past threshold at FTP degrade rate */
+  double max_effort_base;  /* Max relative effort when fresh */
 
   /* --- recovery parameters --- */
   double tau_base;   /* Baseline tau (s) */
@@ -41,7 +43,7 @@ typedef struct {
 
 /* Initialization / reset */
 void energy_init(EnergyState* e, double ftp, double w_prime,
-                 double max_effort_base);
+                 double ftp_degrade_threshold, double max_effort_base);
 
 void energy_reset(EnergyState* e);
 
@@ -67,6 +69,8 @@ typedef struct {
 
   double slope;    /* road grade (rise/run) */
   double headwind; /* signed headwind component (m/s) */
+
+  double altitude;
 
   /* bearing loss model */
   double bearing_c0; /* 0.091 */
@@ -107,6 +111,9 @@ typedef struct {
   double effort;
   double power;
 
+  double oxy_p50;
+  double sealevel_sat;
+
   double max_drive_force;
 
   double heading;
@@ -121,7 +128,9 @@ typedef struct {
   double ftp_base;
   double w_prime;
   double max_effort;
-  double max_drive_force; // 500 - 1000 N
+  double ftp_degrade_threshold; /* hours of FTP expenditure */
+  double max_drive_force;       // 500 - 1000 N
+  double oxy_p50;               // 2.5 elite, 4.0 avg Joe
   double mass_rider;
   double cda;
   double mass_bike;

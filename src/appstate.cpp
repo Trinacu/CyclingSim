@@ -45,24 +45,35 @@ AppState::AppState() {
   sim->set_time_factor(0.2);
 
   Team team("Team1");
-  RiderConfig cfg = {
-      0, "Pedro", 320, 6, 700, 90, 0.5, 24000, Bike::create_road(), team};
+  RiderConfig cfg = {0,   "Pedro", 320, 6,   2,     0.05,
+                     700, 3.5,     90,  0.5, 24000, Bike::create_road(),
+                     team};
   rider_configs.push_back(cfg);
-  cfg = {1, "Power", 300, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {1,   "Power", 300, 6,   2,     0.05,
+         700, 3.5,     88,  0.5, 24000, Bike::create_road(),
+         team};
   rider_configs.push_back(cfg);
-  cfg = {2,     "AccelForce",        300, 6, 700, 88, 0.5,
+  cfg = {2,     "AccelForce",        300, 6, 2, 0.05, 700, 3.5, 88, 0.5,
          24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {3,     "AccelEnergy",       300, 6, 700, 88, 0.5,
+  cfg = {3,     "AccelEnergy",       300, 6, 2, 0.05, 700, 3.5, 88, 0.5,
          24000, Bike::create_road(), team};
   rider_configs.push_back(cfg);
-  cfg = {4, "Mario", 310, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {4,   "Mario", 310, 6,   2,     0.05,
+         700, 3.5,     88,  0.5, 24000, Bike::create_road(),
+         team};
   rider_configs.push_back(cfg);
-  cfg = {5, "Kojo", 320, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {5,   "Kojo", 320, 6,   2,     0.05,
+         700, 3.5,    88,  0.5, 24000, Bike::create_road(),
+         team};
   rider_configs.push_back(cfg);
-  cfg = {6, "Hari", 400, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {6,   "Hari", 400, 6,   2,     0.05,
+         700, 3.5,    88,  0.5, 24000, Bike::create_road(),
+         team};
   rider_configs.push_back(cfg);
-  cfg = {7, "Luka", 320, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
+  cfg = {7,   "Luka", 320, 6,   2,     0.05,
+         700, 3.5,    88,  0.5, 24000, Bike::create_road(),
+         team};
   rider_configs.push_back(cfg);
   // cfg = {8, "Buggy", 500, 6, 700, 88, 0.5, 24000, Bike::create_road(), team};
   // rider_configs.push_back(cfg);

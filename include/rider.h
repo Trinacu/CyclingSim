@@ -49,7 +49,10 @@ struct RiderConfig {
 
   double ftp_base;
   double max_effort;
+  double ftp_degrade_threshold;
+  double ftp_degrade_rate;
   double max_drive_force;
+  double oxy_p50;
   double mass;
   double cda;
   double w_prime_base;

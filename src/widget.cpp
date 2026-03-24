@@ -896,9 +896,6 @@ void RiderPanel::build_fields() {
     return format_number(s.slope * 100.0);
   });
 
-  add_bar(
-      "W' bal", [](const RiderRenderState& rs) { return rs.wbal_fraction; },
-      SDL_Color{200, 20, 20, 255});
   add_bar("W' bal",
           [](const RiderRenderState& rs) { return rs.wbal_fraction; });
   // TODO - seems like now we have to pass sim into RiderPanel so that we can

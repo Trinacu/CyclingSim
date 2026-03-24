@@ -36,6 +36,7 @@ Rider::Rider(RiderConfig config_)
   p.ftp_base = config_.ftp_base;
   p.w_prime = config_.w_prime_base;
   p.max_effort = config_.max_effort;
+  p.ftp_degrade_threshold = config_.ftp_degrade_threshold;
   p.max_drive_force = config_.max_drive_force;
   p.mass_rider = config_.mass;
   p.cda = config_.cda;
@@ -45,6 +46,7 @@ Rider::Rider(RiderConfig config_)
   p.wheel_drag_factor = config_.bike.wheel_drag_factor;
   p.crr = config_.bike.crr;
   p.drivetrain_loss = config_.bike.dt_loss;
+  p.oxy_p50 = config_.oxy_p50;
 
   // lat_pos = (std::rand() % 100 - 50.0) / 200.0;
   // SDL_Log("%.2f", lat_pos);
@@ -60,13 +62,14 @@ Rider::Rider(RiderConfig config_)
 }
 
 std::unique_ptr<Rider> Rider::create_generic(Team team_) {
-  RiderConfig cfg = {0,     "Joe Moe",           250,  6, 100, 65, 0.3,
-                     24000, Bike::create_road(), team_};
+  RiderConfig cfg = {0,    "Joe Moe", 250, 6,   2,     0.05,
+                     700,  3.5,       65,  0.3, 24000, Bike::create_road(),
+                     team_};
   return std::make_unique<Rider>(cfg);
 }
 
 RiderConfig Rider::default_config(Team team_) {
-  return {0,     "Joe Moe",           250,  6, 100, 65, 0.3,
+  return {0,     "Joe Moe",           250,  6, 2, 0.05, 100, 3.5, 65, 0.3,
           24000, Bike::create_road(), team_};
 }
 
@@ -93,6 +96,9 @@ void Rider::update(double dt) {
   auto [wind_dir, wind_speed] = course->get_wind(state.pos);
   env.headwind = wind_speed * std::cos(wind_dir - heading);
 
+  double altitude = course->get_altitude(state.pos);
+  env.altitude = altitude;
+
   env.bearing_c0 = 0.091;
   env.bearing_c1 = 0.0087;
 
@@ -106,7 +112,6 @@ void Rider::update(double dt) {
   }
 
   /* --- sync UI-facing state --- */
-  double altitude = course->get_altitude(state.pos);
   _pos2d = Vector2d{state.pos, altitude};
 }
 
