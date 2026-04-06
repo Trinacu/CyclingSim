@@ -356,7 +356,7 @@ SDL_FPoint LateralOverview::to_widget(double lon_pos, double lat_pos,
                                       double lon_min, double lon_max,
                                       double road_half) const {
   float y = (lon_max - lon_pos) / (lon_max - lon_min) * h_;
-  float x = w_ / 2.0 + lat_pos / road_half * w_;
+  float x = w_ / 2.0 - lat_pos / road_half * w_;
   return SDL_FPoint{x, y};
 }
 
