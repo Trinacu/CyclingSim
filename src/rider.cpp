@@ -37,6 +37,7 @@ Rider::Rider(RiderConfig config_)
   p.w_prime = config_.w_prime_base;
   p.max_effort = config_.max_effort;
   p.ftp_degrade_threshold = config_.ftp_degrade_threshold;
+  p.ftp_degrade_rate = config_.ftp_degrade_rate;
   p.max_drive_force = config_.max_drive_force;
   p.mass_rider = config_.mass;
   p.cda = config_.cda;

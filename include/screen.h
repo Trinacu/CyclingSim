@@ -78,7 +78,7 @@ private:
   AppState* state;
   std::unique_ptr<SimulationRenderer> sim_renderer;
 
-  RiderId selected_rider;
+  RiderId selected_rider = -1;
 
   // Camera interaction state
   bool dragging = false;

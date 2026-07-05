@@ -143,7 +143,7 @@ PiecewiseMappingConfig EffortSlider::make_config(double max_effort) {
   return cfg;
 }
 
-EffortSlider::EffortSlider(int x, int y, int w, int h, Simulation* sim_)
+EffortSlider::EffortSlider(int x, int y, int w, int h, ISimControl* sim_)
     : sim(sim_) {
   slider = std::make_unique<PiecewiseSlider>(x, y, w, h, make_config(2.0));
   rewire();
@@ -161,7 +161,7 @@ void EffortSlider::rewire() {
   // is called again, rewire() replaces both lambdas atomically;
   // the old closures (with the old id) are simply discarded.
   RiderId id = rider_id;
-  Simulation* sim_ptr = sim;
+  ISimControl* sim_ptr = sim;
 
   slider->on_change = [sim_ptr, id](double v) {
     if (id >= 0)

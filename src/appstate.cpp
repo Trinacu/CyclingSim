@@ -101,6 +101,18 @@ AppState::~AppState() {
     physics_thread.join();
   }
 
+  // Widgets and the texture/font managers own SDL_Textures/TTF_Fonts, so they
+  // must be destroyed while the renderer and TTF are still alive.  Members are
+  // otherwise destroyed after this body runs — too late — hence the explicit
+  // resets here.
+  screens.reset();
+  resources.reset();
+
+  ImGui_ImplSDLRenderer3_Shutdown();
+  ImGui_ImplSDL3_Shutdown();
+  ImPlot::DestroyContext();
+  ImGui::DestroyContext();
+
   if (renderer)
     SDL_DestroyRenderer(renderer);
   if (window)

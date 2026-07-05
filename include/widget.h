@@ -6,7 +6,7 @@
 #include "SDL3/SDL_render.h"
 #include "display.h"
 #include "layout_types.h"
-#include "sim.h"
+#include "simcontrol.h"
 #include "snapshot.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -223,7 +223,7 @@ protected:
 
 class TimeFactorButton : public Button {
 public:
-  TimeFactorButton(int x, int y, int w, int h, double val, Simulation* sim,
+  TimeFactorButton(int x, int y, int w, int h, double val, ISimControl* sim,
                    TTF_Font* font)
       : Button(x, y, w, h, format_label(val), font,
                [sim, val]() { sim->set_time_factor(val); }) {}
@@ -238,10 +238,10 @@ private:
 
 class PauseButton : public Button {
 private:
-  Simulation* sim = nullptr;
+  ISimControl* sim = nullptr;
 
 public:
-  PauseButton(int x, int y, int w, int h, Simulation* sim, TTF_Font* font);
+  PauseButton(int x, int y, int w, int h, ISimControl* sim, TTF_Font* font);
   void render(const RenderContext* ctx) override;
 };
 
@@ -301,7 +301,7 @@ public:
 
 class TimeControlPanel : public Widget, public ILayoutWidget {
 public:
-  TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, Simulation* sim);
+  TimeControlPanel(int x_, int y_, int h_, TTF_Font* font, ISimControl* sim);
 
   // ILayoutWidget
   LayoutSize get_preferred_size() const override;
@@ -322,8 +322,7 @@ private:
 
   ValueField* time_factor_field = nullptr;
 
-  // for reading current time_factor
-  Simulation* sim = nullptr;
+  ISimControl* sim = nullptr;
 
   void do_layout(int base_x, int base_y);
 };
@@ -377,7 +376,7 @@ public:
                SDL_Color bg_color = {15, 150, 15, 255},
                SDL_Color fill_color = {20, 200, 20, 255}, double min = 0.0,
                double max = 1.0);
-  void add_effort_slider(Simulation* sim, double max_effort = 2.0);
+  void add_effort_slider(ISimControl* sim, double max_effort = 2.0);
 
   // ILayoutWidget
   LayoutSize get_preferred_size() const override;

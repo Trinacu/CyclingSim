@@ -54,7 +54,7 @@ private:
 //    rider_panel->add(std::move(es));
 class EffortSlider : public Widget, public ILayoutWidget, public IRiderWidget {
 public:
-  EffortSlider(int x, int y, int w, int h, Simulation* sim);
+  EffortSlider(int x, int y, int w, int h, ISimControl* sim);
 
   // IRiderWidget — called by RiderPanel::set_rider_id
   void set_rider_id(RiderId id) override;
@@ -69,7 +69,7 @@ public:
 
 private:
   RiderId rider_id = -1;
-  Simulation* sim;
+  ISimControl* sim;
   double cached_max_effort = -1.0; // sentinel: forces update on first render
   std::unique_ptr<PiecewiseSlider> slider;
 

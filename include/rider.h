@@ -73,13 +73,13 @@ private:
   Vector2d _pos2d;
   double lat_pos = 0.0;
   double lat_vel = 0.0;
-  std::optional<double> lat_target = 0.0;
+  std::optional<double> lat_target = std::nullopt;
 
   // double timestep;
 
   Bike bike;
   Team team;
-  const ICourseView* course;
+  const ICourseView* course = nullptr;
 
   void set_cda_factor(double cda_factor_);
   void set_mass(double total_mass_);
@@ -109,7 +109,7 @@ public:
   void reset();
   void update(double dt);
 
-  bool finished() { return state.pos >= course->get_total_length(); }
+  bool finished() { return course && state.pos >= course->get_total_length(); }
 
   RiderId get_id() const { return id; }
 

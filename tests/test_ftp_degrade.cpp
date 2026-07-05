@@ -89,7 +89,7 @@ static double fatigue_ftp_factor(EnergyState* e) {
   double factor = e->ftp_base * 3600.0;
   double thresh = e->ftp_degrade_threshold * factor;
   if (e->w_expended > thresh) {
-    return (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
+    return 1.0 - (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
   }
   return 1.0;
 }
@@ -302,15 +302,6 @@ static void test_fatigue_below_threshold_is_one(void) {
 }
 
 static void test_fatigue_above_threshold_formula(void) {
-  /* Verify the raw formula output.
-   *
-   * BUG NOTE: the function as written returns
-   *   (w_expended - thresh) / factor * rate
-   * which is 0 at threshold and grows from there.  If this is intended
-   * as a [0,1] multiplier, the missing term is "1.0 -".
-   * These tests document the CURRENT behaviour so any fix shows up
-   * clearly as a deliberate change.
-   */
   double ftp = 300.0;
   double rate = 0.05;
   double thr = 0.5;
@@ -318,24 +309,21 @@ static void test_fatigue_above_threshold_formula(void) {
   double factor_j = ftp * 3600.0;
   double thresh_j = thr * factor_j;
 
-  /* One full (ftp*3600) J above the threshold */
+  /* One full (ftp*3600) J above the threshold: factor = 1 - 1*rate = 0.95 */
   EnergyState e = make_energy(ftp, thresh_j + factor_j, thr, rate);
-  double expected = (factor_j) / factor_j * rate; /* = rate = 0.05 */
-  CHECK_NEAR(
-      fatigue_ftp_factor(&e), expected, 1e-12,
-      "at threshold + 1 FTP-hour: returns rate (currently ~0.05, not 0.95)");
-
-  /* Half an FTP-hour above threshold */
-  e.w_expended = thresh_j + 0.5 * factor_j;
-  expected = 0.5 * rate;
+  double expected = 1.0 - rate;
   CHECK_NEAR(fatigue_ftp_factor(&e), expected, 1e-12,
-             "at threshold + 0.5 FTP-hour: returns 0.5 * rate");
+             "at threshold + 1 FTP-hour: factor == 1 - rate == 0.95");
+
+  /* Half an FTP-hour above threshold: factor = 1 - 0.5*rate */
+  e.w_expended = thresh_j + 0.5 * factor_j;
+  expected = 1.0 - 0.5 * rate;
+  CHECK_NEAR(fatigue_ftp_factor(&e), expected, 1e-12,
+             "at threshold + 0.5 FTP-hour: factor == 1 - 0.5*rate");
 }
 
 static void test_fatigue_above_threshold_monotone(void) {
-  /* The return value grows as w_expended increases past the threshold.
-   * (If the intent was a degrading multiplier, this should be decreasing —
-   * see BUG NOTE above.) */
+  /* Factor decreases as more work is expended past the threshold. */
   double ftp = 300.0;
   double rate = 0.05;
   double thr = 0.5;
@@ -352,13 +340,12 @@ static void test_fatigue_above_threshold_monotone(void) {
   e.w_expended = thresh_j + 1.0 * factor_j;
   double f3 = fatigue_ftp_factor(&e);
 
-  CHECK(f1 < f2, "return value grows with w_expended (see BUG NOTE)");
-  CHECK(f2 < f3, "return value grows with w_expended (see BUG NOTE)");
+  CHECK(f1 > f2, "factor decreases as w_expended grows past threshold");
+  CHECK(f2 > f3, "factor decreases as w_expended grows past threshold");
 }
 
 static void test_fatigue_rate_zero_means_no_degradation(void) {
-  /* If ftp_degrade_rate is 0, the factor should be 0 above threshold
-   * (and 1.0 below).  Edge case: confirms rate is a straight multiplier. */
+  /* rate == 0 means no degradation: factor stays 1.0 everywhere. */
   double ftp = 300.0;
   double thr = 0.5;
 
@@ -366,8 +353,8 @@ static void test_fatigue_rate_zero_means_no_degradation(void) {
   double thresh_j = thr * factor_j;
 
   EnergyState e = make_energy(ftp, thresh_j + factor_j, thr, 0.0);
-  CHECK_NEAR(fatigue_ftp_factor(&e), 0.0, 1e-12,
-             "rate == 0 → return value is 0 above threshold");
+  CHECK_NEAR(fatigue_ftp_factor(&e), 1.0, 1e-12,
+             "rate == 0 → factor is 1.0 above threshold (no degradation)");
 }
 
 static void test_fatigue_threshold_zero(void) {
@@ -378,9 +365,9 @@ static void test_fatigue_threshold_zero(void) {
   double factor_j = ftp * 3600.0;
 
   EnergyState e = make_energy(ftp, factor_j, 0.0, rate);
-  double expected = (factor_j / factor_j) * rate; /* = rate */
+  double expected = 1.0 - rate; /* = 0.95 */
   CHECK_NEAR(fatigue_ftp_factor(&e), expected, 1e-12,
-             "threshold == 0: 1 FTP-hour of work returns rate");
+             "threshold == 0: 1 FTP-hour of work gives factor == 1 - rate");
 }
 
 /* ============================================================

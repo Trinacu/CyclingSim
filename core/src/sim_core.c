@@ -6,11 +6,14 @@
 #include <stdio.h>
 #include <string.h>
 
-static const double O_PART = 0.21;
-static const double PRESS0 = 101.3;
-static const double H = 8400.0;
-static const double C = 8.0;
+static const double O_PART = 0.2095;  /* O2 fraction of dry air */
+static const double PRESS0 = 101.325; /* sea-level pressure (kPa) */
+static const double H = 8500.0;       /* atmospheric scale height (m) */
+static const double C = 6.271;        /* alveolar water vapour (kPa) = ~47 mmHg */
 static const double O_PRESS0 = O_PART * PRESS0;
+
+/* Lowest fraction of base FTP that fatigue degradation can reach. */
+static const double FTP_FATIGUE_FLOOR = 0.5;
 
 /* ------------------------------
  * Internal helpers
@@ -74,6 +77,8 @@ void energy_init(EnergyState* e, double ftp, double w_prime,
   e->ftp = ftp;
   e->w_prime = w_prime;
   e->ftp_degrade_threshold = ftp_degrade_threshold;
+  /* Safe default (no degradation); rider_state_init overrides from params. */
+  e->ftp_degrade_rate = 0.0;
   e->max_effort_base = max_effort_base;
 
   /* Tuned to match your C++ defaults */
@@ -168,6 +173,7 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
 
   r->mass_rider = params->mass_rider;
   r->cda_rider = params->cda;
+  r->cda_factor = 1.0;
   r->ftp = params->ftp_base;
   r->max_effort = params->max_effort;
   r->oxy_p50 = params->oxy_p50;
@@ -185,6 +191,7 @@ void rider_state_init(RiderState* r, const RiderInitParams* params) {
 
   energy_init(&r->energy, params->ftp_base, params->w_prime,
               params->ftp_degrade_threshold, params->max_effort);
+  r->energy.ftp_degrade_rate = params->ftp_degrade_rate;
 
   r->solver = SIM_SOLVER_ACCEL_FORCE;
 
@@ -332,7 +339,6 @@ static int solve_speed_newton(double power, double* speed_io, double dt,
     diag->residual_power = pow_speed(x, r->speed, dt, r, env) - power;
   }
 
-  *speed_io = x;
   return 0;
 }
 
@@ -357,7 +363,8 @@ double fatigue_ftp_factor(EnergyState* e) {
   double factor = e->ftp_base * 3600;
   double thresh = e->ftp_degrade_threshold * factor;
   if (e->w_expended > thresh) {
-    return 1.0 - (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
+    double f = 1.0 - (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
+    return fmax(FTP_FATIGUE_FLOOR, f);
   }
   return 1.0;
 }
@@ -390,7 +397,8 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
   } else if (r->solver == SIM_SOLVER_ACCEL_ENERGY) {
     step_energy_accel(r, env, dt);
   } else if (r->solver == SIM_SOLVER_POWER_BALANCE) {
-    solve_speed_newton(r->power, &r->speed, dt, r, env, diag);
+    if (!solve_speed_newton(r->power, &r->speed, dt, r, env, diag))
+      step_acceleration(r, env, dt);
   } else {
     printf("oops! no valid solver set?\n");
   }

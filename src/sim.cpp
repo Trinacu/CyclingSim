@@ -86,6 +86,8 @@ const Rider* PhysicsEngine::get_rider_by_id(RiderId id) const {
   return it->second.get();
 }
 
+// Physics-thread-only: reached via Simulation's command queue or the
+// effort-schedule loop in step_fixed(), never directly from the UI.
 void PhysicsEngine::set_rider_effort(int id, double effort) {
   auto it = riders.find(id);
   if (it == riders.end()) {
@@ -430,7 +432,21 @@ bool Simulation::consume_latest_frame_pair(FrameSnapshot& out_prev,
   return true;
 }
 
+// Runs queued UI commands on the physics thread.  Swap under the lock,
+// execute outside it, so command bodies can't deadlock against the queue.
+void Simulation::drain_commands() {
+  std::vector<std::function<void()>> cmds;
+  {
+    std::scoped_lock lock(commands_mtx);
+    cmds.swap(pending_commands);
+  }
+  for (auto& cmd : cmds)
+    cmd();
+}
+
 void Simulation::step_fixed(double dt) {
+  drain_commands();
+
   for (auto& [id, sched] : effort_schedules)
     engine.set_rider_effort(id, sched->effort_at(sim_seconds));
 
@@ -446,15 +462,22 @@ void Simulation::step_fixed(double dt) {
 
 void Simulation::set_effort_schedule(int rider_id,
                                      std::shared_ptr<EffortSchedule> schedule) {
-  effort_schedules[rider_id] = std::move(schedule);
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this, rider_id, s = std::move(schedule)]() {
+    effort_schedules[rider_id] = s;
+  });
 }
 
 void Simulation::clear_effort_schedule(RiderId rider_id) {
-  effort_schedules.erase(rider_id);
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back(
+      [this, rider_id]() { effort_schedules.erase(rider_id); });
 }
 
 void Simulation::set_rider_effort(RiderId rider_id, double effort) {
-  engine.set_rider_effort(rider_id, effort);
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back(
+      [this, rider_id, effort]() { engine.set_rider_effort(rider_id, effort); });
 }
 
 void Simulation::pause() { paused = true; }
@@ -475,6 +498,10 @@ void Simulation::reset() {
   physics_error = false;
   physics_error_message.clear();
   effort_schedules.clear();
+  {
+    std::scoped_lock lock(commands_mtx);
+    pending_commands.clear();
+  }
 
   // get_riders() returns const ref, but unique_ptr<Rider> still lets us
   // call non-const methods on the Rider through the pointer.

@@ -13,8 +13,7 @@
 #include "display.h"
 #include "imgui.h"
 #include "implot.h"
-#include "sim.h"
-#include "simrenderer.h"
+#include "simcontrol.h"
 #include "sliders.h"
 #include "snapshot.h"
 #include "widget.h"
@@ -590,7 +589,7 @@ bool Button::handle_event(const SDL_Event* e) {
   return false;
 }
 
-PauseButton::PauseButton(int x, int y, int w, int h, Simulation* sim,
+PauseButton::PauseButton(int x, int y, int w, int h, ISimControl* sim,
                          TTF_Font* font)
     : Button(x, y, w, h, sim->is_paused() ? "Resume" : "Pause", font,
              [sim, this]() {
@@ -612,7 +611,7 @@ void PauseButton::render(const RenderContext* ctx) {
 }
 
 TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
-                                   Simulation* sim_)
+                                   ISimControl* sim_)
     : x(x_), y(y_), h(h_), sim(sim_) {
   int widget_h = h_ / 2;
   int widget_y = h_ / 4; // relative to panel top
@@ -648,6 +647,9 @@ TimeControlPanel::TimeControlPanel(int x_, int y_, int h_, TTF_Font* font,
   child_rel_positions.push_back({next_x - x, widget_y});
   children.push_back(std::make_unique<PauseButton>(next_x, widget_y, button_w,
                                                    widget_h, sim, font));
+
+  // w is otherwise never assigned; render() draws the background with it.
+  w = get_preferred_size().w;
 }
 
 LayoutSize TimeControlPanel::get_preferred_size() const {
@@ -966,7 +968,7 @@ void RiderPanel::add_bar(std::string label, ProgressBar::RiderDataFn getter,
   int row_height = 30;
 }
 
-void RiderPanel::add_effort_slider(Simulation* sim, double max_effort) {
+void RiderPanel::add_effort_slider(ISimControl* sim, double max_effort) {
   auto es = std::make_unique<EffortSlider>(x, y, 160, 20, sim);
   es->set_rider_id(id);
   children.push_back(std::move(es));

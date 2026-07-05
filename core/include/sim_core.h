@@ -100,8 +100,8 @@ typedef struct {
   double drivetrain_loss; /* fraction */
 
   /* aerodynamics */
-  double cda_rider; /* already includes cda_factor */
-  double cda_factor;
+  double cda_rider;  /* rider CdA (m^2), excludes cda_factor */
+  double cda_factor; /* position/drafting multiplier; 1.0 = baseline */
   double cda_wheel_drag; /* wheel / frame */
 
   /* control */
@@ -129,7 +129,8 @@ typedef struct {
   double w_prime;
   double max_effort;
   double ftp_degrade_threshold; /* hours of FTP expenditure */
-  double max_drive_force;       // 500 - 1000 N
+  double ftp_degrade_rate; /* FTP fraction lost per FTP-hour past threshold */
+  double max_drive_force;  // 500 - 1000 N
   double oxy_p50;               // 2.5 elite, 4.0 avg Joe
   double mass_rider;
   double cda;
