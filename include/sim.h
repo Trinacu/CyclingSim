@@ -10,7 +10,6 @@
 #include "lateral_behavior.h"
 #include "lateral_solver.h"
 #include "rider.h"
-#include "simcontrol.h"
 #include "snapshot.h"
 #include <functional>
 #include <memory>
@@ -69,11 +68,13 @@ private:
   double compute_surplus_power(const Rider& r) const;
 
   // Build a LateralContext for one rider from the current lat_states_ snapshot.
-  // Nearby riders are filtered to those within params.x_lookahead.
+  // Nearby riders are filtered to those within one bike_length longitudinally.
   LateralContext build_context(RiderId id) const;
   // Build a GroupContext for one rider from the current GroupTracker snapshot.
   // Called after step_group_classify() and step_group_role_apply() have run,
   // so the snapshot reflects the fully-resolved state for this tick.
+  // NOTE: not yet wired into the step loop — kept for the upcoming
+  // group-behavior phase.
   GroupContext build_group_context(RiderId id) const;
 
 public:
@@ -82,7 +83,7 @@ public:
   void update(double dt);
 
   const Course* get_course() const { return course; }
-  const double get_course_length() const { return course->get_total_length(); }
+  double get_course_length() const { return course->get_total_length(); }
 
   // do these returns need to/should be const?
   const std::unordered_map<RiderId, std::unique_ptr<Rider>>& get_riders() const;
@@ -101,19 +102,15 @@ public:
   ~PhysicsEngine() = default;
 };
 
-// forward declare
-class SimulationCondition;
-
-// Your main simulation loop (runs in its own thread or fixed-step driver)
-class Simulation : public ISimControl {
+// Passive fixed-step simulation engine: step_fixed + command queue +
+// snapshot double-buffering.  It owns no thread — a driver calls step_fixed:
+// RealtimeSimRunner (realtime_runner.h) paces it against the wall clock,
+// OfflineSimulationRunner (analysis.h) steps it as fast as possible.
+class Simulation {
 private:
   PhysicsEngine engine;
-  // when this is false, we exit and kill the thread
-  std::atomic<bool> running{false};
-  // this is different because it pauses
-  std::atomic<bool> paused{false};
 
-  // written by the UI thread, read by the physics loop
+  // written by the UI thread (via a driver), read by the physics loop
   std::atomic<double> time_factor{1.0};
   double sim_seconds = 0.0;
 
@@ -123,8 +120,6 @@ private:
   mutable std::mutex commands_mtx;
   std::vector<std::function<void()>> pending_commands;
   void drain_commands(); // called at the top of step_fixed()
-
-  double interp_alpha = 0.0;
 
   double dt = 0.01; // 100 Hz physics
 
@@ -143,40 +138,27 @@ private:
 public:
   Simulation(const Course* c);
 
-  void start_realtime();
-
   void add_riders(const std::vector<RiderConfig>& configs);
-
-  void run_max_speed(const SimulationCondition& cond);
-
-  void pause() override;
-  void resume() override;
-  void toggle_pause();
-  bool is_paused() const override;
-  void stop();
 
   void reset();
 
   void step_fixed(double dt);
 
-  void set_time_factor(double f) override { time_factor = f; }
+  void set_time_factor(double f) { time_factor = f; }
+  double get_time_factor() const { return time_factor; }
 
   double get_dt() { return dt; }
   void set_dt(double dt_) { dt = dt_; }
-  double get_interp_alpha() { return interp_alpha; }
 
-  const double get_sim_seconds() const;
+  double get_sim_seconds() const;
   const PhysicsEngine* get_engine() const;
   PhysicsEngine* get_engine();
-
-  std::atomic<bool> physics_error{false};
-  std::string physics_error_message;
 
   // Queued: applied on the physics thread at the start of the next step.
   void set_effort_schedule(int rider_id,
                            std::shared_ptr<EffortSchedule> schedule);
   void clear_effort_schedule(RiderId rider_id);
-  void set_rider_effort(RiderId rider_id, double effort) override;
+  void set_rider_effort(RiderId rider_id, double effort);
 
   // Called by the renderer each frame; returns false if no new frame
   bool consume_latest_frame_pair(FrameSnapshot& out_prev,

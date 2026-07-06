@@ -70,7 +70,7 @@ double Course::get_road_width(double pos) const {
 }
 
 // TODO - fix this to query whatever holds the values?
-Wind Course::get_wind(double pos) const { return Wind{0, 1}; }
+Wind Course::get_wind(double /*pos*/) const { return Wind{0, 1}; }
 
 MatrixX2d Course::get_points(double x_min, double x_max) const {
   if (x_min > x_max)
@@ -137,7 +137,7 @@ void Course::print() {
   for (const Segment& course_segment : segments) {
     std::cout << course_segment << std::endl;
   }
-  for (int i = 0; i < segments.size(); i++) {
+  for (size_t i = 0; i < segments.size(); i++) {
     // std::cout << segments[i].start_x << ", " << altitudes[i] << std::endl;
     std::cout << segments[i].start_x << ", " << points[i].y << std::endl;
   }

@@ -132,6 +132,7 @@ list(FILTER ALL_SRC EXCLUDE REGEX ".*/src/main\\.cpp$")
 set(GAME_SRC ${ALL_SRC})
 
 add_library(game_lib STATIC ${GAME_SRC})
+target_compile_options(game_lib PRIVATE -Wall -Wextra)
 target_link_libraries(game_lib
   PUBLIC
     core_lib

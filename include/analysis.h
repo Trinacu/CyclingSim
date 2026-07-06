@@ -19,10 +19,10 @@ public:
   virtual void on_step(const Simulation& sim) = 0;
 
   // Called once at start (optional)
-  virtual void on_start(const Simulation& sim) {}
+  virtual void on_start(const Simulation&) {}
 
   // Called once at end (optional)
-  virtual void on_finish(const Simulation& sim) {}
+  virtual void on_finish(const Simulation&) {}
 };
 
 class OfflineSimulationRunner {

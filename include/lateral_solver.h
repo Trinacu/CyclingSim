@@ -41,8 +41,8 @@
 //     typically (rider power) minus (power consumed by longitudinal resistance
 //     at current speed).  The engine populates this; the ShoveModel consumes
 //     it.
-//   - rider_radius is taken from CollisionParams (uniform for all riders for
-//     now), so it is NOT duplicated here.
+//   - rider_radius is per-rider, populated by the engine from
+//     Rider::get_radius() when building this snapshot.
 // ---------------------------------------------------------------------------
 struct LateralRiderState {
   RiderId id;
@@ -139,8 +139,9 @@ private:
   find_proximity_pairs(const std::vector<LateralRiderState>& riders) const;
 
   // --- 3.3: blockade detection ---
-  // Returns true if every lateral gap ahead of riders[rider_idx] within
-  // x_lookahead is narrower than 2*rider_radius (no passable lane exists).
+  // Returns true if every lateral gap ahead of riders[rider_idx] within the
+  // bike-length window is narrower than 2*rider_radius (no passable lane
+  // exists).
   bool is_blocked(int rider_idx,
                   const std::vector<LateralRiderState>& riders) const;
 

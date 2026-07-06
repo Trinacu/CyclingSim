@@ -40,9 +40,9 @@ AppState::AppState() {
   resources = std::make_unique<GameResources>(renderer);
   course = std::make_unique<Course>(Course::create_endulating());
   sim = std::make_unique<Simulation>(course.get());
-  screens = std::make_unique<ScreenManager>(this);
+  runner = std::make_unique<RealtimeSimRunner>(sim.get());
 
-  sim->set_time_factor(0.2);
+  runner->set_time_factor(0.2);
 
   Team team("Team1");
   RiderConfig cfg = {0,   "Pedro", 320, 6,   2,     0.05,
@@ -96,10 +96,8 @@ AppState::AppState() {
 
 AppState::~AppState() {
   // Cleanup in reverse order of creation
-  if (physics_thread.joinable()) {
-    sim->stop();
-    physics_thread.join();
-  }
+  if (runner)
+    runner->stop();
 
   // Widgets and the texture/font managers own SDL_Textures/TTF_Fonts, so they
   // must be destroyed while the renderer and TTF are still alive.  Members are
@@ -127,9 +125,7 @@ bool AppState::load_image(const char* id, const char* filename) {
 }
 
 void AppState::start_realtime_tt(double gap_seconds) {
-  sim->stop();
-  if (physics_thread.joinable())
-    physics_thread.join();
+  runner->stop();
 
   sim->reset();
 
@@ -141,5 +137,5 @@ void AppState::start_realtime_tt(double gap_seconds) {
   auto offsets = build_start_offsets(rider_configs, gap_seconds);
   setup_tt_schedules(sim.get(), rider_configs, offsets);
 
-  physics_thread = std::thread([this]() { sim->start_realtime(); });
+  runner->start();
 }

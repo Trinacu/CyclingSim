@@ -28,7 +28,7 @@ std::vector<GroupMember> Group::all_members() const {
   return result;
 }
 
-std::string default_group_label(int ordinal, int size) {
+std::string default_group_label(int ordinal, int /*size*/) {
   return "Group " + std::to_string(ordinal + 1);
 }
 

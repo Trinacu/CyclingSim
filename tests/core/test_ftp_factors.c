@@ -1,98 +1,18 @@
 /*
  * test_ftp_factors.c
  *
- * Tests for altitude_ftp_factor() and fatigue_ftp_factor().
+ * Tests for altitude_ftp_factor() and fatigue_ftp_factor(), linked against
+ * the real core_lib (no mirrored copies of the code under test).
  *
- * Build standalone (no SDL, no C++ deps):
- *   gcc -std=c99 -Wall -Wextra -lm test_ftp_factors.c -o test_ftp_factors
- *
- * The constants below must match sim_core.c exactly.  If a test fails
- * after you tune constants, update the expected values here too.
+ * Units: the core works in kPa — sea-level pressure 101.325, alveolar
+ * water-vapour correction 6.271, P50 ~2.5 (elite) to ~4.5 (untrained).
  */
 
-#include <assert.h>
+#include "sim_core.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-
-/* ============================================================
- * Paste / mirror the constants from sim_core.c here.
- * These values are standard ISA atmosphere + physiology.
- * ============================================================ */
-
-static const double H = 8500.0;        /* atmospheric scale height (m)      */
-static const double PRESS0 = 101325.0; /* sea-level pressure (Pa)            */
-static const double O_PART = 0.2095;   /* O2 fraction of dry air             */
-static const double C = 6271.0;        /* alveolar water vapour correction (Pa)
-                                          = ~47 mmHg * 133.3 Pa/mmHg         */
-static const double O_PRESS0 = O_PART * 101325.0; /* ~21227.6 Pa             */
-
-/* ============================================================
- * Mirror the structs (only the fields these functions touch).
- * Must stay in sync with sim_core.h.
- * ============================================================ */
-
-typedef struct {
-  double ftp_base;
-  double ftp;
-  double w_prime;
-  double w_expended;
-  double max_effort_base;
-  double tau_base;
-  double tau_slope;
-  double tau_offset;
-  double fatigue_I;
-  double effort_limit;
-
-  /* degradation parameters */
-  double ftp_degrade_threshold; /* fraction of (ftp_base * 3600 J) */
-  double ftp_degrade_rate;      /* fraction of ftp lost per (ftp_base*3600 J) */
-} EnergyState;
-
-typedef struct {
-  double oxy_p50;      /* P50 of Hb dissociation curve (Pa) */
-  double sealevel_sat; /* lazy-init sentinel: initialise to 1 in
-                          rider_state_init */
-  EnergyState energy;
-  /* other fields omitted — not touched by the functions under test */
-} RiderState;
-
-/* ============================================================
- * Copy of the functions under test (inlined so we can compile
- * without the full sim_core.c translation unit).
- * ============================================================ */
-
-static double rel_press(double alt) { return exp(-alt / H); }
-
-static double alv_press(double alt) {
-  return O_PART * rel_press(alt) * PRESS0 - C;
-}
-
-/* (unused in the factor functions but present in sim_core.c) */
-static double rel_alv_press(double alt) {
-  return (rel_press(alt) * O_PRESS0 - C) / (O_PRESS0 - C);
-}
-
-static double saturation(double alt, double midpt) {
-  double n = 2.7;
-  double alv = pow(alv_press(alt), n);
-  return alv / (alv + pow(midpt, n));
-}
-
-static double altitude_ftp_factor(double alt, double p50, RiderState* r) {
-  if (r->sealevel_sat == 1)
-    r->sealevel_sat = saturation(0, p50);
-  return saturation(alt, p50) / r->sealevel_sat;
-}
-
-static double fatigue_ftp_factor(EnergyState* e) {
-  double factor = e->ftp_base * 3600.0;
-  double thresh = e->ftp_degrade_threshold * factor;
-  if (e->w_expended > thresh) {
-    return 1.0 - (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
-  }
-  return 1.0;
-}
 
 /* ============================================================
  * Lightweight test harness
@@ -129,13 +49,13 @@ static int tests_failed = 0;
  * Helpers
  * ============================================================ */
 
-/* Returns a zeroed RiderState with sealevel_sat sentinel set to 1,
- * matching what rider_state_init() should produce. */
+/* Zeroed RiderState with the sealevel_sat lazy-init sentinel set to 1,
+ * as rider_state_init() produces. */
 static RiderState make_rider(double p50) {
   RiderState r;
   memset(&r, 0, sizeof(r));
   r.oxy_p50 = p50;
-  r.sealevel_sat = 1; /* sentinel for lazy init */
+  r.sealevel_sat = 1.0; /* sentinel for lazy init */
   return r;
 }
 
@@ -159,7 +79,7 @@ static void test_altitude_sea_level_is_one(void) {
 
   /* At sea level the factor must be exactly 1.0 by construction
    * (saturation / sealevel_sat where both are computed at alt=0). */
-  double p50 = 3500.0; /* Pa — typical midpoint */
+  double p50 = 3.5; /* kPa — typical midpoint */
   RiderState r = make_rider(p50);
   double f = altitude_ftp_factor(0.0, p50, &r);
 
@@ -169,24 +89,40 @@ static void test_altitude_sea_level_is_one(void) {
 static void test_altitude_lazy_init_fires_once(void) {
   /* sealevel_sat starts at sentinel (1), should be overwritten on first call
    * and then left unchanged on subsequent calls. */
-  double p50 = 3500.0;
+  double p50 = 3.5;
   RiderState r = make_rider(p50);
 
-  CHECK(r.sealevel_sat == 1, "sealevel_sat starts at sentinel value 1");
+  CHECK(r.sealevel_sat == 1.0, "sealevel_sat starts at sentinel value 1");
 
   altitude_ftp_factor(1000.0, p50, &r);
   double sat_after_first = r.sealevel_sat;
 
   CHECK(sat_after_first != 1.0, "sealevel_sat is overwritten after first call");
+  CHECK_NEAR(sat_after_first, saturation(0.0, p50), 1e-15,
+             "cached sealevel_sat equals saturation(0, p50)");
 
   altitude_ftp_factor(2000.0, p50, &r);
   CHECK(r.sealevel_sat == sat_after_first,
         "sealevel_sat is not rewritten on subsequent calls");
 }
 
+static void test_altitude_init_sets_sentinel(void) {
+  /* rider_state_init must leave sealevel_sat at the sentinel so the lazy
+   * init in altitude_ftp_factor fires. */
+  RiderState r;
+  RiderInitParams p;
+  memset(&r, 0, sizeof(r));
+  memset(&p, 0, sizeof(p));
+  p.ftp_base = 300.0;
+  p.oxy_p50 = 3.5;
+
+  rider_state_init(&r, &p);
+  CHECK(r.sealevel_sat == 1.0, "rider_state_init sets sealevel_sat sentinel");
+}
+
 static void test_altitude_factor_decreases_with_altitude(void) {
   /* Higher altitude → lower O2 → lower saturation → lower FTP factor. */
-  double p50 = 3500.0;
+  double p50 = 3.5;
   RiderState r = make_rider(p50);
 
   double f0 = altitude_ftp_factor(0, p50, &r);
@@ -194,15 +130,15 @@ static void test_altitude_factor_decreases_with_altitude(void) {
   double f2000 = altitude_ftp_factor(2000, p50, &r);
   double f4000 = altitude_ftp_factor(4000, p50, &r);
 
-  CHECK(f0 > f1000, "factor decreases from 0 → 1000 m");
-  CHECK(f1000 > f2000, "factor decreases from 1000 → 2000 m");
-  CHECK(f2000 > f4000, "factor decreases from 2000 → 4000 m");
+  CHECK(f0 > f1000, "factor decreases from 0 -> 1000 m");
+  CHECK(f1000 > f2000, "factor decreases from 1000 -> 2000 m");
+  CHECK(f2000 > f4000, "factor decreases from 2000 -> 4000 m");
   CHECK(f4000 > 0.0, "factor stays positive even at 4000 m");
 }
 
 static void test_altitude_factor_bounded(void) {
   /* Factor must stay in (0, 1] for any non-negative altitude. */
-  double p50 = 3500.0;
+  double p50 = 3.5;
   RiderState r = make_rider(p50);
 
   double altitudes[] = {0, 500, 1000, 2000, 3000, 4000, 5000, 8848};
@@ -215,12 +151,11 @@ static void test_altitude_factor_bounded(void) {
 }
 
 static void test_altitude_higher_p50_means_lower_factor(void) {
-  /* Higher P50 = right-shifted curve = haemoglobin gives up O2 more readily
-   * to muscles but loads less from the lungs at altitude.
-   * At altitude, a rider with higher P50 should have lower saturation and
-   * therefore a lower FTP factor relative to their sea-level baseline. */
-  double p50_lo = 2500.0; /* Pa — left-shifted, better altitude adaptation */
-  double p50_hi = 4500.0; /* Pa — right-shifted, worse at altitude          */
+  /* Higher P50 = right-shifted dissociation curve = loads less O2 from the
+   * lungs at altitude.  At altitude, a rider with higher P50 should have a
+   * lower FTP factor relative to their sea-level baseline. */
+  double p50_lo = 2.5; /* kPa — left-shifted, better altitude adaptation */
+  double p50_hi = 4.5; /* kPa — right-shifted, worse at altitude          */
   double alt = 3000.0;
 
   RiderState r_lo = make_rider(p50_lo);
@@ -234,27 +169,15 @@ static void test_altitude_higher_p50_means_lower_factor(void) {
 }
 
 static void test_altitude_known_value(void) {
-  /* Spot-check against a value computed from first principles.
-   *
-   * At 3000 m:
-   *   rel_press     = exp(-3000 / 8500) = 0.70167...
-   *   alv_press     = 0.2095 * 0.70167 * 101325 - 6271 = 8596.7... Pa
-   *   sat(3000,p50) = alv^2.7 / (alv^2.7 + p50^2.7)
-   *   sat(0, p50)   = alv0^2.7 / (alv0^2.7 + p50^2.7),
-   *                   alv0 = 0.2095 * 101325 - 6271 = 14956.6 Pa
-   *   factor = sat(3000) / sat(0)
-   *
-   * Computed independently in Python:
-   *   import math
-   *   H,P0,OP,C,p50 = 8500,101325,0.2095,6271,3500
-   *   def alv(a): return OP*math.exp(-a/H)*P0-C
-   *   def sat(a): return alv(a)**2.7/(alv(a)**2.7+p50**2.7)
-   *   print(sat(3000)/sat(0))  → 0.9390...  (varies with exact p50)
-   *
-   * We use a loose tolerance because the exact constant values may
-   * be tuned and this test is meant to catch gross implementation errors.
-   */
-  double p50 = 3500.0;
+  /* Spot-check against a value computed from first principles, using the
+   * same ISA constants as sim_core.c (kPa).  Catches gross implementation
+   * or unit errors; if the core constants are ever tuned, update these. */
+  const double H = 8500.0;      /* atmospheric scale height (m)      */
+  const double PRESS0 = 101.325; /* sea-level pressure (kPa)          */
+  const double O_PART = 0.2095;  /* O2 fraction of dry air            */
+  const double C = 6.271;        /* alveolar water vapour (kPa)       */
+
+  double p50 = 3.5;
   RiderState r = make_rider(p50);
 
   double rp = exp(-3000.0 / H);
@@ -354,7 +277,7 @@ static void test_fatigue_rate_zero_means_no_degradation(void) {
 
   EnergyState e = make_energy(ftp, thresh_j + factor_j, thr, 0.0);
   CHECK_NEAR(fatigue_ftp_factor(&e), 1.0, 1e-12,
-             "rate == 0 → factor is 1.0 above threshold (no degradation)");
+             "rate == 0 -> factor is 1.0 above threshold (no degradation)");
 }
 
 static void test_fatigue_threshold_zero(void) {
@@ -370,16 +293,46 @@ static void test_fatigue_threshold_zero(void) {
              "threshold == 0: 1 FTP-hour of work gives factor == 1 - rate");
 }
 
+static void test_fatigue_floor_clamp(void) {
+  /* Degradation must never take the factor below SIM_FTP_FATIGUE_FLOOR,
+   * no matter how much work has been expended. */
+  double ftp = 300.0;
+  double rate = 0.05;
+  double thr = 0.5;
+
+  double factor_j = ftp * 3600.0;
+  double thresh_j = thr * factor_j;
+
+  /* Unclamped formula would give 1 - 20*0.05 = 0.0 */
+  EnergyState e = make_energy(ftp, thresh_j + 20.0 * factor_j, thr, rate);
+  CHECK_NEAR(fatigue_ftp_factor(&e), SIM_FTP_FATIGUE_FLOOR, 1e-12,
+             "deep fatigue clamps to SIM_FTP_FATIGUE_FLOOR");
+
+  /* Absurdly large expenditure: still the floor, never negative. */
+  e.w_expended = thresh_j + 1e6 * factor_j;
+  CHECK_NEAR(fatigue_ftp_factor(&e), SIM_FTP_FATIGUE_FLOOR, 1e-12,
+             "extreme fatigue still clamps to SIM_FTP_FATIGUE_FLOOR");
+
+  /* Just above the floor crossing: formula value, not the clamp.
+   * Floor is reached at (1 - floor)/rate FTP-hours past threshold. */
+  double hours_to_floor = (1.0 - SIM_FTP_FATIGUE_FLOOR) / rate;
+  e.w_expended = thresh_j + (hours_to_floor - 0.1) * factor_j;
+  double expected = SIM_FTP_FATIGUE_FLOOR + 0.1 * rate;
+  CHECK_NEAR(fatigue_ftp_factor(&e), expected, 1e-12,
+             "just before the floor crossing the formula value applies");
+}
+
 /* ============================================================
  * Entry point
  * ============================================================ */
 
 int main(void) {
-  printf("=== FTP factor tests ===\n");
+  printf("=== FTP factor tests (linked against core_lib) ===\n");
 
   /* altitude_ftp_factor */
   test_altitude_sea_level_is_one();
   test_altitude_lazy_init_fires_once();
+  test_altitude_init_sets_sentinel();
   test_altitude_factor_decreases_with_altitude();
   test_altitude_factor_bounded();
   test_altitude_higher_p50_means_lower_factor();
@@ -391,18 +344,10 @@ int main(void) {
   test_fatigue_above_threshold_monotone();
   test_fatigue_rate_zero_means_no_degradation();
   test_fatigue_threshold_zero();
+  test_fatigue_floor_clamp();
 
   printf("\n=== %d / %d tests passed ===\n", tests_run - tests_failed,
          tests_run);
-
-  if (tests_failed > 0) {
-    printf(
-        "\nNOTE: fatigue_ftp_factor tests document current behaviour.\n"
-        "The function returns a value that starts at 0 and grows above\n"
-        "the threshold.  If it is meant to be a [0,1] multiplier that\n"
-        "starts at 1 and decays, the return statement should be:\n"
-        "  return 1.0 - (w_expended - thresh) / factor * ftp_degrade_rate\n");
-  }
 
   return tests_failed > 0 ? 1 : 0;
 }

@@ -7,16 +7,12 @@
 
 #include "snapshot.h"
 
-bool is_close(double value, double target, double tol, double rtol) {
-  return std::fabs(value - target) <= tol + rtol * std::fabs(target);
-}
-
-Bike::Bike(double mass_, double wheel_i_, double wheel_r_, double wheelbase,
+Bike::Bike(double mass_, double wheel_i_, double wheel_r_, double wheelbase_,
            double wheel_drag_factor_, double crr_, double dt_loss_,
            BikeType type_)
     : mass(mass_), wheel_i(wheel_i_), wheel_r(wheel_r_),
       wheel_drag_factor(wheel_drag_factor_), crr(crr_), dt_loss(dt_loss_),
-      type(type_) {}
+      type(type_), wheelbase(wheelbase_) {}
 
 Bike Bike::create_road() {
   return Bike(7.0, 0.14, ROAD_WHEEL_RADIUS, ROAD_WHEELBASE, 0, 0.006, 0.02,
@@ -117,9 +113,10 @@ void Rider::update(double dt) {
 }
 
 void Rider::apply_lateral_update(double new_lat_pos, double new_lat_vel,
-                                 double speed_penalty) {
+                                 double /*speed_penalty*/) {
   lat_pos = new_lat_pos;
   lat_vel = new_lat_vel;
+  // Penalty intentionally disabled until tuned:
   // state.speed *= speed_penalty;
 }
 
@@ -133,35 +130,6 @@ double Rider::get_speed() const { return state.speed; }
 double Rider::get_energy() const { return energy_wbal(&state.energy); }
 double Rider::get_energy_fraction() const {
   return energy_wbal_fraction(&state.energy);
-}
-
-void Rider::update_power_breakdown(double old_speed) {
-  // auto [wind_dir, wind_speed] = course->get_wind(pos);
-  // double v_rel_wind = wind_speed * std::cos(wind_dir - heading);
-  //
-  // double v_air = speed + v_rel_wind;
-  //
-  // power_breakdown[(int)PowerTerm::Aerodynamic] =
-  //     drag_coeff * pow(v_air, 2) * speed;
-  // power_breakdown[(int)PowerTerm::Rolling] = roll_coeff * speed;
-  // power_breakdown[(int)PowerTerm::Bearings] = (0.091 + 0.0087 * speed) *
-  // speed; power_breakdown[(int)PowerTerm::Gravity] = f_grav * sin(atan(slope))
-  // * speed; power_breakdown[(int)PowerTerm::Inertia] =
-  //     inertia_coeff * (pow(speed, 2) - pow(old_speed, 2)) / timestep;
-  // // sum without Drivetrain loss
-  // double sum_raw = std::accumulate(
-  //     power_breakdown.begin(),
-  //     power_breakdown.begin() + (int)PowerTerm::Drivetrain, 0.0);
-  //
-  // power_breakdown[(int)PowerTerm::Drivetrain] = sum_raw * bike.dt_loss;
-  //
-  // double total =
-  //     std::accumulate(power_breakdown.begin(), power_breakdown.end(), 0.0);
-  // if (std::abs(total - power) > 0.2) {
-  //   SDL_Log("%.2f", total - power);
-  //   SDL_Log("%.2f", sum_raw);
-  //   SDL_Log("%.2f", total);
-  // }
 }
 
 RiderSnapshot Rider::snapshot() const {

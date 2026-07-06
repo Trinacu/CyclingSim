@@ -47,7 +47,8 @@ struct NearbyRider {
 // The usable lateral range is [-road_width/2, +road_width/2].
 //
 // nearby is pre-filtered by the engine to riders within the longitudinal
-// proximity window (x_lookahead).  Behaviors should not assume any ordering.
+// proximity window (one bike_length).  Behaviors should not assume any
+// ordering.
 // ---------------------------------------------------------------------------
 struct LateralContext {
   // --- own state ---
@@ -58,7 +59,7 @@ struct LateralContext {
   double road_width;       // full driveable width at own position (m)
 
   // --- proximity window ---
-  // Riders within the engine's x_lookahead range, both ahead and behind.
+  // Riders within one bike_length longitudinally, both ahead and behind.
   // Empty when no other riders are in range.
   std::vector<NearbyRider> nearby;
 };

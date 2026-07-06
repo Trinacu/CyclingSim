@@ -26,12 +26,16 @@ std::string format_number(double value, int precision) {
 
 void format_time(double seconds, char* text) {
   int totalTenths = static_cast<int>(round(seconds * 10));
+  if (totalTenths < 0)
+    totalTenths = 0;
   int tenths = totalTenths % 10;
   int totalSeconds = totalTenths / 10;
   int secs = totalSeconds % 60;
   int totalMinutes = totalSeconds / 60;
   int mins = totalMinutes % 60;
   int hours = totalMinutes / 60;
+  if (hours > 99)
+    hours = 99; // fixed-width display caps at 99 h
 
   // Format with leading zeros and fixed positions
   snprintf(text, 11, "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
@@ -219,22 +223,8 @@ void Stopwatch::render(const RenderContext* ctx) {
 
   // 4) Draw Text (inset by content_offset)
   if (texture) {
-    // Note: width/height here refers to the BACKGROUND dimensions calculated in
-    // create_base. We use texture size from the text itself for the source? No,
-    // render_time set width/height? Wait, render_time sets 'width' and 'height'
-    // MEMBER variables which overwrites the background size? FIX: The member
-    // variables `width` and `height` should likely store the total widget size.
-    // But render_time takes `width` and `height` by reference as `out_w`,
-    // `out_h`.
-
-    // Let's inspect the logic:
-    // create_base sets `width` and `height` to the padded size.
-    // update_texture calls render_time(..., width, height).
-    // This effectively overwrites the widget size with the text size every
-    // update! That is a bug in the provided code snippet, but I will implement
-    // it as requested while fixing the overwrite to use local variables for the
-    // text size so the background doesn't shrink.
-
+    // Query the text texture's own size rather than the width/height members,
+    // which hold the padded background size from create_base.
     float txt_w, txt_h;
     SDL_GetTextureSize(texture, &txt_w, &txt_h);
 
@@ -809,8 +799,8 @@ void RiderValueField::render_with_snapshot(const RenderContext* ctx,
 
 MetricRow::MetricRow(int x_, int y_, TTF_Font* f, RiderId id, std::string label,
                      std::string unit, RiderValueField::DataGetter getter)
-    : x(x_), y(y_), font(f), rider_id(id), label_txt(std::move(label)),
-      unit_txt(std::move(unit)) {
+    : label_txt(std::move(label)), unit_txt(std::move(unit)), font(f),
+      rider_id(id), x(x_), y(y_) {
   field = std::make_unique<RiderValueField>(x + label_width, y, field_w,
                                             field_h, font, getter);
 }
@@ -965,10 +955,9 @@ void RiderPanel::add_bar(std::string label, ProgressBar::RiderDataFn getter,
   });
   children.push_back(std::move(bar));
   dirty = true;
-  int row_height = 30;
 }
 
-void RiderPanel::add_effort_slider(ISimControl* sim, double max_effort) {
+void RiderPanel::add_effort_slider(ISimControl* sim, double /*max_effort*/) {
   auto es = std::make_unique<EffortSlider>(x, y, 160, 20, sim);
   es->set_rider_id(id);
   children.push_back(std::move(es));
@@ -993,7 +982,7 @@ void RiderPanel::render(const RenderContext* ctx) {
       SDL_DestroyTexture(title_tex);
 
     SDL_Surface* s =
-        TTF_RenderText_Blended(font, title.c_str(), 0, {255, 255, 255});
+        TTF_RenderText_Blended(font, title.c_str(), 0, {255, 255, 255, 255});
     title_tex = SDL_CreateTextureFromSurface(ctx->renderer, s);
     SDL_DestroySurface(s);
   }
@@ -1020,72 +1009,7 @@ bool RiderPanel::handle_event(const SDL_Event* e) {
   return false;
 }
 
-void RiderPanel::render_imgui(const RenderContext* ctx) {
-  // if (id < 0)
-  //   return;
-  //
-  // auto it = ctx->riders.find(id);
-  // if (it == ctx->riders.end())
-  //   return;
-  //
-  // const RiderRenderState& rs = it->second;
-  //
-  // // compute where the plot goes based on panel position
-  // ImVec2 pos((float)x, (float)y + 140);
-  // ImVec2 size(300, 300);
-  //
-  // ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
-  // ImGui::SetNextWindowSize(size, ImGuiCond_Always);
-  //
-  // ImGuiWindowFlags win_flags =
-  //     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-  //     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
-  //     | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground;
-  //
-  // static double data1[static_cast<size_t>(PowerTerm::COUNT)];
-  // for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
-  //   data1[i] = static_cast<float>(rs.power_breakdown[i]);
-  // }
-  // // clamp so we don't show negative inertia term
-  // // thought ideally we'd only show the output of the other terms
-  // // but that'd require subtracting the change from before or sth similar?
-  // data1[static_cast<size_t>(PowerTerm::Inertia)] =
-  //     std::max(0.0, data1[static_cast<size_t>(PowerTerm::Inertia)]);
-  // static ImPlotPieChartFlags flags = 0;
-  // bool open = ImGui::Begin("##riderplot", nullptr, win_flags);
-  //
-  // // DragFloat controls
-  // // ImGui::SetNextItemWidth(250);
-  // // for (size_t i = 0; i < static_cast<size_t>(PowerTerm::COUNT); ++i) {
-  // //   char label[32];
-  // //   snprintf(label, sizeof(label), POWER_LABELS[i], i);
-  // //   ImGui::DragFloat(label, &data1[i], 0.01f, 0, 1);
-  // // }
-  //
-  // if (open) {
-  //   if (ImGui::Button(show_plot ? "Hide plot" : "Show plot")) {
-  //     show_plot = !show_plot;
-  //   }
-  //
-  //   if (show_plot) {
-  //     if (ImPlot::BeginPlot("##Pie1",
-  //                           ImVec2(ImGui::GetTextLineHeight() * 16,
-  //                                  ImGui::GetTextLineHeight() * 16),
-  //                           ImPlotFlags_Equal | ImPlotFlags_NoMouseText)) {
-  //       ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations,
-  //                         ImPlotAxisFlags_NoDecorations);
-  //       ImPlot::SetupAxesLimits(0, 1, 0, 1);
-  //       ImPlot::PlotPieChart(POWER_LABELS, data1,
-  //                            static_cast<int>(PowerTerm::COUNT), 0.5, 0.5,
-  //                            0.4,
-  //                            "%.2f", 90, flags);
-  //       ImPlot::EndPlot();
-  //     }
-  //   }
-  // }
-  //
-  // ImGui::End();
-}
+void RiderPanel::render_imgui(const RenderContext*) {}
 
 bool BaseEditableField::handle_event(const SDL_Event* e) {
   switch (e->type) {
@@ -1158,11 +1082,6 @@ void BaseEditableField::render(const RenderContext* ctx) {
       last_cursor_blink = now;
     }
   }
-
-  SDL_Renderer* renderer = ctx->renderer;
-
-  // if (!bg_texture)
-  //   create_bg(renderer);
 
   std::string saved = current_text;
   ValueField::set_text(current_display_text());

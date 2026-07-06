@@ -3,11 +3,11 @@
 #define APPSTATE_H
 
 #include "pch.hpp"
+#include "realtime_runner.h"
 #include "sim.h"
 #include "texturemanager.h" // For GameResources
 #include <SDL3/SDL.h>
 #include <chrono>
-#include <thread>
 
 // Forward declarations
 class ScreenManager;
@@ -31,7 +31,9 @@ public:
   std::unique_ptr<GameResources> resources;
   std::unique_ptr<Course> course;
   std::unique_ptr<Simulation> sim;
-  std::thread physics_thread;
+  // Declared after sim: the runner's thread must be stopped and destroyed
+  // before the Simulation it drives.
+  std::unique_ptr<RealtimeSimRunner> runner;
   // View State
   std::unique_ptr<ScreenManager> screens;
 

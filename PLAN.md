@@ -19,9 +19,13 @@ extracts the driver**, making it symmetric with the existing `OfflineSimulationR
       (`course`, `lat_target`, `selected_rider`, `TimeControlPanel::w`). Done 2026-07-06.
 - [x] Step 3 — command queue in `Simulation` (drained in `step_fixed`), `ISimControl`
       (`include/simcontrol.h`), widgets decoupled from sim.h. Done 2026-07-06.
-- [ ] **Step 3.5 — extract RealtimeSimRunner (NEW, next)**
-- [ ] Step 4 — FTP tests linked against core_lib; delete mirror test
-- [ ] Step 5 — -Wall -Wextra on game_lib; dead-code sweep; comment-drift fixes
+- [x] Step 3.5 — RealtimeSimRunner extracted (`include/realtime_runner.h`,
+      `src/realtime_runner.cpp`); `Simulation` is now passive. Done 2026-07-06.
+- [x] Step 4 — `tests/core/test_ftp_factors.c` links core_lib (kPa units);
+      mirror `tests/test_ftp_degrade.cpp` deleted. Done 2026-07-06.
+- [x] Step 5 — -Wall -Wextra on game_lib (0 warnings); dead-code sweep;
+      comment-drift fixes. Bonus: warnings exposed a real bug — `Bike::wheelbase`
+      was never initialized from the ctor param. Done 2026-07-06.
 
 Known pre-existing test failures (fail at HEAD too, out of scope): `test_lateral_physics`
 (assert tests/test_lateral_physics.cpp:95), `test_solver_compare` (0.1 m/s startup transient).

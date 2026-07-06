@@ -57,8 +57,8 @@ LateralUpdate LateralSolver::free_movement(const LateralRiderState& r,
 // 3.2  find_proximity_pairs
 //
 // Returns all pairs (a, b) where:
-//   |lon_sep| < x_lookahead   — longitudinally close enough to interact
-//   |lat_sep| < 2*rider_radius — laterally overlapping (in contact)
+//   lon_sep < B.bike_length    — longitudinally close enough to interact
+//   |lat_sep| < r_a + r_b      — laterally overlapping (in contact)
 //
 // The list is built from CURRENT (pre-step) positions, not free-movement
 // candidates, so we do not miss contacts that close during integration.
@@ -66,7 +66,7 @@ LateralUpdate LateralSolver::free_movement(const LateralRiderState& r,
 // Algorithm:
 //   Sort a copy of rider indices by lon_pos (O(N log N)).
 //   Walk a sliding window: for each rider A, advance a pointer forward
-//   collecting riders B within x_lookahead.  This gives O(N·k) pair
+//   collecting riders B within bike_length.  This gives O(N·k) pair
 //   candidates where k is average window occupancy — negligible at N ≤ 20.
 // ============================================================================
 std::vector<LateralSolver::ContactPair> LateralSolver::find_proximity_pairs(
@@ -136,7 +136,7 @@ bool LateralSolver::is_blocked(
   const double min_gap = 2.0 * own.rider_radius;
   const double half_road = own.road_width / 2.0;
 
-  // Collect riders ahead within x_lookahead
+  // Collect riders ahead within their bike_length
   std::vector<double> ahead_lat;
   for (int i = 0; i < static_cast<int>(riders.size()); ++i) {
     if (i == rider_idx)

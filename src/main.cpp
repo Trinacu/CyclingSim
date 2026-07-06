@@ -6,6 +6,7 @@
 #include "sim.h"
 #include <chrono>
 #include <exception>
+#include <thread>
 #define SDL_MAIN_USE_CALLBACKS 1 /* use the callbacks instead of main() */
 #include "screen.h"
 #include <SDL3/SDL.h>
@@ -19,8 +20,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
   try {
     auto* state = new AppState();
 
-    state->physics_thread =
-        std::thread([sim = state->sim.get()]() { sim->start_realtime(); });
+    state->runner->start();
 
     // state->window =
     //     SDL_CreateWindow("Cycling Sim", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
@@ -89,11 +89,11 @@ SDL_AppResult SDL_AppIterate(void* appstate) {
     std::this_thread::sleep_for(std::chrono::duration<double>(remaining));
   }
 
-  if (state->sim->physics_error) {
+  if (state->runner->physics_error) {
     SDL_Log("Physics thread exception: %s",
-            state->sim->physics_error_message.c_str());
+            state->runner->physics_error_message.c_str());
 
-    state->sim->stop();
+    state->runner->stop();
     // switch to error screen, pause sim, etc.
   }
 

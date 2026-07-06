@@ -10,10 +10,6 @@ static const double O_PART = 0.2095;  /* O2 fraction of dry air */
 static const double PRESS0 = 101.325; /* sea-level pressure (kPa) */
 static const double H = 8500.0;       /* atmospheric scale height (m) */
 static const double C = 6.271;        /* alveolar water vapour (kPa) = ~47 mmHg */
-static const double O_PRESS0 = O_PART * PRESS0;
-
-/* Lowest fraction of base FTP that fatigue degradation can reach. */
-static const double FTP_FATIGUE_FLOOR = 0.5;
 
 /* ------------------------------
  * Internal helpers
@@ -342,10 +338,9 @@ static int solve_speed_newton(double power, double* speed_io, double dt,
   return 0;
 }
 
-double rel_press(double alt) { return exp(-alt / H); }
-double alv_press(double alt) { return O_PART * rel_press(alt) * PRESS0 - C; }
-double rel_alv_press(double alt) {
-  return (rel_press(alt) * O_PRESS0 - C) / (O_PRESS0 - C);
+static double rel_press(double alt) { return exp(-alt / H); }
+static double alv_press(double alt) {
+  return O_PART * rel_press(alt) * PRESS0 - C;
 }
 double saturation(double alt, double midpt) {
   double n = 2.7;
@@ -364,7 +359,7 @@ double fatigue_ftp_factor(EnergyState* e) {
   double thresh = e->ftp_degrade_threshold * factor;
   if (e->w_expended > thresh) {
     double f = 1.0 - (e->w_expended - thresh) / factor * e->ftp_degrade_rate;
-    return fmax(FTP_FATIGUE_FLOOR, f);
+    return fmax(SIM_FTP_FATIGUE_FLOOR, f);
   }
   return 1.0;
 }

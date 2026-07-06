@@ -54,7 +54,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   auto panel = std::make_unique<RiderPanel>(20, 120, default_font);
   rider_panel = panel.get(); // screen owns the reference
-  panel->add_effort_slider(s->sim.get());
+  panel->add_effort_slider(s->runner.get());
 
   top_left->add(std::move(panel));
   ui->add(UIAnchor::TopLeft, 10, std::move(top_left));
@@ -67,7 +67,7 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
 
   ui->add(UIAnchor::TopCenter, 20,
           std::make_unique<TimeControlPanel>(400, 20, 40, default_font,
-                                             s->sim.get()));
+                                             s->runner.get()));
 
   auto bottom_right = std::make_unique<HStack>(8, 0, VAlign::Bottom);
   bottom_right->add(
@@ -197,7 +197,8 @@ PlotScreen::PlotScreen(AppState* s) : state(s) {
       [this]() { state->screens->replace(ScreenType::Simulation); }));
 
   renderer->add_drawable(std::make_unique<Button>(
-      20, 60, 150, 30, "Pause", f, [this]() { state->sim->toggle_pause(); }));
+      20, 60, 150, 30, "Pause", f,
+      [this]() { state->runner->toggle_pause(); }));
 }
 
 PlotScreen::~PlotScreen() = default;
@@ -264,12 +265,16 @@ bool PlotScreen::handle_event(const SDL_Event* e) {
 
 static std::string fmt_time(double seconds) {
   int total_tenths = static_cast<int>(round(seconds * 10));
+  if (total_tenths < 0)
+    total_tenths = 0;
   int tenths = total_tenths % 10;
   int total_secs = total_tenths / 10;
   int secs = total_secs % 60;
   int total_mins = total_secs / 60;
   int mins = total_mins % 60;
   int hours = total_mins / 60;
+  if (hours > 99)
+    hours = 99; // fixed-width display caps at 99 h
   char buf[16];
   snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%d", hours, mins, secs, tenths);
   return buf;
@@ -292,8 +297,8 @@ static void log_results(const TimeTrialResult& r) {
     const auto& rider = r.riders[i];
 
     std::string row;
-    char rank_name[32];
-    snprintf(rank_name, sizeof(rank_name), "%-4d  %-20s", i + 1,
+    char rank_name[40];
+    snprintf(rank_name, sizeof(rank_name), "%-4d  %-20.20s", i + 1,
              rider.name.c_str());
     row += rank_name;
 

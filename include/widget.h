@@ -19,7 +19,7 @@ public:
   virtual ~Widget() = default;
   RenderLayer layer() const override { return RenderLayer::UI; }
   virtual void render(const RenderContext* ctx) override = 0;
-  virtual void render_imgui(const RenderContext* ctx) {}
+  virtual void render_imgui(const RenderContext*) {}
   bool visible = true;
 };
 
@@ -280,7 +280,7 @@ public:
 
   // Standard Widget interface
   void render(const RenderContext* ctx) override;
-  bool handle_event(const SDL_Event* e) override { return false; }
+  bool handle_event(const SDL_Event*) override { return false; }
 };
 
 class RiderValueField : public ValueField {
@@ -461,7 +461,7 @@ public:
       : BaseEditableField(x, y, w, h, font, win, std::move(cb)) {}
 
 protected:
-  bool accept_char(char c, const std::string&) override { return true; }
+  bool accept_char(char, const std::string&) override { return true; }
 };
 
 #endif

@@ -182,11 +182,9 @@ void PhysicsEngine::step_lateral_solve(double dt) {
 
 // Phase 4: write solver output back into Rider objects.
 //
-// speed_penalty is applied inside Rider::apply_lateral_update() as
-// state.speed *= speed_penalty.  This happens after the longitudinal solve
-// for this step (step 1) and before the snapshot capture (fill_snapshot),
-// so the penalised speed is visible in the snapshot without disturbing the
-// Newton convergence that already ran.
+// speed_penalty is passed through to Rider::apply_lateral_update(), but the
+// state.speed *= speed_penalty line there is currently commented out — the
+// penalty is computed and plumbed but intentionally disabled until tuned.
 void PhysicsEngine::step_lateral_apply() {
   for (const auto& upd : lat_updates_) {
     auto it = riders.find(upd.id);
@@ -347,59 +345,6 @@ GroupContext PhysicsEngine::build_group_context(RiderId id) const {
 
 Simulation::Simulation(const Course* c) : engine(c) {}
 
-void Simulation::start_realtime() {
-  running = true;
-  double accumulator = 0.0;
-
-  auto t_prev = std::chrono::steady_clock::now();
-
-  while (running) {
-    if (paused) {
-      t_prev = std::chrono::steady_clock::now();
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      continue;
-    }
-
-    auto t_now = std::chrono::steady_clock::now();
-    double frame_time = std::chrono::duration<double>(t_now - t_prev).count();
-    t_prev = t_now;
-
-    accumulator += frame_time * time_factor;
-    if (accumulator > 0.25) {
-      SDL_Log("accumulator %f > 0.25 s. Setting to 0.25s.", accumulator);
-      accumulator = 0.25;
-    }
-
-    while (accumulator >= dt) {
-      auto step_start = std::chrono::steady_clock::now();
-
-      try {
-        step_fixed(dt);
-      } catch (const std::exception& e) {
-        // write messagae before setting flag, due to race condition
-        physics_error_message = e.what();
-        physics_error = true;
-        running = false;
-      }
-      accumulator -= dt;
-
-      // what follows is only to check for exceeding the time
-      auto step_end = std::chrono::steady_clock::now();
-      double step_time =
-          std::chrono::duration<double>(step_end - step_start).count();
-      if (step_time > dt) {
-        SDL_Log("Hey! engine.update(dt=%f) took %f. spiral of death!", dt,
-                step_time);
-      }
-    }
-    // interp_alpha = accumulator / dt;
-
-    // After you’ve done zero or more physics steps,
-    // you can sleep a tiny bit (to release thread?)
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-}
-
 void Simulation::add_riders(const std::vector<RiderConfig>& configs) {
   for (const auto& cfg : configs) {
     assert(cfg.rider_id >= 0);
@@ -480,23 +425,11 @@ void Simulation::set_rider_effort(RiderId rider_id, double effort) {
       [this, rider_id, effort]() { engine.set_rider_effort(rider_id, effort); });
 }
 
-void Simulation::pause() { paused = true; }
-
-void Simulation::resume() { paused = false; }
-
-void Simulation::toggle_pause() { paused = !paused; }
-
-bool Simulation::is_paused() const { return paused; }
-
-void Simulation::stop() { running = false; }
-
-// Must be called only while the physics thread is stopped (after sim->stop()
-// and thread join). No locking needed because there's no concurrent access.
+// Must be called only while no driver is stepping the sim (e.g. after
+// RealtimeSimRunner::stop()). No locking needed because there's no
+// concurrent access.
 void Simulation::reset() {
   sim_seconds = 0.0;
-  paused = false;
-  physics_error = false;
-  physics_error_message.clear();
   effort_schedules.clear();
   {
     std::scoped_lock lock(commands_mtx);
@@ -509,26 +442,7 @@ void Simulation::reset() {
     r->reset();
 }
 
-const double Simulation::get_sim_seconds() const { return sim_seconds; }
-
-// class TimeReached : public SimulationCondition {
-//   double limit;
-//
-// public:
-//   explicit TimeReached(double limit_seconds) : limit(limit_seconds) {}
-//
-//   bool is_met(const Simulation& sim) const override {
-//     return sim.get_sim_seconds() >= limit;
-//   }
-// };
+double Simulation::get_sim_seconds() const { return sim_seconds; }
 
 const PhysicsEngine* Simulation::get_engine() const { return &engine; }
 PhysicsEngine* Simulation::get_engine() { return &engine; }
-
-// MetricFn speed = [](const Simulation& sim) {
-//   return sim.get_engine()->get_rider(0)->km_h();
-// };
-//
-// MetricFn power = [](const Simulation& sim) {
-//   return sim.get_engine()->get_rider(0)->get_power();
-// };

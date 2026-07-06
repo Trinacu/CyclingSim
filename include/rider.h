@@ -75,18 +75,9 @@ private:
   double lat_vel = 0.0;
   std::optional<double> lat_target = std::nullopt;
 
-  // double timestep;
-
   Bike bike;
   Team team;
   const ICourseView* course = nullptr;
-
-  void set_cda_factor(double cda_factor_);
-  void set_mass(double total_mass_);
-
-  void update_power_breakdown(double old_speed);
-
-  // std::array<double, (int)PowerTerm::COUNT> power_breakdown;
 
   // C core
   RiderState state;
@@ -142,13 +133,6 @@ public:
   void clear_lat_target() { lat_target = std::nullopt; }
   void apply_lateral_update(double new_lat_pos, double new_lat_vel,
                             double speed_penalty);
-
-  double pow_speed(double new_speed);
-  double pow_speed_prime(double new_speed) const;
-  double pow_speed_double_prime(double new_speed) const;
-
-  double newton(double power, double speed_guess, int max_iterations = 1000);
-  double householder(double power, double speed_guess, int max_iterations = 20);
 
   // friend allows aceesing private/protected members
   friend std::ostream& operator<<(std::ostream& os, const Rider& r);

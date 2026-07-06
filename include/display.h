@@ -37,7 +37,7 @@ public:
   virtual RenderLayer layer() const = 0;
   // Called each frame; the implementer draws itself with the given SDL_Renderer
   virtual void render(const RenderContext* ctx) = 0;
-  virtual bool handle_event(const SDL_Event* e) { return false; }
+  virtual bool handle_event(const SDL_Event*) { return false; }
   virtual ~Drawable() = default;
 };
 

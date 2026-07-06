@@ -144,6 +144,26 @@ typedef struct {
 
 void rider_state_init(RiderState* r, const RiderInitParams* p);
 
+/* ================================
+ * FTP degradation factors
+ * ================================ */
+
+/* Lowest fraction of base FTP that fatigue degradation can reach. */
+#define SIM_FTP_FATIGUE_FLOOR 0.5
+
+/* Hill-type O2 saturation of haemoglobin at altitude.
+ * midpt is the P50 of the dissociation curve in kPa (elite ~2.5, avg ~4.0). */
+double saturation(double alt, double midpt);
+
+/* Ratio of saturation at `alt` to the rider's sea-level saturation, in (0,1].
+ * Lazily caches r->sealevel_sat on first call (sentinel value 1 set by
+ * rider_state_init). p50 in kPa. */
+double altitude_ftp_factor(double alt, double p50, RiderState* r);
+
+/* 1.0 until w_expended crosses ftp_degrade_threshold FTP-hours, then decays
+ * by ftp_degrade_rate per FTP-hour, clamped at SIM_FTP_FATIGUE_FLOOR. */
+double fatigue_ftp_factor(EnergyState* e);
+
 /* diagnostics (optional) */
 typedef struct {
   int converged;

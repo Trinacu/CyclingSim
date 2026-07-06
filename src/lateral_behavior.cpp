@@ -5,7 +5,7 @@
 #include <optional>
 
 std::optional<double>
-HoldLineBehavior::compute_lat_target(const LateralContext& ctx) const {
+HoldLineBehavior::compute_lat_target(const LateralContext&) const {
   return std::nullopt;
 }
 
