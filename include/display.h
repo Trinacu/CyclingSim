@@ -32,6 +32,14 @@ struct RenderContext {
 
 enum class RenderLayer : int { Course = 0, Riders = 1, UI = 2, COUNT };
 
+// Screen-space rectangle the rider sprite is drawn into, anchored at the
+// front-tire ground contact (pos2d) and shifted by the lateral display
+// offset.  Single source of truth shared by the draw path
+// (RiderDrawable::render) and click-picking (SimulationRenderer::pick_rider)
+// so the two cannot drift apart.
+SDL_FRect rider_sprite_rect(const Camera& cam, const RiderVisualModel& model,
+                            const Vector2d& pos2d, double lat_pos);
+
 class Drawable {
 public:
   virtual RenderLayer layer() const = 0;
@@ -91,7 +99,7 @@ private:
 
   void draw_rider(const RenderContext* ctx, const RiderVisualModel& model,
                   const RiderVisualState& vis, const RiderScreenGeom& geom,
-                  const Camera& cam) const;
+                  const SDL_FRect& rider_dst, const Camera& cam) const;
 };
 
 #endif

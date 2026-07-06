@@ -74,6 +74,22 @@ Vector2d rotate(Vec2 p, double a) {
           float(p.x * sin(a) + p.y * cos(a))};
 }
 
+SDL_FRect rider_sprite_rect(const Camera& cam, const RiderVisualModel& model,
+                            const Vector2d& pos2d, double lat_pos) {
+  Vector2d fg = cam.world_to_screen(pos2d);
+  fg.y() -= lat_pos * kLatPxPerM * cam.get_scale();
+
+  // 512 is the sprite-sheet frame size; front_ground_point is the anchor
+  // (front-tire ground contact) in frame-relative coordinates.
+  const float scale =
+      cam.get_scale() * model.wheel_radius / model.wheel_radius_px;
+  const float size_px = scale * 512.f;
+  const float ax = model.front_ground_point.x * size_px;
+  const float ay = model.front_ground_point.y * size_px;
+
+  return SDL_FRect{float(fg.x()) - ax, float(fg.y()) - ay, size_px, size_px};
+}
+
 void RiderDrawable::render(const RenderContext* ctx) {
   if (ctx->riders.empty())
     return;
@@ -137,7 +153,9 @@ void RiderDrawable::render(const RenderContext* ctx) {
       draw_group_halo(ctx->renderer, rider_rect, group_colour(rs.group_id));
     }
 
-    draw_rider(ctx, model, vis, geom, *cam);
+    const SDL_FRect rider_dst =
+        rider_sprite_rect(*cam, model, rs.pos2d, rs.lat_pos);
+    draw_rider(ctx, model, vis, geom, rider_dst, *cam);
   }
 }
 
@@ -186,6 +204,7 @@ void RiderDrawable::draw_rider(const RenderContext* ctx,
                                const RiderVisualModel& model,
                                const RiderVisualState& vis,
                                const RiderScreenGeom& geom,
+                               const SDL_FRect& rider_dst,
                                const Camera& cam) const {
   auto* tex_mgr = ctx->resources->get_textureManager();
 
@@ -196,17 +215,11 @@ void RiderDrawable::draw_rider(const RenderContext* ctx,
   const SDL_FRect src{static_cast<float>((idx % COLS) * 512),
                       static_cast<float>((idx / COLS) * 512), 512.f, 512.f};
 
-  // --- Rider dst rect ---
-  const float scale =
-      cam.get_scale() * model.wheel_radius / model.wheel_radius_px;
-  const float size_px = scale * 512.f;
-  const float ax = model.front_ground_point.x * size_px;
-  const float ay = model.front_ground_point.y * size_px;
-
-  const SDL_FRect rider_dst{float(geom.front_ground_screen.x()) - ax,
-                            float(geom.front_ground_screen.y()) - ay, size_px,
-                            size_px};
-  const SDL_FPoint rider_pivot{ax, ay};
+  // Pivot = the front-ground anchor's position inside rider_dst
+  // (rider_sprite_rect anchors the rect at that point).
+  const SDL_FPoint rider_pivot{
+      static_cast<float>(model.front_ground_point.x * rider_dst.w),
+      static_cast<float>(model.front_ground_point.y * rider_dst.h)};
 
   // --- Wheel dst rects ---
   const float wheel_diam = cam.get_scale() * 2.f * model.wheel_radius;

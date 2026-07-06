@@ -265,6 +265,9 @@ public:
   ValueField(int x, int y, int w, int h, TTF_Font* font);
   virtual ~ValueField();
 
+  // Caching setter: no-op when the text is unchanged; otherwise stores the
+  // new text and invalidates the cached texture, which render() lazily
+  // re-renders on the next frame.  Safe to call every frame.
   void set_text(const std::string& text);
   const std::string& get_text() const { return current_text; }
 

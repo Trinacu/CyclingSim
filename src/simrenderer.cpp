@@ -3,6 +3,7 @@
 #include "display.h"
 #include "sim.h"
 #include "snapshot.h"
+#include <limits>
 #include <memory>
 
 SimulationRenderer::SimulationRenderer(SDL_Renderer* r,
@@ -113,36 +114,41 @@ void SimulationRenderer::render_frame() {
   }
 }
 
-// TODO - make this safe - there is a suggestion in "Code review feedback" chat
-// in chatGPT from 26.11.2025
+// Picks in screen space against the same sprite rect the rider is drawn with
+// (rider_sprite_rect, shared with RiderDrawable), so hits track the visible
+// sprite regardless of zoom, slope or lateral display offset.
 RiderId SimulationRenderer::pick_rider(double screen_x, double screen_y) const {
   if (!camera)
     return -1;
 
-  Vector2d world_pos = camera->screen_to_world(Vector2d(screen_x, screen_y));
+  const SDL_FPoint p{static_cast<float>(screen_x),
+                     static_cast<float>(screen_y)};
 
-  double min_dist = 20.0;
-  bool found = false;
-  RiderId found_id = 0;
+  RiderId found_id = -1;
+  float best_d2 = std::numeric_limits<float>::max();
 
-  for (auto& [id, snap] : frame_curr.riders) {
-    double dx = snap.pos2d.x() - world_pos.x();
-    double dy = snap.pos2d.y() - world_pos.y();
-    double dist = std::sqrt(dx * dx + dy * dy);
+  for (const auto& [id, snap] : frame_curr.riders) {
+    const RiderVisualModel& model = resolve_visual_model(snap.visual_type);
+    const SDL_FRect rect =
+        rider_sprite_rect(*camera, model, snap.pos2d, snap.lat_pos);
 
-    // you might wanna weight X more strictly if they are packed tight
-    if (dist < min_dist) {
-      min_dist = dist;
+    if (!SDL_PointInRectFloat(&p, &rect))
+      continue;
+
+    // Overlapping sprites: prefer the one whose centre is closest to the
+    // click.
+    const float cx = rect.x + rect.w * 0.5f;
+    const float cy = rect.y + rect.h * 0.5f;
+    const float d2 = (cx - p.x) * (cx - p.x) + (cy - p.y) * (cy - p.y);
+    if (d2 < best_d2) {
+      best_d2 = d2;
       found_id = id;
-      found = true;
     }
   }
 
-  if (found) {
+  if (found_id != -1)
     SDL_Log("Selected rider ID: %d", found_id);
-    return found_id;
-  }
-  return -1;
+  return found_id;
 }
 
 std::vector<RiderId> SimulationRenderer::get_rider_ids() const {
