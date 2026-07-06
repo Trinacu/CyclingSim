@@ -15,15 +15,15 @@ struct TestableShoveOutcome {
 
   bool isApproxEqual(const TestableShoveOutcome other,
                      double epsilon = 1e-10) const {
-    return (std::abs(q.a_lat_delta - other.q.a_lat_delta) <= epsilon) &&
-           (std::abs(q.b_lat_delta - other.q.b_lat_delta) <= epsilon) &&
-           (std::abs(q.a_speed_penalty - other.q.a_speed_penalty) <= epsilon) &&
-           (std::abs(q.b_speed_penalty - other.q.b_speed_penalty) <= epsilon);
+    return (std::abs(q.a_lat_rate - other.q.a_lat_rate) <= epsilon) &&
+           (std::abs(q.b_lat_rate - other.q.b_lat_rate) <= epsilon) &&
+           (std::abs(q.a_penalty_rate - other.q.a_penalty_rate) <= epsilon) &&
+           (std::abs(q.b_penalty_rate - other.q.b_penalty_rate) <= epsilon);
   }
 
   void print() const {
-    std::cout << "(" << q.a_lat_delta << ", " << q.b_lat_delta << ", "
-              << q.a_speed_penalty << ", " << q.b_speed_penalty << ")";
+    std::cout << "(" << q.a_lat_rate << ", " << q.b_lat_rate << ", "
+              << q.a_penalty_rate << ", " << q.b_penalty_rate << ")";
   }
 };
 
@@ -75,6 +75,9 @@ LateralRiderState rider(int id, double lon, double lat, double power = 100,
   r.lat_vel = 0;
   r.mass = 75;
   r.rider_radius = 0.5;
+  // Proximity window: solver pairs riders within one bike_length
+  // longitudinally.  ~1.53 m for a road bike (wheelbase + 2*wheel_r).
+  r.bike_length = 1.5;
 
   r.surplus_power = power;
   r.w_prime_frac = wprime;
@@ -105,10 +108,9 @@ void test_stronger_rider_pushes() {
   LateralSolver::ContactPair pair{
       .a_idx = 0, .b_idx = 1, .lon_sep = 0, .lat_sep = 0.4};
 
-  double dt = 0.01;
-  auto out = solver.compute_shove(strong, weak, pair, dt);
+  auto out = solver.compute_shove(strong, weak, pair);
 
-  assert(out.b_lat_delta > 0); // weak rider pushed right
+  assert(out.b_lat_rate > 0); // weak rider pushed right
 }
 
 void test_solver_moves_weaker_rider() {
@@ -150,21 +152,29 @@ void test_lat_target_steering() {
 }
 
 void test_dt_independence() {
+  // compute_shove returns pure rates and takes no dt — dt-independence is
+  // enforced by its signature.  What remains to verify is that solve()
+  // performs exactly one rate -> per-step conversion: the implied rates
+  // (displacement / dt, (1 - penalty) / dt) must be identical across
+  // integration step sizes.
   auto params = default_params();
   LateralSolver solver(params);
 
-  auto strong = rider(1, 0, 0, 200);
-  auto weak = rider(2, 0, 0.4, 50);
-
-  LateralSolver::ContactPair pair{
-      .a_idx = 0, .b_idx = 1, .lon_sep = 0, .lat_sep = 0.4};
+  std::vector<LateralRiderState> riders{rider(1, 0, 0, 200),
+                                        rider(2, 0, 0.4, 50)};
 
   std::vector<double> dts = {0.01, 0.05, 0.1, 0.2};
   std::vector<LateralSolver::ShoveOutcome> res;
   res.reserve(dts.size());
 
   for (double dt : dts) {
-    res.emplace_back(solver.compute_shove(strong, weak, pair, dt));
+    auto updates = solver.solve(riders, dt);
+    res.push_back(LateralSolver::ShoveOutcome{
+        .a_lat_rate = (updates[0].new_lat_pos - riders[0].lat_pos) / dt,
+        .b_lat_rate = (updates[1].new_lat_pos - riders[1].lat_pos) / dt,
+        .a_penalty_rate = (1.0 - updates[0].speed_penalty) / dt,
+        .b_penalty_rate = (1.0 - updates[1].speed_penalty) / dt,
+    });
   }
 
   assert(ShoveOutcomeTest::allEqual(res, 1e-8));

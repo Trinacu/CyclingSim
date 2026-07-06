@@ -45,7 +45,10 @@ void SimulationRenderer::render_frame() {
   ctx.resources = resources;
   ctx.camera_weak = camera;
   ctx.sim_time = frame_curr.sim_time;
-  ctx.time_factor = frame_curr.time_factor;
+  // Read the live control value, not the snapshot stamp: while the sim is
+  // paused no snapshots are published, but set_time_factor() takes effect
+  // immediately (atomic), and the UI should reflect it.
+  ctx.time_factor = sim->get_time_factor();
 
   double now = SDL_GetTicks() / 1000.0;
   const double sim_dt = frame_curr.sim_time - frame_prev.sim_time;

@@ -49,13 +49,10 @@ Rider::Rider(RiderConfig config_)
   // SDL_Log("%.2f", lat_pos);
 
   rider_state_init(&state, &p);
-
-  if (config_.name == "Power")
-    state.solver = SIM_SOLVER_POWER_BALANCE;
-  if (config_.name == "AccelEnergy")
-    state.solver = SIM_SOLVER_ACCEL_ENERGY;
-  if (config_.name == "AccelForce")
-    state.solver = SIM_SOLVER_ACCEL_FORCE;
+  // All riders use the SIM_SOLVER_ACCEL_FORCE default set by
+  // rider_state_init: it is the only solver that respects max_drive_force
+  // at launch.  The energy and power-balance solvers are kept in the core
+  // as regression references (see tests/core/test_solver_compare.c).
 }
 
 std::unique_ptr<Rider> Rider::create_generic(Team team_) {

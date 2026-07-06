@@ -6,8 +6,6 @@
 static double POS_MARGIN = 0.01;
 static double SPEED_MARGIN = 0.1;
 
-static double kinetic(double m_eq, double v) { return 0.5 * m_eq * v * v; }
-
 int main(void) {
   const double dt = 0.001;
   const int steps = 50000;
@@ -42,6 +40,14 @@ int main(void) {
     rider_state_init(&riders[i], &p);
     riders[i].solver = solvers[i];
     riders[i].target_effort = power / riders[i].ftp;
+
+    /* Warm start above the force-limited launch regime (P/v > max_drive_force
+     * below ~0.43 m/s here).  At standstill the solvers legitimately diverge:
+     * only ACCEL_FORCE caps propulsive force; the energy and power-balance
+     * solvers deliver unbounded force at v ~ 0.  This test checks that the
+     * three formulations agree in the smooth regime, where they model the
+     * same physics. */
+    riders[i].speed = 1.0;
   }
 
   printf("t,v_newton,v_force,v_energy\n");

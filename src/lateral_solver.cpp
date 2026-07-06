@@ -207,21 +207,20 @@ int LateralSolver::tiebreak_direction(const LateralRiderState& a,
 // ============================================================================
 // 3.4  compute_shove
 //
-// Computes bilateral lateral displacement for one contact pair.
+// Computes bilateral lateral separation RATES for one contact pair.
 //
-// == Why dt is passed here ==
+// == dt-independence ==
 //
-// All physical quantities that represent a RATE must be multiplied by dt to
-// produce a per-step displacement.  Centralising this in compute_shove (rather
-// than pre-scaling surplus_power in solve()) keeps the intent explicit at each
-// use site and ensures nothing is accidentally scaled twice or not at all.
+// Everything here is a rate (m/s for displacement, 1/s for the speed
+// penalty); dt never enters.  solve() performs the single rate -> per-step
+// conversion (* dt), so nothing can be scaled twice or not at all.
 //
 // surplus_power is received in Watts (NOT pre-multiplied by dt).
 // =============================================================================
 LateralSolver::ShoveOutcome
 LateralSolver::compute_shove(const LateralRiderState& a,
                              const LateralRiderState& b,
-                             const ContactPair& pair, double dt) const {
+                             const ContactPair& pair) const {
   // --- direction ---
   constexpr double kDirEpsilon = 1e-3; // m
 
@@ -244,56 +243,50 @@ LateralSolver::compute_shove(const LateralRiderState& a,
   const double frac_a = resist_b / resist_total;
   const double frac_b = resist_a / resist_total;
 
-  // --- contact floor: rate * dt ---
+  // --- contact floor rate ---
   const double contact_dist = a.rider_radius + b.rider_radius;
   const double overlap_frac =
       std::clamp((contact_dist - fabs(pair.lat_sep)) / contact_dist, 0.0, 1.0);
-  const double contact_floor = overlap_frac * params_.k_contact * dt;
+  const double contact_floor = overlap_frac * params_.k_contact;
 
-  // --- active budget: clamp on RATE, then * dt ---
-  // surplus_power is in Watts (not pre-scaled by dt).
-  // J_max caps the rate; * dt converts to per-step displacement.
+  // --- active budget rate ---
+  // surplus_power is in Watts; J_max caps the resulting rate.
   const double active_a =
       std::clamp(a.surplus_power * params_.shove_kJ, 0.0, params_.J_max) *
-      a.w_prime_frac * dt;
+      a.w_prime_frac;
   const double active_b =
       std::clamp(b.surplus_power * params_.shove_kJ, 0.0, params_.J_max) *
-      b.w_prime_frac * dt;
+      b.w_prime_frac;
 
-  // --- total separation: rate cap * dt ---
+  // --- total separation rate, capped ---
   const double total_sep = std::clamp(contact_floor + active_a + active_b, 0.0,
-                                      params_.max_lat_correction * dt);
+                                      params_.max_lat_correction);
 
-  // --- bilateral displacements ---
-  const double delta_a = static_cast<double>(direction_a) * frac_a * total_sep;
-  const double delta_b = static_cast<double>(direction_b) * frac_b * total_sep;
+  // --- bilateral separation rates ---
+  const double rate_a = static_cast<double>(direction_a) * frac_a * total_sep;
+  const double rate_b = static_cast<double>(direction_b) * frac_b * total_sep;
 
-  // --- speed penalty ---
-  // Threshold and max both scale with dt so compounded penalty/s is constant.
+  // --- speed-penalty rate ---
   constexpr double kPenaltyThresholdRate =
       0.1;                                // m/s — fire if sep rate exceeds this
-  constexpr double kMaxPenaltyRate = 5.0; // /s  — max penalty rate
-  constexpr double kPenaltyScale =
-      0.5; // m^-1 — displacement -> fraction (no dt)
-
-  const double threshold = kPenaltyThresholdRate * dt;
-  const double max_pen = kMaxPenaltyRate * dt;
+  constexpr double kMaxPenaltyRate = 5.0; // 1/s — max penalty rate
+  constexpr double kPenaltyScale = 0.5;   // m^-1 — sep rate -> penalty rate
 
   const double penalty_a =
-      (std::fabs(delta_a) > threshold)
-          ? std::clamp(std::fabs(delta_a) * kPenaltyScale, 0.0, max_pen)
+      (std::fabs(rate_a) > kPenaltyThresholdRate)
+          ? std::clamp(std::fabs(rate_a) * kPenaltyScale, 0.0, kMaxPenaltyRate)
           : 0.0;
   const double penalty_b =
-      (std::fabs(delta_b) > threshold)
-          ? std::clamp(std::fabs(delta_b) * kPenaltyScale, 0.0, max_pen)
+      (std::fabs(rate_b) > kPenaltyThresholdRate)
+          ? std::clamp(std::fabs(rate_b) * kPenaltyScale, 0.0, kMaxPenaltyRate)
           : 0.0;
 
   return ShoveOutcome{
-      .a_lat_delta = delta_a,
-      .b_lat_delta = delta_b,
-      .a_speed_penalty = 1.0 - penalty_a,
-      .b_speed_penalty = 1.0 - penalty_b,
-  }; //
+      .a_lat_rate = rate_a,
+      .b_lat_rate = rate_b,
+      .a_penalty_rate = penalty_a,
+      .b_penalty_rate = penalty_b,
+  };
 }
 
 // ============================================================================
@@ -309,9 +302,10 @@ LateralSolver::compute_shove(const LateralRiderState& a,
 //                        positions.  Using pre-step positions ensures we
 //                        never miss a contact that closes during integration.
 //
-//   [3] Shove          — for each contact pair, compute bilateral displacement
-//                        deltas and speed penalties.  Deltas are accumulated
-//                        per rider (multiple simultaneous contacts stack).
+//   [3] Shove          — for each contact pair, compute bilateral separation
+//                        and penalty RATES, converted to per-step quantities
+//                        here (the single * dt).  Deltas are accumulated per
+//                        rider (multiple simultaneous contacts stack).
 //                        Speed penalties are multiplied (conservative: worst
 //                        case when a rider is in contact with several others).
 //
@@ -360,14 +354,13 @@ LateralSolver::solve(const std::vector<LateralRiderState>& riders,
 
   for (const auto& pair : pairs) {
     const ShoveOutcome out =
-        compute_shove(riders[pair.a_idx], riders[pair.b_idx], pair, dt);
-    delta_acc[pair.a_idx] += out.a_lat_delta;
-    delta_acc[pair.b_idx] += out.b_lat_delta;
-    penalty_acc[pair.a_idx] *= out.a_speed_penalty;
-    penalty_acc[pair.b_idx] *= out.b_speed_penalty;
-    // SDL_Log("SHOVE %d vs %d deltaA= %.4f deltaB= %.4f",
-    // riders[pair.a_idx].id,
-    //         riders[pair.b_idx].id, out.a_lat_delta, out.b_lat_delta);
+        compute_shove(riders[pair.a_idx], riders[pair.b_idx], pair);
+    // Single rate -> per-step conversion.  The penalty multiplier is floored
+    // at 0 so large dt values can't produce a negative speed factor.
+    delta_acc[pair.a_idx] += out.a_lat_rate * dt;
+    delta_acc[pair.b_idx] += out.b_lat_rate * dt;
+    penalty_acc[pair.a_idx] *= std::max(0.0, 1.0 - out.a_penalty_rate * dt);
+    penalty_acc[pair.b_idx] *= std::max(0.0, 1.0 - out.b_penalty_rate * dt);
   }
 
   // --- [4] Compose: free-movement candidate + contact delta, clamped ---

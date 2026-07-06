@@ -148,15 +148,17 @@ private:
   // --- 3.4: shove model ---
   // Applied to one contact pair.  Both riders push each other away
   // symmetrically; the stronger/fresher rider displaces the other more.
+  // All fields are RATES, independent of the integration step; solve()
+  // converts them to per-step quantities with a single * dt.
   struct ShoveOutcome {
-    double a_lat_delta;     // displacement for rider A (toward more space)
-    double b_lat_delta;     // displacement for rider B
-    double a_speed_penalty; // [0,1]
-    double b_speed_penalty; // [0,1]
+    double a_lat_rate;     // m/s — signed separation rate for rider A
+    double b_lat_rate;     // m/s — signed separation rate for rider B
+    double a_penalty_rate; // 1/s — speed-penalty rate, >= 0
+    double b_penalty_rate; // 1/s
   };
   ShoveOutcome compute_shove(const LateralRiderState& a,
                              const LateralRiderState& b,
-                             const ContactPair& pair, double dt) const;
+                             const ContactPair& pair) const;
 
   // --- 3.4 helper: tiebreak direction when lat_sep ~ 0 ---
   // Returns +1 or -1: the direction rider A should move.

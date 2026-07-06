@@ -436,6 +436,18 @@ void Simulation::reset() {
     pending_commands.clear();
   }
 
+  // Clear the published snapshot buffers back to the "nothing published"
+  // sentinel (sim_time -1).  Without this, publish_snapshot()'s monotonicity
+  // guard (snap_back.sim_time <= snap_curr.sim_time) silently drops every
+  // frame of the new run until its clock passes the old run's final time —
+  // the display stays frozen for exactly that long.
+  {
+    std::scoped_lock lock(snapshot_swap_mtx);
+    snap_prev = FrameSnapshot{};
+    snap_curr = FrameSnapshot{};
+    snap_back = FrameSnapshot{};
+  }
+
   // get_riders() returns const ref, but unique_ptr<Rider> still lets us
   // call non-const methods on the Rider through the pointer.
   for (const auto& [id, r] : engine.get_riders())

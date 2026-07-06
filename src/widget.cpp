@@ -507,7 +507,9 @@ void Button::build_label_text(SDL_Renderer* r) {
 }
 
 void Button::set_label(std::string new_label) {
-  label = new_label;
+  if (label == new_label)
+    return; // avoid rebuilding the texture when nothing changed
+  label = std::move(new_label);
   SDL_DestroyTexture(label_tex);
   label_tex = nullptr;
 }
@@ -579,23 +581,22 @@ bool Button::handle_event(const SDL_Event* e) {
   return false;
 }
 
-PauseButton::PauseButton(int x, int y, int w, int h, ISimControl* sim,
+PauseButton::PauseButton(int x, int y, int w, int h, ISimControl* sim_,
                          TTF_Font* font)
-    : Button(x, y, w, h, sim->is_paused() ? "Resume" : "Pause", font,
-             [sim, this]() {
-               if (sim->is_paused()) {
-                 sim->resume();
-                 set_label("Pause");
-               } else {
-                 sim->pause();
-                 set_label("Resume");
-               }
-             }) {}
+    : Button(x, y, w, h, sim_->is_paused() ? "Resume" : "Pause", font,
+             [sim_]() {
+               if (sim_->is_paused())
+                 sim_->resume();
+               else
+                 sim_->pause();
+             }),
+      sim(sim_) {}
 
 void PauseButton::render(const RenderContext* ctx) {
-  // Update label before drawing
-  // BUT NOT BY READING STRAIGHT FROM SIM!
-  // set_label(sim->is_paused() ? "Resume" : "Pause");
+  // Sync the label to the live pause state each frame: pause can change
+  // outside this button (e.g. a TT restart clears it).  is_paused() is an
+  // atomic read through ISimControl, and set_label() no-ops when unchanged.
+  set_label(sim->is_paused() ? "Resume" : "Pause");
 
   Button::render(ctx);
 }
