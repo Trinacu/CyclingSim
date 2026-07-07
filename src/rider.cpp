@@ -110,11 +110,10 @@ void Rider::update(double dt) {
 }
 
 void Rider::apply_lateral_update(double new_lat_pos, double new_lat_vel,
-                                 double /*speed_penalty*/) {
+                                 double speed_penalty) {
   lat_pos = new_lat_pos;
   lat_vel = new_lat_vel;
-  // Penalty intentionally disabled until tuned:
-  // state.speed *= speed_penalty;
+  state.speed *= speed_penalty;
 }
 
 void Rider::set_effort(double new_effort) { state.target_effort = new_effort; }

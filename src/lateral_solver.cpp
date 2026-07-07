@@ -36,6 +36,11 @@ LateralUpdate LateralSolver::free_movement(const LateralRiderState& r,
     const double error = r.lat_target.value() - r.lat_pos;
     const double strength = params_.lat_spring_k * r.w_prime_frac;
     spring_a += strength * error;
+  } else {
+    // Ambient centering: weak pull toward the road centre so riders drift to
+    // open road instead of staying wherever shoves left them.  Not scaled by
+    // w_prime_frac — drifting to the middle of an empty road costs no legs.
+    spring_a += params_.ambient_center_k * (0.0 - r.lat_pos);
   }
 
   // Exact exponential decay of existing velocity (dt-independent damping),
@@ -220,7 +225,7 @@ int LateralSolver::tiebreak_direction(const LateralRiderState& a,
 LateralSolver::ShoveOutcome
 LateralSolver::compute_shove(const LateralRiderState& a,
                              const LateralRiderState& b,
-                             const ContactPair& pair) const {
+                             const ContactPair& pair, bool a_blocked) const {
   // --- direction ---
   constexpr double kDirEpsilon = 1e-3; // m
 
@@ -240,8 +245,11 @@ LateralSolver::compute_shove(const LateralRiderState& a,
   const double resist_b = b.mass * (0.5 + 0.5 * b.surplus_power);
   const double resist_total = resist_a + resist_b;
 
-  const double frac_a = resist_b / resist_total;
-  const double frac_b = resist_a / resist_total;
+  // Blend the resistance ratio toward an even split: even at large power
+  // gaps both riders visibly give way, the stronger one just less so.
+  const double frac_a = (1.0 - params_.shove_asymmetry) * 0.5 +
+                        params_.shove_asymmetry * (resist_b / resist_total);
+  const double frac_b = 1.0 - frac_a;
 
   // --- contact floor rate ---
   const double contact_dist = a.rider_radius + b.rider_radius;
@@ -267,25 +275,32 @@ LateralSolver::compute_shove(const LateralRiderState& a,
   const double rate_b = static_cast<double>(direction_b) * frac_b * total_sep;
 
   // --- speed-penalty rate ---
+  // Only A (behind by construction) can be penalized, and only when actually
+  // squeezing: ramped by longitudinal offset (side-by-side jostling is free)
+  // and gated on the blockade (a clean overtake costs nothing).
   constexpr double kPenaltyThresholdRate =
       0.1;                                // m/s — fire if sep rate exceeds this
   constexpr double kMaxPenaltyRate = 5.0; // 1/s — max penalty rate
   constexpr double kPenaltyScale = 0.5;   // m^-1 — sep rate -> penalty rate
+  constexpr double kSqueezeRampFrac =
+      0.5; // fraction of bike_length at which the ramp reaches full penalty
+
+  const double squeeze_ramp = std::clamp(
+      pair.lon_sep / (kSqueezeRampFrac * a.bike_length), 0.0, 1.0);
+  const double blockade = a_blocked ? 1.0 : 0.0;
 
   const double penalty_a =
       (std::fabs(rate_a) > kPenaltyThresholdRate)
-          ? std::clamp(std::fabs(rate_a) * kPenaltyScale, 0.0, kMaxPenaltyRate)
-          : 0.0;
-  const double penalty_b =
-      (std::fabs(rate_b) > kPenaltyThresholdRate)
-          ? std::clamp(std::fabs(rate_b) * kPenaltyScale, 0.0, kMaxPenaltyRate)
+          ? std::clamp(std::fabs(rate_a) * kPenaltyScale, 0.0,
+                       kMaxPenaltyRate) *
+                squeeze_ramp * blockade
           : 0.0;
 
   return ShoveOutcome{
       .a_lat_rate = rate_a,
       .b_lat_rate = rate_b,
       .a_penalty_rate = penalty_a,
-      .b_penalty_rate = penalty_b,
+      .b_penalty_rate = 0.0,
   };
 }
 
@@ -353,8 +368,10 @@ LateralSolver::solve(const std::vector<LateralRiderState>& riders,
   std::vector<double> penalty_acc(N, 1.0); // accumulated speed multipliers
 
   for (const auto& pair : pairs) {
+    // O(N) per pair — fine at N <= 20.
+    const bool a_blocked = is_blocked(pair.a_idx, riders);
     const ShoveOutcome out =
-        compute_shove(riders[pair.a_idx], riders[pair.b_idx], pair);
+        compute_shove(riders[pair.a_idx], riders[pair.b_idx], pair, a_blocked);
     // Single rate -> per-step conversion.  The penalty multiplier is floored
     // at 0 so large dt values can't produce a negative speed factor.
     delta_acc[pair.a_idx] += out.a_lat_rate * dt;

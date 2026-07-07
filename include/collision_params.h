@@ -25,12 +25,21 @@ struct CollisionParams {
   double shove_kJ = 1e-8; // (W·s) → lateral impulse proxy conversion factor
   double J_max = 30.0;    // N·s  — clamp on shove impulse per step
 
+  // How unevenly a contact's separation is split between the two riders.
+  // 0 = both riders always move equally; 1 = split fully by the
+  // mass/surplus-power resistance ratio.
+  double shove_asymmetry = 0.4;
+
   // --- lateral integration ---
   double lat_damping = 8.0; // 1/s  — exponential velocity damping coefficient
 
   // Per-contact total separation rate cap.
   double max_lat_correction = 10.0; // m/s
   double lat_spring_k = 4.0;        // 1/s² — spring constant toward lat_target
+
+  // Weak pull toward road centre when lat_target is nullopt.  Must stay well
+  // below lat_spring_k so shoves and behavior targets easily overpower it.
+  double ambient_center_k = 0.5; // 1/s²
 
   static CollisionParams from_config(const Bike& bike, const RiderConfig& cfg);
 };

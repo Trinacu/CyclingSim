@@ -150,15 +150,22 @@ private:
   // symmetrically; the stronger/fresher rider displaces the other more.
   // All fields are RATES, independent of the integration step; solve()
   // converts them to per-step quantities with a single * dt.
+  //
+  // ContactPair construction sorts by lon_pos, so B is ahead of A
+  // (lon_sep >= 0).  Only A — the rider squeezing from behind — can receive a
+  // speed penalty, and only when it is actually squeezing: the penalty ramps
+  // with lon_sep (side-by-side jostling is free) and applies only when
+  // a_blocked (no passable lane ahead of A; a clean overtake costs nothing).
+  // The caller computes a_blocked via is_blocked().
   struct ShoveOutcome {
     double a_lat_rate;     // m/s — signed separation rate for rider A
     double b_lat_rate;     // m/s — signed separation rate for rider B
     double a_penalty_rate; // 1/s — speed-penalty rate, >= 0
-    double b_penalty_rate; // 1/s
+    double b_penalty_rate; // 1/s — always 0: the rider ahead is never penalized
   };
   ShoveOutcome compute_shove(const LateralRiderState& a,
                              const LateralRiderState& b,
-                             const ContactPair& pair) const;
+                             const ContactPair& pair, bool a_blocked) const;
 
   // --- 3.4 helper: tiebreak direction when lat_sep ~ 0 ---
   // Returns +1 or -1: the direction rider A should move.

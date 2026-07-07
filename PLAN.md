@@ -1,4 +1,4 @@
-# CyclingSim — Feature Roadmap (TODO #9+10, #7, #6)
+# CyclingSim — Feature Roadmap (TODO #9+10, #7, #6 + drafting)
 
 Status: **outline for discussion** — decisions marked ⚖️ are open; everything else is the
 current recommendation. Ordering: A → B1 → (B2 ∥ C), see Dependencies at the bottom.
@@ -24,6 +24,12 @@ extracted. Three feature areas remain from TODO:
 ---
 
 ## Workstream A — Lateral model: penalty targeting + centering (#9, #10)
+
+**Status: DONE** (2026-07-07). Penalty applies only to a blocked squeezer, ramped by
+longitudinal offset (side-by-side is free); ambient centering via
+`CollisionParams::ambient_center_k` (not W′-scaled); penalty re-enabled in
+`Rider::apply_lateral_update`. Constants (`kPenaltyScale` etc.) stayed as locals in
+`compute_shove` — tune by recompile. Interactive feel-check / tuning still open.
 
 **Goal:** the collision speed penalty punishes only riders squeezing into occupied space;
 riders have a gentle default tendency toward open road; `speed_penalty` is re-enabled.
@@ -123,8 +129,8 @@ C core — so crosswind force belongs there, not in `EnvState`.
 - ⚖️ Optional extra (separate decision): yaw-angle drag increase in the longitudinal
   model — would need crosswind in `EnvState` (C ABI change). Not needed for the lateral
   feel; park it.
-- Future note (not planned here): crosswind + drafting (`cda_factor` hook exists) is
-  what makes echelons emerge; belongs to the perception/tactics era.
+- Future note: crosswind + drafting is what makes echelons emerge. The drafting side is
+  now Workstream D; D1's wake-axis abstraction is the hook where crosswind plugs in.
 
 ### B. Files & tests
 
@@ -137,6 +143,97 @@ C core — so crosswind force belongs there, not in `EnvState`.
   (`tests/core/test_terminal_velocity.c` pattern); C++ — projection correctness on a
   course with varied segment headings; B2 — rider drifts leeward without target, holds
   line (with effort) when target set.
+
+---
+
+## Workstream D — Drafting
+
+**Goal:** riders in formation pay less aero power via the existing `cda_factor` hook
+(sim_core.c already multiplies it into all three drag paths — no C ABI change).
+Precise TTT-style drafting inside a paceline; coarser, more pronounced sheltering in
+the group body. Drafting lands **before** the decision layer (C): it is the physical
+reality that tactics later reason about.
+
+Drafting decomposes into three separable problems, implemented in order:
+
+1. **D1 — aero model**: who shelters whom, how much (`cda_factor` per rider per tick).
+   Purely physical, no decisions; testable alone with effort schedules.
+2. **D2 — gap-holding**: a follow controller so a rider can *stay* on a wheel.
+   Without it pacelines drift apart; with it they hold together at matched effort.
+3. **D3 — rotation**: pull policy at the front, swing off, drop back, reattach.
+
+### D1. Aero model — geometric chain for paceline, depth heuristic for body
+
+Role (from the group phase) selects the model; geometry or depth sets the value.
+
+**Paceline riders — hybrid: position table × gap falloff.** For each `Paceline`-role
+rider, find the nearest rider ahead within a lateral tolerance (~rider width) and
+within `max_draft_gap`; walk that chain to get *chain depth*, then:
+
+```
+cda_factor = paceline_table[min(depth, N-1)] * gap_falloff(wheel_gap) (× alignment(Δlat))
+```
+
+- `paceline_table` — TTT numbers by chain position, saturating around P4–P6.
+  ⚖️ Open: exact values (numbers to be supplied; literature baseline ≈
+  {1.00, 0.70, 0.64, 0.60, …} as placeholder).
+- `gap_falloff` — smooth (e.g. smoothstep): full effect at sub-wheel gaps, decaying to
+  1.0 over a few metres. **Every term smooth, no hard cutoffs** — at 100 Hz a
+  discontinuous CdA step when a rider crosses a threshold causes visible speed jitter.
+- The lateral-tolerance test *is* the "one rider wide" definition: a rider swinging off
+  loses the draft continuously — exactly what D3 rotation needs.
+- **Multiple pacelines cost nothing**: side-by-side sprint trains each form their own
+  chain because lateral alignment separates them. Which lane a team rides in is an
+  *assignment* problem (perception/tactics era), not an aero-model problem.
+- Write the shelter test as *offset from a wake axis* (axis = straight behind for now);
+  B2's crosswind later rotates the axis → echelons, with no model rewrite.
+
+**Body riders — depth heuristic, deliberately approximate and more pronounced.**
+`cda_factor = body_curve(riders_ahead_in_group)` (count within a longitudinal window,
+any role): exposed at the front edge (~0.9), one row back (~0.6), buried (floor
+~0.45–0.5 for small groups). A blob shelters better than a single wheel; false
+precision here isn't worth per-rider geometry. ⚖️ Open: floor value, and whether the
+floor should deepen with group size (big-peloton literature goes much lower).
+
+**Plumbing:**
+- New `include/drafting_params.h` (`DraftingParams`: table, `max_draft_gap`,
+  `lat_tolerance`, falloff shape, body curve/floor) — sibling of `GroupingParams`.
+- `PhysicsEngine::step_draft_apply()` — the slot already reserved in `update()`
+  (src/sim.cpp:48), between `step_group_role_apply()` and `step_longitudinal()`.
+  One-tick-stale positions are fine at 100 Hz.
+- `Rider::set_cda_factor(double)` → writes `state.cda_factor` (hook exists, always 1.0
+  today).
+- Add the factor to `RiderSnapshot` for debug/UI (draft visualisation later).
+- Fix `compute_surplus_power` (src/sim.cpp) to include the factor — otherwise sheltered
+  riders undercount their shove budget.
+
+### D2. Gap-holding (follow controller)
+
+A paceline is only a paceline if followers hold the wheel. Per-rider optional *follow
+target* (analogous to `lat_target`): PD controller on gap error modulating
+`target_effort`, **capped by the rider's own `effort_limit`** — a dying rider still
+gets dropped, which is the emergent behavior we want. ⚖️ Open: effort modulation
+(physical, W′-honest — recommended) vs. direct speed governor (stable but fakes
+physics). Runs at physics cadence, not decision cadence.
+
+### D3. Rotation
+
+For `paceline_position == 0` (GroupContext already provides it): pull policy (time- or
+W′-based), then swing off as an `ILateralBehavior` (interface fits as-is), ease off,
+rejoin at the rear of the paceline. D1's continuous lateral falloff makes the handoff
+smooth; D2 makes the reformed line hold. First genuinely decision-flavored piece —
+scoped to paceline mechanics, not tactics (C4 decides *whether* to participate).
+
+### D. Files & tests
+
+- D1: new `include/drafting_params.h`; `include/sim.h`, `src/sim.cpp`
+  (`step_draft_apply`), `src/rider.cpp`/`include/rider.h` (`set_cda_factor`),
+  `include/snapshot.h`.
+- Tests (D1): two riders nose-to-tail → follower factor = `table[1] * falloff(gap)`;
+  gap beyond `max_draft_gap` → 1.0; lateral offset beyond tolerance → 1.0; two
+  side-by-side chains stay independent; factor is continuous under small position
+  perturbations; at equal effort the follower gains speed / spends less W′.
+- D2/D3 get their own test plans when designed in detail.
 
 ---
 
@@ -205,15 +302,18 @@ per tick.
 ## Dependencies & suggested order
 
 ```
-A (lateral tuning)  ──►  small, self-contained, do first; finishes the collision model
+A  (lateral tuning) ──►  small, self-contained, do first; finishes the collision model
 B1 (wind data)      ──►  small; independent of A
 B2 (crosswind)      ──►  after A (adds force into the same free_movement/solver code)
-C  (decision layer) ──►  biggest; independent of B; benefits from A being settled
-                         (C assigns lateral behaviors whose outcomes A tunes)
+D1 (draft aero)     ──►  independent of A/B; before C — tactics reason about drafting
+D2 (gap-holding)    ──►  after D1; makes formations hold at matched effort
+D3 (rotation)       ──►  after D2 and A (swing-off is an ILateralBehavior A tunes)
+C  (decision layer) ──►  biggest; after D1 (C4 declares roles that drafting rewards);
+                         benefits from A being settled
 ```
 
-Rough sizes: A ≈ a session; B1 ≈ half; B2 ≈ half–one; C ≈ several, with its own design
-checkpoints (C1 API review before C3/C4).
+Rough sizes: A ≈ a session; B1 ≈ half; B2 ≈ half–one; D1 ≈ a session; D2 ≈ one;
+D3 ≈ one+; C ≈ several, with its own design checkpoints (C1 API review before C3/C4).
 
 ## Verification (all workstreams)
 

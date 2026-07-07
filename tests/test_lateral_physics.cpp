@@ -57,6 +57,10 @@ CollisionParams default_params() {
   CollisionParams p{};
   p.lat_damping = 0.0;
   p.lat_spring_k = 0.0;
+  // Keep the ambient spring out of shove/dt tests: its Euler spring term has a
+  // dt-dependent implied rate (like the behavior spring), which would break
+  // test_dt_independence for any rider not at lat 0.
+  p.ambient_center_k = 0.0;
 
   p.shove_kJ = 1.0;
   p.J_max = 100.0;
@@ -108,7 +112,7 @@ void test_stronger_rider_pushes() {
   LateralSolver::ContactPair pair{
       .a_idx = 0, .b_idx = 1, .lon_sep = 0, .lat_sep = 0.4};
 
-  auto out = solver.compute_shove(strong, weak, pair);
+  auto out = solver.compute_shove(strong, weak, pair, false);
 
   assert(out.b_lat_rate > 0); // weak rider pushed right
 }
@@ -181,6 +185,157 @@ void test_dt_independence() {
   ShoveOutcomeTest::printAll(res);
 }
 
+// --- penalty targeting (A1) ---
+
+// A pair with A meaningfully behind B (lon_sep past the squeeze ramp) and a
+// strong power imbalance so |rate_a| clears the penalty threshold.
+LateralSolver::ContactPair squeeze_pair() {
+  return LateralSolver::ContactPair{
+      .a_idx = 0, .b_idx = 1, .lon_sep = 1.0, .lat_sep = 0.2};
+}
+
+void test_front_rider_never_penalized() {
+  LateralSolver solver(default_params());
+
+  auto a = rider(1, 0, 0, 200);
+  auto b = rider(2, 1.0, 0.2, 50);
+
+  auto out = solver.compute_shove(a, b, squeeze_pair(), true);
+
+  assert(out.b_penalty_rate == 0.0);
+}
+
+void test_blocked_squeezer_penalized() {
+  LateralSolver solver(default_params());
+
+  auto a = rider(1, 0, 0, 200);
+  auto b = rider(2, 1.0, 0.2, 50);
+
+  auto out = solver.compute_shove(a, b, squeeze_pair(), true);
+
+  assert(out.a_penalty_rate > 0.0);
+}
+
+void test_unblocked_overtaker_free() {
+  LateralSolver solver(default_params());
+
+  auto a = rider(1, 0, 0, 200);
+  auto b = rider(2, 1.0, 0.2, 50);
+
+  auto out = solver.compute_shove(a, b, squeeze_pair(), false);
+
+  assert(out.a_penalty_rate == 0.0);
+}
+
+void test_side_by_side_no_penalty() {
+  LateralSolver solver(default_params());
+
+  auto a = rider(1, 0, 0, 200);
+  auto b = rider(2, 0, 0.2, 50);
+
+  LateralSolver::ContactPair pair{
+      .a_idx = 0, .b_idx = 1, .lon_sep = 0, .lat_sep = 0.2};
+
+  auto out = solver.compute_shove(a, b, pair, true);
+
+  assert(out.a_penalty_rate == 0.0);
+  assert(out.b_penalty_rate == 0.0);
+}
+
+void test_squeeze_ramp_monotonic() {
+  LateralSolver solver(default_params());
+
+  auto a = rider(1, 0, 0, 200);
+  auto b = rider(2, 0, 0.2, 50); // lon irrelevant; pair carries lon_sep
+
+  // Ramp reaches full at 0.5 * bike_length = 0.75; probe the midpoint.
+  auto pair_at = [](double lon_sep) {
+    return LateralSolver::ContactPair{
+        .a_idx = 0, .b_idx = 1, .lon_sep = lon_sep, .lat_sep = 0.2};
+  };
+
+  const double mid =
+      solver.compute_shove(a, b, pair_at(0.375), true).a_penalty_rate;
+  const double full =
+      solver.compute_shove(a, b, pair_at(0.75), true).a_penalty_rate;
+
+  assert(full > 0.0);
+  assert(mid > 0.0 && mid < full);
+}
+
+// solve()-level: a squeezer behind a wall of riders spanning the road is the
+// only one slowed.
+void test_wall_penalizes_only_squeezer() {
+  LateralSolver solver(default_params());
+
+  // Wall at lon 1.0 spaced 1.5 m apart: every lateral gap (including the road
+  // edges, half_road = 5) is narrower than 2 * rider_radius = 1.0 → blocked.
+  std::vector<LateralRiderState> riders_v{rider(1, 0, 0, 500, 1.0)};
+  const double wall_lats[] = {-4.5, -3.0, -1.5, 0.0, 1.5, 3.0, 4.5};
+  int id = 2;
+  for (double lat : wall_lats)
+    riders_v.push_back(rider(id++, 1.0, lat, 50));
+
+  auto updates = solver.solve(riders_v, 0.01);
+
+  assert(updates[0].speed_penalty < 1.0); // squeezer slowed
+  for (size_t i = 1; i < updates.size(); ++i)
+    assert(updates[i].speed_penalty == 1.0); // wall untouched
+}
+
+void test_shove_symmetry_blend() {
+  auto a = rider(1, 0, 0, 500);
+  auto b = rider(2, 0, 0.2, 10);
+  LateralSolver::ContactPair pair{
+      .a_idx = 0, .b_idx = 1, .lon_sep = 0, .lat_sep = 0.2};
+
+  auto params = default_params();
+
+  params.shove_asymmetry = 0.0; // both riders move equally
+  auto even = LateralSolver(params).compute_shove(a, b, pair, false);
+  assert(std::abs(std::abs(even.a_lat_rate) - std::abs(even.b_lat_rate)) <
+         1e-12);
+
+  params.shove_asymmetry = 1.0; // split fully by resistance ratio
+  auto full = LateralSolver(params).compute_shove(a, b, pair, false);
+  assert(std::abs(full.a_lat_rate) < std::abs(full.b_lat_rate));
+
+  params.shove_asymmetry = 0.4; // weaker rider still gives way more, but the
+                                // stronger one moves more than at full ratio
+  auto blended = LateralSolver(params).compute_shove(a, b, pair, false);
+  assert(std::abs(blended.a_lat_rate) < std::abs(blended.b_lat_rate));
+  assert(std::abs(blended.a_lat_rate) > std::abs(full.a_lat_rate));
+}
+
+// --- ambient centering (A2) ---
+
+void test_ambient_centering() {
+  auto params = default_params();
+  params.lat_damping = 8.0; // realistic damping so the approach is monotonic
+  params.ambient_center_k = 0.2;
+
+  LateralSolver solver(params);
+
+  auto r = rider(1, 0, 3.0);
+  assert(!r.lat_target.has_value());
+
+  double prev = r.lat_pos;
+  for (int i = 0; i < 1000; ++i) {
+    auto upd = solver.solve({r}, 0.1);
+    r.lat_pos = upd[0].new_lat_pos;
+    r.lat_vel = upd[0].new_lat_vel;
+    assert(r.lat_pos <= prev + 1e-12);
+    prev = r.lat_pos;
+  }
+  assert(r.lat_pos < 0.5); // converged most of the way to centre
+
+  // With the ambient spring off, an offset rider stays put.
+  LateralSolver off(default_params());
+  auto s = rider(1, 0, 3.0);
+  auto upd = off.solve({s}, 0.1);
+  assert(upd[0].new_lat_pos == s.lat_pos);
+}
+
 int main() {
   test_contact_detection();
   test_stronger_rider_pushes();
@@ -188,6 +343,14 @@ int main() {
   test_tiebreak_direction();
   test_lat_target_steering();
   test_dt_independence();
+  test_front_rider_never_penalized();
+  test_blocked_squeezer_penalized();
+  test_unblocked_overtaker_free();
+  test_side_by_side_no_penalty();
+  test_squeeze_ramp_monotonic();
+  test_wall_penalizes_only_squeezer();
+  test_shove_symmetry_blend();
+  test_ambient_centering();
 
   std::cout << "All tests passed\n";
 }
