@@ -120,6 +120,20 @@ static void test_side_by_side_chains() {
         "parallel chains: both leaders at 0.98");
 }
 
+static void test_wake_axis_lat() {
+  // Still air: the axis is the leader's own line at any distance.
+  DraftRiderState leader = ds(1, 10.0, 0.4);
+  check(approx(wake_axis_lat(leader, 7.0), 0.4),
+        "wake_axis_lat: still air -> leader's line");
+
+  // 5 m/s crosswind at 10 m/s: the axis tilts half a metre per metre behind.
+  leader.crosswind = 5.0;
+  check(approx(wake_axis_lat(leader, 7.0), 0.4 + 3.0 * 0.5),
+        "wake_axis_lat: crosswind tilts the axis leeward");
+  check(approx(wake_axis_lat(leader, 10.0), 0.4),
+        "wake_axis_lat: zero offset at the leader itself");
+}
+
 static void test_crosswind_axis() {
   const DraftingParams p{};
 
@@ -257,6 +271,7 @@ int main() {
   test_lateral_offset();
   test_chain_saturation();
   test_side_by_side_chains();
+  test_wake_axis_lat();
   test_crosswind_axis();
   test_split_continuity();
   test_body_role();

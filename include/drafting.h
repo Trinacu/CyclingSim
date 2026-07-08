@@ -62,6 +62,14 @@ struct DraftRiderState {
 // max_draft_gap and beyond.
 double draft_gap_falloff(double gap, const DraftingParams& p);
 
+// Lateral position of `leader`'s wake axis at longitudinal position lon_pos.
+// The axis leaves the leader along its apparent wind: at distance d behind,
+// it sits d · crosswind / airspeed to the side; zero crosswind → straight
+// behind.  Shared definition: the shelter test uses it to score alignment,
+// and the follow controller (D2) uses it as the follower's lat_target — so
+// followers steer to exactly where the draft is.
+double wake_axis_lat(const DraftRiderState& leader, double lon_pos);
+
 // CdA multipliers, one per input rider (parallel to `riders`).
 std::vector<double>
 compute_draft_factors(const std::vector<DraftRiderState>& riders,

@@ -8,18 +8,11 @@ namespace {
 // Keeps the wake-axis slope finite when a leader is near-stationary.
 constexpr double kMinAirSpeed = 0.1;
 
-// Lateral displacement of `follower` from `leader`'s wake axis.  The axis
-// leaves the leader along its apparent wind: at lon distance d behind, it
-// sits d · crosswind / airspeed to the side.  Zero crosswind → straight
-// behind.
+// Lateral displacement of `follower` from `leader`'s wake axis (see
+// wake_axis_lat in drafting.h).
 double wake_offset(const DraftRiderState& leader,
                    const DraftRiderState& follower) {
-  const double lon_sep = leader.lon_pos - follower.lon_pos;
-  const double air_speed =
-      std::max(leader.speed + leader.headwind, kMinAirSpeed);
-  const double axis_lat =
-      leader.lat_pos + lon_sep * leader.crosswind / air_speed;
-  return follower.lat_pos - axis_lat;
+  return follower.lat_pos - wake_axis_lat(leader, follower.lon_pos);
 }
 
 // Benefit fraction retained at lateral displacement `off` from the wake
@@ -45,6 +38,13 @@ double table_value(double depth, const DraftingParams& p) {
 }
 
 } // namespace
+
+double wake_axis_lat(const DraftRiderState& leader, double lon_pos) {
+  const double lon_sep = leader.lon_pos - lon_pos;
+  const double air_speed =
+      std::max(leader.speed + leader.headwind, kMinAirSpeed);
+  return leader.lat_pos + lon_sep * leader.crosswind / air_speed;
+}
 
 double draft_gap_falloff(double gap, const DraftingParams& p) {
   if (gap <= 0.0)

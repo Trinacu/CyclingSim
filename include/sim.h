@@ -7,6 +7,8 @@
 #include "drafting.h"
 #include "drafting_params.h"
 #include "effortschedule.h"
+#include "follow.h"
+#include "follow_params.h"
 #include "group.h"
 #include "grouping_params.h"
 #include "lateral_behavior.h"
@@ -58,7 +60,19 @@ private:
   // draft_states_ is rebuilt each tick by step_draft_apply().
   std::vector<DraftRiderState> draft_states_;
 
+  FollowParams follow_params_;
+  // Follow targets: presence of an entry means the rider is in Follow mode
+  // (see EffortSource below) and this controller owns its target_effort.
+  std::unordered_map<RiderId, FollowState> follow_states_;
+
+  // One rider's flat drafting input (position, extent, apparent-wind
+  // components).  Used by step_draft_apply for every rider and by
+  // step_follow_apply for each follower's leader.
+  DraftRiderState build_draft_state(RiderId id, const Rider& r) const;
+
   void step_draft_apply(); // computes and writes per-rider cda_factor
+  void step_follow_apply(double dt); // gap controllers write target_effort
+                                     // and wake-axis lat_target
   void step_longitudinal(double dt);
   void step_lateral_behavior();       // builds lat_states_, queries behaviors
   void step_lateral_solve(double dt); // calls lateral_solver_.solve()
@@ -107,8 +121,30 @@ public:
                           std::shared_ptr<ILateralBehavior> behavior);
   void clear_rider_behavior(RiderId id);
 
+  // Follow targets (physics-thread-only, like set_rider_behavior: reached via
+  // Simulation's command queue or test/setup code before stepping starts).
+  // Assigning replaces any previous target and bootstraps the controller's
+  // integrator from the rider's current target_effort, so the takeover never
+  // steps effort discontinuously.
+  void set_follow_target(RiderId rider, RiderId leader);
+  void clear_follow_target(RiderId rider);
+  void clear_follow_targets(); // all — used by Simulation::reset()
+  bool has_follow_target(RiderId rider) const {
+    return follow_states_.count(rider) > 0;
+  }
+
   ~PhysicsEngine() = default;
 };
+
+// Which system owns a rider's target_effort.  Exactly one writer is active
+// per rider at any time — the mode is the arbiter, there is no blending:
+//   Follow   — the gap controller (a follow target is assigned); the effort
+//              slider and any effort schedule are inert.
+//   Schedule — an EffortSchedule drives effort each tick; the slider is inert.
+//   Manual   — set_rider_effort (UI slider / scripts) is live.
+// Derived state (Follow > Schedule > Manual), never stored — assigning or
+// clearing a follow target or schedule is what switches mode.
+enum class EffortSource { Manual, Schedule, Follow };
 
 // Passive fixed-step simulation engine: step_fixed + command queue +
 // snapshot double-buffering.  It owns no thread — a driver calls step_fixed:
@@ -163,10 +199,17 @@ public:
   PhysicsEngine* get_engine();
 
   // Queued: applied on the physics thread at the start of the next step.
+  // set_rider_effort is a no-op unless the rider's EffortSource is Manual.
   void set_effort_schedule(int rider_id,
                            std::shared_ptr<EffortSchedule> schedule);
   void clear_effort_schedule(RiderId rider_id);
   void set_rider_effort(RiderId rider_id, double effort);
+  void set_follow_target(RiderId rider, RiderId leader);
+  void clear_follow_target(RiderId rider);
+
+  // Reads physics-thread state — call from the physics thread or while no
+  // driver is stepping (tests, debug UI via snapshot preferred).
+  EffortSource get_effort_source(RiderId rider_id) const;
 
   // Called by the renderer each frame; returns false if no new frame
   bool consume_latest_frame_pair(FrameSnapshot& out_prev,

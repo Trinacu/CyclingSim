@@ -48,6 +48,7 @@ void PhysicsEngine::update(double dt) {
   step_group_classify();
   step_group_role_apply();
   step_draft_apply();
+  step_follow_apply(dt);
   step_longitudinal(dt);
   step_lateral_behavior();
   step_lateral_solve(dt);
@@ -111,31 +112,106 @@ void PhysicsEngine::set_rider_behavior(
 
 void PhysicsEngine::clear_rider_behavior(RiderId id) { behaviors_.erase(id); }
 
+// --- Follow-target management (physics-thread-only, like behaviors) ---
+
+void PhysicsEngine::set_follow_target(RiderId rider, RiderId leader) {
+  auto it = riders.find(rider);
+  if (it == riders.end() || riders.count(leader) == 0 || rider == leader) {
+    SDL_Log("Engine::set_follow_target: invalid pair rider %d -> leader %d",
+            rider, leader);
+    return;
+  }
+  // Bootstrap the integrator from the current effort so the controller takes
+  // over smoothly instead of collapsing effort to ~0 and rebuilding it.
+  double integ = it->second->get_target_effort();
+  const double max_effort = it->second->get_config().max_effort;
+  if (integ < 0.0)
+    integ = 0.0;
+  else if (integ > max_effort)
+    integ = max_effort;
+  follow_states_[rider] = FollowState{.leader = leader, .integrator = integ};
+}
+
+void PhysicsEngine::clear_follow_target(RiderId rider) {
+  if (follow_states_.erase(rider) > 0) {
+    // Drop the wake-axis steering along with the effort controller, or the
+    // rider would keep springing toward the ex-leader's line forever.
+    auto it = riders.find(rider);
+    if (it != riders.end())
+      it->second->clear_lat_target();
+  }
+}
+
+void PhysicsEngine::clear_follow_targets() {
+  for (const auto& [id, fs] : follow_states_) {
+    auto it = riders.find(id);
+    if (it != riders.end())
+      it->second->clear_lat_target();
+  }
+  follow_states_.clear();
+}
+
+// Follow phase: each gap controller writes its rider's target_effort — the
+// single active effort writer for riders in Follow mode.  Runs before
+// step_longitudinal() so the command applies this tick; positions are
+// one tick stale, same as drafting.
+void PhysicsEngine::step_follow_apply(double dt) {
+  for (auto& [id, fs] : follow_states_) {
+    auto rit = riders.find(id);
+    auto lit = riders.find(fs.leader);
+    if (rit == riders.end() || lit == riders.end())
+      continue; // stale entry — rider or leader removed; hold last effort
+
+    Rider& r = *rit->second;
+    const Rider& leader = *lit->second;
+    const FollowInput in{
+        .gap = (leader.get_pos() - r.get_pos()) - leader.get_bike_len(),
+        .rel_speed = leader.get_speed() - r.get_speed(),
+        .own_speed = r.get_speed(),
+        .max_effort = r.get_config().max_effort,
+    };
+    r.set_effort(follow_effort(in, dt, fs.integrator, follow_params_));
+
+    // Steer to the leader's wake axis (apparent-wind direction — the same
+    // axis the shelter test scores against), not to the leader's line:
+    // with crosswind the sweet spot is offset leeward, and this is what
+    // forms echelons once B2 lands real wind.  An assigned ILateralBehavior
+    // overrides this (it runs later in the tick) — that's the D3 swing-off
+    // hook.
+    r.set_lat_target(
+        wake_axis_lat(build_draft_state(fs.leader, leader), r.get_pos()));
+  }
+}
+
 // Drafting phase: compute per-rider CdA multipliers from formation geometry
 // and write them into the riders.  Runs after the group phases (so
 // roles/groups are current for this tick) and before step_longitudinal(),
 // whose drag terms consume cda_factor.  Positions are one tick stale — fine
 // at 100 Hz.
+DraftRiderState PhysicsEngine::build_draft_state(RiderId id,
+                                                 const Rider& r) const {
+  const auto [wind_dir, wind_speed] = course->get_wind(r.get_pos());
+  const double heading = r.get_heading();
+  return DraftRiderState{
+      .id = id,
+      .group_id = group_tracker_.get_group_id(id),
+      .role = group_tracker_.get_role(id),
+      .lon_pos = r.get_pos(),
+      .lat_pos = r.get_lat_pos(),
+      .speed = r.get_speed(),
+      .radius = r.get_radius(),
+      .bike_len = r.get_bike_len(),
+      .crosswind = wind_speed * std::sin(wind_dir - heading),
+      .headwind = wind_speed * std::cos(wind_dir - heading),
+  };
+}
+
 void PhysicsEngine::step_draft_apply() {
   draft_states_.clear();
   draft_states_.reserve(riders.size());
 
-  for (const auto& [id, r] : riders) {
-    const auto [wind_dir, wind_speed] = course->get_wind(r->get_pos());
-    const double heading = r->get_heading();
-    draft_states_.push_back(DraftRiderState{
-        .id = id,
-        .group_id = group_tracker_.get_group_id(id),
-        .role = group_tracker_.get_role(id),
-        .lon_pos = r->get_pos(),
-        .lat_pos = r->get_lat_pos(),
-        .speed = r->get_speed(),
-        .radius = r->get_radius(),
-        .bike_len = r->get_bike_len(),
-        .crosswind = wind_speed * std::sin(wind_dir - heading),
-        .headwind = wind_speed * std::cos(wind_dir - heading),
-    });
-  }
+  for (const auto& [id, r] : riders)
+    draft_states_.push_back(build_draft_state(id, *r));
 
   const std::vector<double> factors =
       compute_draft_factors(draft_states_, drafting_params_);
@@ -429,8 +505,11 @@ void Simulation::drain_commands() {
 void Simulation::step_fixed(double dt) {
   drain_commands();
 
+  // Schedules drive effort only when they are the active source — a follow
+  // target takes precedence (EffortSource::Follow > Schedule).
   for (auto& [id, sched] : effort_schedules)
-    engine.set_rider_effort(id, sched->effort_at(sim_seconds));
+    if (!engine.has_follow_target(id))
+      engine.set_rider_effort(id, sched->effort_at(sim_seconds));
 
   engine.step_and_snapshot(dt, snap_back);
 
@@ -458,8 +537,32 @@ void Simulation::clear_effort_schedule(RiderId rider_id) {
 
 void Simulation::set_rider_effort(RiderId rider_id, double effort) {
   std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this, rider_id, effort]() {
+    // The slider acts only in Manual mode; Follow and Schedule own the
+    // rider's effort exclusively while active.
+    if (get_effort_source(rider_id) == EffortSource::Manual)
+      engine.set_rider_effort(rider_id, effort);
+  });
+}
+
+void Simulation::set_follow_target(RiderId rider, RiderId leader) {
+  std::scoped_lock lock(commands_mtx);
   pending_commands.push_back(
-      [this, rider_id, effort]() { engine.set_rider_effort(rider_id, effort); });
+      [this, rider, leader]() { engine.set_follow_target(rider, leader); });
+}
+
+void Simulation::clear_follow_target(RiderId rider) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back(
+      [this, rider]() { engine.clear_follow_target(rider); });
+}
+
+EffortSource Simulation::get_effort_source(RiderId rider_id) const {
+  if (engine.has_follow_target(rider_id))
+    return EffortSource::Follow;
+  if (effort_schedules.count(rider_id) > 0)
+    return EffortSource::Schedule;
+  return EffortSource::Manual;
 }
 
 // Must be called only while no driver is stepping the sim (e.g. after
@@ -468,6 +571,7 @@ void Simulation::set_rider_effort(RiderId rider_id, double effort) {
 void Simulation::reset() {
   sim_seconds = 0.0;
   effort_schedules.clear();
+  engine.clear_follow_targets();
   {
     std::scoped_lock lock(commands_mtx);
     pending_commands.clear();

@@ -82,16 +82,25 @@ AppState::AppState() {
   screens = std::make_unique<ScreenManager>(this);
   screens->push(ScreenType::Simulation);
 
+  // D2 follow-chain demo: Pedro pulls on a schedule, everyone else holds the
+  // wheel of the rider ahead (EffortSource::Follow) — one 8-rider paceline.
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
-      {20.0, 0.0},  // easy
-      {40.0, 1.3},  // hard
-      {600.0, 0.8}, // recovery
-      {300.0, 0.9}  // sprint
+      {10.0, 0.3},  // roll-out: let the chain latch on
+      {90.0, 0.85}, // steady pull: the line settles at the 0.25 m gap
+      {30.0, 1.1},  // surge: watch the accordion travel down the chain
+      {600.0, 0.85} // settle again
   });
 
   sim->set_effort_schedule(0, schedule);
 
-  // (Optional) Setup default riders here or in Main
+  for (int id = 1; id <= 7; ++id)
+    sim->set_follow_target(id, id - 1);
+
+  // Declare the formation so the group phase classifies it as a paceline
+  // (aero already treats every non-Body rider as chain).  Direct rider access
+  // is safe here: the runner hasn't started, nothing is stepping yet.
+  for (const auto& [id, r] : sim->get_engine()->get_riders())
+    r->set_group_role(GroupRole::Paceline);
 }
 
 AppState::~AppState() {
