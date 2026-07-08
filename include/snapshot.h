@@ -61,6 +61,7 @@ struct RiderSnapshot {
   double effort;
   double power;
   double wbal_fraction;
+  double cda_factor; // drafting multiplier; 1.0 = no shelter
 
   // interpolated
   double lat_pos;

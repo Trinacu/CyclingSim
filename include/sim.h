@@ -4,6 +4,8 @@
 
 #include "collision_params.h"
 #include "course.h"
+#include "drafting.h"
+#include "drafting_params.h"
 #include "effortschedule.h"
 #include "group.h"
 #include "grouping_params.h"
@@ -33,6 +35,8 @@ private:
   GroupingParams group_params_;
   GroupTracker group_tracker_;
 
+  DraftingParams drafting_params_;
+
   // Pre-allocated buffers — cleared and refilled each tick, never
   // heap-allocated in the hot path.  Same pattern as lat_states_ and
   // lat_updates_.
@@ -51,6 +55,10 @@ private:
   std::vector<LateralRiderState> lat_states_;
   std::vector<LateralUpdate> lat_updates_;
 
+  // draft_states_ is rebuilt each tick by step_draft_apply().
+  std::vector<DraftRiderState> draft_states_;
+
+  void step_draft_apply(); // computes and writes per-rider cda_factor
   void step_longitudinal(double dt);
   void step_lateral_behavior();       // builds lat_states_, queries behaviors
   void step_lateral_solve(double dt); // calls lateral_solver_.solve()

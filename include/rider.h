@@ -120,6 +120,10 @@ public:
   double get_total_mass() const { return state.mass_rider + state.mass_bike; }
   double get_radius() const { return 0.5; }
   double get_bike_len() const { return bike.wheelbase + 2 * bike.wheel_r; }
+  double get_heading() const { return heading; }
+
+  double get_cda_factor() const { return state.cda_factor; }
+  void set_cda_factor(double f) { state.cda_factor = f; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

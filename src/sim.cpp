@@ -1,10 +1,12 @@
 #include "sim.h"
+#include "drafting.h"
 #include "group.h"
 #include "lateral_solver.h"
 #include "rider.h"
 #include "snapshot.h"
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <thread>
 #include <unordered_map>
@@ -45,7 +47,7 @@ bool PhysicsEngine::add_rider(const RiderConfig cfg) {
 void PhysicsEngine::update(double dt) {
   step_group_classify();
   step_group_role_apply();
-  // step_draft_apply();
+  step_draft_apply();
   step_longitudinal(dt);
   step_lateral_behavior();
   step_lateral_solve(dt);
@@ -108,6 +110,41 @@ void PhysicsEngine::set_rider_behavior(
 }
 
 void PhysicsEngine::clear_rider_behavior(RiderId id) { behaviors_.erase(id); }
+
+// Drafting phase: compute per-rider CdA multipliers from formation geometry
+// and write them into the riders.  Runs after the group phases (so
+// roles/groups are current for this tick) and before step_longitudinal(),
+// whose drag terms consume cda_factor.  Positions are one tick stale — fine
+// at 100 Hz.
+void PhysicsEngine::step_draft_apply() {
+  draft_states_.clear();
+  draft_states_.reserve(riders.size());
+
+  for (const auto& [id, r] : riders) {
+    const auto [wind_dir, wind_speed] = course->get_wind(r->get_pos());
+    const double heading = r->get_heading();
+    draft_states_.push_back(DraftRiderState{
+        .id = id,
+        .group_id = group_tracker_.get_group_id(id),
+        .role = group_tracker_.get_role(id),
+        .lon_pos = r->get_pos(),
+        .lat_pos = r->get_lat_pos(),
+        .speed = r->get_speed(),
+        .radius = r->get_radius(),
+        .bike_len = r->get_bike_len(),
+        .crosswind = wind_speed * std::sin(wind_dir - heading),
+        .headwind = wind_speed * std::cos(wind_dir - heading),
+    });
+  }
+
+  const std::vector<double> factors =
+      compute_draft_factors(draft_states_, drafting_params_);
+  for (size_t i = 0; i < draft_states_.size(); ++i) {
+    auto it = riders.find(draft_states_[i].id);
+    if (it != riders.end())
+      it->second->set_cda_factor(factors[i]);
+  }
+}
 
 // Phase 1: advance each rider's longitudinal physics independently.
 void PhysicsEngine::step_longitudinal(double dt) {
@@ -236,7 +273,7 @@ double PhysicsEngine::compute_surplus_power(const Rider& r) const {
   const double v = r.get_speed();
   const double rho = 1.2234;
   const double g = 9.80665;
-  const double cda = r.get_config().cda;
+  const double cda = r.get_config().cda * r.get_cda_factor();
   const double m = r.get_total_mass();
   const double slope = course->get_slope(r.get_pos());
 

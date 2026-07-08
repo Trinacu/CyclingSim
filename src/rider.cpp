@@ -71,6 +71,7 @@ void Rider::set_course(const ICourseView* cv) { course = cv; }
 
 void Rider::reset() {
   rider_reset(&state);
+  state.cda_factor = 1.0; // not covered by rider_reset
   lat_pos = 0.0;
   lat_vel = 0.0;
   lat_target = std::nullopt;
@@ -142,6 +143,7 @@ RiderSnapshot Rider::snapshot() const {
       .effort = this->state.effort,
       .power = this->state.power,
       .wbal_fraction = this->get_energy_fraction(),
+      .cda_factor = this->state.cda_factor,
       .lat_pos = this->lat_pos,
       .pos2d = this->_pos2d,
       .team_id = this->team.id,

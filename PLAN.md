@@ -1,18 +1,16 @@
-# CyclingSim — Feature Roadmap (TODO #9+10, #7, #6 + drafting)
+# CyclingSim — Feature Roadmap (TODO #7, #6 + drafting)
 
 Status: **outline for discussion** — decisions marked ⚖️ are open; everything else is the
-current recommendation. Ordering: A → B1 → (B2 ∥ C), see Dependencies at the bottom.
+current recommendation. Ordering: B1 → D1 → (B2 ∥ D2) → D3 → C, see Dependencies at the
+bottom.
 
 ## Context
 
 The audit-fix phase is done (see git history for the old PLAN.md): the sim core is
 warning-free, fully tested, single-solver (ACCEL_FORCE), and the realtime driver is
-extracted. Three feature areas remain from TODO:
+extracted. Workstream A (lateral model, TODO #9+10) is also done — see below. Remaining
+feature areas:
 
-- **#9 + #10** — the lateral model is half-wired: collision speed penalty is computed but
-  disabled (`Rider::apply_lateral_update`, commented out "until tuned") because it
-  penalizes the wrong riders; `lat_target` semantics (nullopt = no spring) leave riders
-  with no natural tendency toward open road.
 - **#7** — wind: `Course::get_wind()` is a stub returning a constant `Wind{0,1}` (a
   permanent 1 m/s wind!), rider `heading` is never set from the course, and there is no
   crosswind concept. Longitudinal drag already includes rider speed correctly
@@ -23,70 +21,13 @@ extracted. Three feature areas remain from TODO:
 
 ---
 
-## Workstream A — Lateral model: penalty targeting + centering (#9, #10)
+## Workstream A — Lateral model: penalty targeting + centering (#9, #10) — DONE
 
-**Status: DONE** (2026-07-07). Penalty applies only to a blocked squeezer, ramped by
-longitudinal offset (side-by-side is free); ambient centering via
-`CollisionParams::ambient_center_k` (not W′-scaled); penalty re-enabled in
-`Rider::apply_lateral_update`. Constants (`kPenaltyScale` etc.) stayed as locals in
-`compute_shove` — tune by recompile. Interactive feel-check / tuning still open.
-
-**Goal:** the collision speed penalty punishes only riders squeezing into occupied space;
-riders have a gentle default tendency toward open road; `speed_penalty` is re-enabled.
-
-### A1. Penalty targeting rule (#9)
-
-Current: `compute_shove` (src/lateral_solver.cpp) assigns penalty rates to *both* riders
-of a contact pair, weighted by resistance fractions. That punishes the rider in front for
-being rammed from behind.
-
-Proposed rule, using machinery that already exists:
-- `ContactPair` construction sorts by `lon_pos`, so **B is ahead of A by construction**
-  (`lon_sep >= 0`). The rider *behind* (A) is the "squeezer" candidate.
-- Penalty applies **only to A**, and only when A is actually squeezing:
-  modulate by `is_blocked(a_idx, riders)` (already implemented, src/lateral_solver.cpp) —
-  full penalty when no passable gap ahead, zero (or small) when a free lane exists.
-- The rider ahead (B) is never speed-penalized; it still receives its lateral shove.
-
-⚖️ Open: side-by-side pairs (`lon_sep ≈ 0`, currently tie-broken by id) — no penalty for
-either (recommended: pure lateral jostling shouldn't slow anyone) or split penalty.
-
-### A2. `lat_target` concept review (#10)
-
-Current semantics: `std::optional<double>` — behaviors return a target, `nullopt` means
-*no spring at all* (`HoldLineBehavior` returns nullopt → rider is purely force-driven and
-stays wherever shoves left it).
-
-Recommendation: **ambient centering, separate from behavior targets**:
-- In `LateralSolver::free_movement`, when `lat_target == nullopt`, apply a weak spring
-  toward 0 with a new `CollisionParams::ambient_center_k` (≪ `lat_spring_k`).
-- Explicit behavior targets keep using `lat_spring_k` (strong, intentional steering).
-- Result: empty road → riders drift to the middle; contact/overtaking → shoves and
-  behavior targets easily overpower the ambient pull. No behavior interface change.
-
-Why not "default target = 0 with the existing spring": uniform strong pull to the
-centerline fights the shove model — packs get wedged single-file into the middle and
-every overtake decays back to center.
-
-⚖️ Open: center toward road centre (0) vs. "riding line" (e.g. slight offset / future
-lane concept). Start with 0; revisit when group behavior lands.
-
-### A3. Re-enable the penalty
-
-- Uncomment `state.speed *= speed_penalty` in `Rider::apply_lateral_update`
-  (src/rider.cpp), after A1 makes it fair.
-- Tune `kPenaltyScale` / `kMaxPenaltyRate` (compute_shove) by eye in the game: a blocked
-  rider grinding against a wall of wheels should visibly stall, a clean overtake should
-  cost nothing.
-
-### A. Files & tests
-
-- `src/lateral_solver.cpp`, `include/lateral_solver.h` (penalty rule, ambient spring,
-  `CollisionParams::ambient_center_k` in `include/collision_params.h`)
-- `src/rider.cpp` (re-enable penalty)
-- `tests/test_lateral_physics.cpp`: front rider never penalized; blocked squeezer is;
-  unblocked overtaker isn't; ambient centering converges to 0 with no contacts;
-  dt-independence (existing test) still holds.
+Completed 2026-07-07. Penalty applies only to a blocked squeezer, ramped by longitudinal
+offset (side-by-side is free); ambient centering via `CollisionParams::ambient_center_k`
+(not W′-scaled); penalty re-enabled in `Rider::apply_lateral_update`. Constants
+(`kPenaltyScale` etc.) stayed as locals in `compute_shove` — tune by recompile.
+**Still open:** interactive feel-check / tuning of `kPenaltyScale` / `kMaxPenaltyRate`.
 
 ---
 
@@ -162,59 +103,104 @@ Drafting decomposes into three separable problems, implemented in order:
    Without it pacelines drift apart; with it they hold together at matched effort.
 3. **D3 — rotation**: pull policy at the front, swing off, drop back, reattach.
 
-### D1. Aero model — geometric chain for paceline, depth heuristic for body
+### D1. Aero model — DONE
 
-Role (from the group phase) selects the model; geometry or depth sets the value.
+Completed 2026-07-08. Pure solver in `include/drafting.h` / `src/drafting.cpp`
+(`compute_draft_factors`), params in `include/drafting_params.h`; wired via
+`PhysicsEngine::step_draft_apply()` (before `step_longitudinal`, one-tick-stale
+positions). `Rider::set_cda_factor` writes the core's `cda_factor`; the factor is in
+`RiderSnapshot`; `compute_surplus_power` includes it. Tests in
+`tests/test_drafting.cpp` incl. the first engine-level integration test.
 
-**Paceline riders — hybrid: position table × gap falloff.** For each `Paceline`-role
-rider, find the nearest rider ahead within a lateral tolerance (~rider width) and
-within `max_draft_gap`; walk that chain to get *chain depth*, then:
+Model as landed (scope decision: **chain model applies to every non-`Body` rider** —
+nothing declares roles yet; the body heuristic is implemented but dormant behind the
+`GroupRole::Body` gate):
+- `paceline_table = {0.98, 0.61, 0.50, 0.44, 0.42, 0.41}`, saturating from P6 (deeper
+  clamps to 0.41); entry 0 is the front rider's ~2% push from a follower on the wheel.
+- Gap falloff (wheel-to-wheel): benefit ×1.0 at contact → ×0.7 at 5 m → 0 at 8 m
+  (piecewise linear; 8 m is also the chain-link cutoff).
+- Lateral alignment: benefit fades linearly to 0 at 3 × leader radius of displacement
+  from the leader's *wake axis*; the axis trails along the leader's apparent wind
+  (straight behind with today's stub wind — B2's crosswind rotates it → echelons).
+- `cda_factor = 1 − (1 − table(depth))·falloff·align`, with **continuous chain depth**
+  (`depth = 1 + s_leader·depth_leader`, table linearly interpolated) and the front-rider
+  push weighted by (1 − own link strength) — both so a chain splitting/reforming never
+  steps CdA discontinuously (100 Hz jitter rule).
+- Body heuristic (dormant): `body_curve = {0.90, 0.60, 0.50, 0.47}` by riders ahead
+  within 10 m, same group. ⚖️ Still open: curve/floor values and smoothing — tune when
+  roles go live.
 
-```
-cda_factor = paceline_table[min(depth, N-1)] * gap_falloff(wheel_gap) (× alignment(Δlat))
-```
+### D2. Gap-holding (follow controller) — design settled 2026-07-08
 
-- `paceline_table` — TTT numbers by chain position, saturating around P4–P6.
-  ⚖️ Open: exact values (numbers to be supplied; literature baseline ≈
-  {1.00, 0.70, 0.64, 0.60, …} as placeholder).
-- `gap_falloff` — smooth (e.g. smoothstep): full effect at sub-wheel gaps, decaying to
-  1.0 over a few metres. **Every term smooth, no hard cutoffs** — at 100 Hz a
-  discontinuous CdA step when a rider crosses a threshold causes visible speed jitter.
-- The lateral-tolerance test *is* the "one rider wide" definition: a rider swinging off
-  loses the draft continuously — exactly what D3 rotation needs.
-- **Multiple pacelines cost nothing**: side-by-side sprint trains each form their own
-  chain because lateral alignment separates them. Which lane a team rides in is an
-  *assignment* problem (perception/tactics era), not an aero-model problem.
-- Write the shelter test as *offset from a wake axis* (axis = straight behind for now);
-  B2's crosswind later rotates the axis → echelons, with no model rewrite.
+A paceline is only a paceline if followers hold the wheel. Runs at physics cadence
+(100 Hz), not decision cadence.
 
-**Body riders — depth heuristic, deliberately approximate and more pronounced.**
-`cda_factor = body_curve(riders_ahead_in_group)` (count within a longitudinal window,
-any role): exposed at the front edge (~0.9), one row back (~0.6), buried (floor
-~0.45–0.5 for small groups). A blob shelters better than a single wheel; false
-precision here isn't worth per-rider geometry. ⚖️ Open: floor value, and whether the
-floor should deepen with group size (big-peloton literature goes much lower).
+**Effort ownership (not modulation).** `target_effort` has exactly **one writer per
+rider at any time**, selected by a per-rider *effort source* mode:
+`Schedule` (existing `EffortSchedule`) | `Manual` (`set_rider_effort` / UI slider) |
+`Follow` (this controller). The mode is the arbiter — no blending rule exists. The UI
+slider is **inert in Follow mode**; it acts only in Manual. Modes are set via engine
+API (command queue) for now; the decision layer (C2/C4) selects them later — this is
+the deliberate thin manual slice of C. Broader "behavior modes" that bundle effort
+source + lateral behavior + `GroupRole` (e.g. *rotate in paceline*) stay a C2 concept;
+D2 ships only the effort-source arbitration.
 
-**Plumbing:**
-- New `include/drafting_params.h` (`DraftingParams`: table, `max_draft_gap`,
-  `lat_tolerance`, falloff shape, body curve/floor) — sibling of `GroupingParams`.
-- `PhysicsEngine::step_draft_apply()` — the slot already reserved in `update()`
-  (src/sim.cpp:48), between `step_group_role_apply()` and `step_longitudinal()`.
-  One-tick-stale positions are fine at 100 Hz.
-- `Rider::set_cda_factor(double)` → writes `state.cda_factor` (hook exists, always 1.0
-  today).
-- Add the factor to `RiderSnapshot` for debug/UI (draft visualisation later).
-- Fix `compute_surplus_power` (src/sim.cpp) to include the factor — otherwise sheltered
-  riders undercount their shove budget.
+**Follow target.** Per-rider optional (analogous to `lat_target`): leader `RiderId` +
+controller state. Engine API `set_follow_target(rider, leader)` /
+`clear_follow_target(rider)`, mirroring `set_rider_behavior`, queued like all
+cross-thread commands.
 
-### D2. Gap-holding (follow controller)
+**Gap = D1's definition**, verbatim: wheel-to-wheel,
+`gap = lon_sep − leader.bike_len` (`bike_len = wheelbase + 2·wheel_r`) — the same
+measure the drafting falloff uses, so "0.25 m" means the same thing to both systems.
 
-A paceline is only a paceline if followers hold the wheel. Per-rider optional *follow
-target* (analogous to `lat_target`): PD controller on gap error modulating
-`target_effort`, **capped by the rider's own `effort_limit`** — a dying rider still
-gets dropped, which is the emergent behavior we want. ⚖️ Open: effort modulation
-(physical, W′-honest — recommended) vs. direct speed governor (stable but fakes
-physics). Runs at physics cadence, not decision cadence.
+**Setpoint:** `target_gap = d0 + h·v`, with `d0 = 0.25 m`, `h = 0 s` default. `h` is
+the string-stability escape hatch: if the accordion test shows oscillation growing down
+the chain, a tiny headway (~0.02–0.05 s) damps it, and D1's falloff (≈ full benefit
+under 1 m) makes the cost negligible. ⚖️ Open: final gains and whether `h` stays 0 —
+settled empirically by the accordion test.
+
+**Controller:** PI(D) on `e = gap − target_gap`, output written to `target_effort`.
+- **I is mandatory** — at converged steady state (e = 0) it holds the entire cruise
+  effort; P alone sags permanently behind the target.
+- **D on relative speed** (= de/dt, exact in a sim — no noise) provides damping.
+- **Windup: integrator hard-clamped to `[0, max_effort]`** (static rider param —
+  `rider.h` `max_effort`). No realized-effort read-back, no back-calculation, and
+  explicitly **no zeroing on overshoot** (the integrator holds cruise effort; wiping it
+  when the gap dips below target produces a surge–coast limit cycle as the *normal*
+  operating mode). The `≥ 0` clamp kills overlap windup: during an overrun the
+  integrator bleeds toward 0 but never negative, so recovery when the leader resumes is
+  immediate. Known bounded residual: a fatigued rider whose dynamic `effort_limit` sits
+  below `max_effort` recovers slightly sluggishly — acceptable (reads as realistic);
+  upgrade path is local back-calculation if tests say otherwise.
+
+**Effort limit stays out of the controller** — it belongs to the energy model, which
+already clamps realized effort to `[0, energy_effort_limit]` every step
+(`core/src/sim_core.c`, effort resolution). A dying rider getting dropped is emergent;
+the controller never learns why its request wasn't met.
+
+**No braking.** Effort floors at 0; deceleration is drag-only. Wheel overlap is
+tolerated (the lateral/collision model handles contact). Failure mode to watch at low
+speed where drag is weak.
+
+**Plumbing (mirrors D1):** pure controller in new `include/follow.h` /
+`src/follow.cpp` + `include/follow_params.h` (`d0`, `h`, gains — sibling of
+`DraftingParams`); engine phase `step_follow_apply()` next to `step_draft_apply()`
+(before `step_longitudinal`, one-tick-stale positions fine); per-rider mode + follow
+state in `PhysicsEngine` beside `behaviors_`.
+
+**Tests (`tests/test_follow.cpp`):**
+- Convergence: leader on constant schedule, follower converges to 0.25 m and holds
+  (integral carries cruise effort at e ≈ 0, no sawtooth).
+- Leader slowdown → overlap → resume: follower recovers immediately (integrator never
+  went negative — no dead-follower delay), no huge overshoot.
+- **Accordion test (tuning gate):** 5-rider chain, leader steps effort up/down; gap
+  oscillation amplitude must *decay* down the chain, not grow. Decides gains and `h`.
+- Weak follower (low FTP) gets dropped emergently: gap grows past D1's 8 m cutoff,
+  draft lost — no controller knowledge of `effort_limit` needed.
+- Mode arbitration: `set_rider_effort` is ignored while in Follow mode; mode switch
+  back to Manual restores the slider path.
+- Determinism / dt-independence of the controller step.
 
 ### D3. Rotation
 
@@ -226,14 +212,10 @@ scoped to paceline mechanics, not tactics (C4 decides *whether* to participate).
 
 ### D. Files & tests
 
-- D1: new `include/drafting_params.h`; `include/sim.h`, `src/sim.cpp`
-  (`step_draft_apply`), `src/rider.cpp`/`include/rider.h` (`set_cda_factor`),
-  `include/snapshot.h`.
-- Tests (D1): two riders nose-to-tail → follower factor = `table[1] * falloff(gap)`;
-  gap beyond `max_draft_gap` → 1.0; lateral offset beyond tolerance → 1.0; two
-  side-by-side chains stay independent; factor is continuous under small position
-  perturbations; at equal effort the follower gains speed / spends less W′.
-- D2/D3 get their own test plans when designed in detail.
+- D1 landed; **D2 designed (see above)** — files: new `include/follow.h`,
+  `src/follow.cpp`, `include/follow_params.h`, `tests/test_follow.cpp`; touch
+  `include/sim.h`, `src/sim.cpp` (mode map, `step_follow_apply`, queued APIs).
+  D3 gets its test plan when designed.
 
 ---
 
@@ -259,6 +241,10 @@ Two windows, both from the start:
   struggling" signal later).
 - Reuses: `GroupContext` + `PhysicsEngine::build_group_context` (include/sim.h — built,
   never wired; this is what it was kept for), `GroupTracker` snapshot for group data.
+- **Race-style time gaps** ("chase at 0:45") as a *derived perception quantity* here
+  (and in the UI) — e.g. `gap_to_group_ahead / group_speed` from the group snapshot.
+  Confirmed 2026-07-08: nothing time-gap-shaped exists in the codebase (all gap
+  concepts are metres); it belongs here, not in D2's controller.
 
 ### C2. Decision cadence
 
@@ -268,6 +254,9 @@ steps (e.g. 1 Hz sim-time; parameter). Outputs are *held* between ticks:
 - lateral behavior selection (assign/clear `ILateralBehavior` — mechanism exists:
   `set_rider_behavior`)
 - `GroupRole` declaration (mechanism exists: role declarations in the group phase)
+
+Note: the per-rider *effort source* mode (Schedule/Manual/Follow) lands with D2 — C2's
+job becomes selecting modes/targets, not inventing the arbitration.
 
 ### C3. First consumer 1 — effort pacing (`IEffortPolicy`)
 
@@ -302,22 +291,21 @@ per tick.
 ## Dependencies & suggested order
 
 ```
-A  (lateral tuning) ──►  small, self-contained, do first; finishes the collision model
-B1 (wind data)      ──►  small; independent of A
-B2 (crosswind)      ──►  after A (adds force into the same free_movement/solver code)
-D1 (draft aero)     ──►  independent of A/B; before C — tactics reason about drafting
-D2 (gap-holding)    ──►  after D1; makes formations hold at matched effort
-D3 (rotation)       ──►  after D2 and A (swing-off is an ILateralBehavior A tunes)
-C  (decision layer) ──►  biggest; after D1 (C4 declares roles that drafting rewards);
-                         benefits from A being settled
+B1 (wind data)      ──►  small; no prerequisites
+B2 (crosswind)      ──►  adds force into the free_movement/solver code A settled;
+                         also feeds D1's wake axis (echelons)
+D1 (draft aero)     ──►  DONE (2026-07-08)
+D2 (gap-holding)    ──►  makes formations hold at matched effort
+D3 (rotation)       ──►  after D2 (swing-off is an ILateralBehavior)
+C  (decision layer) ──►  biggest; C4 declares roles that drafting rewards
 ```
 
-Rough sizes: A ≈ a session; B1 ≈ half; B2 ≈ half–one; D1 ≈ a session; D2 ≈ one;
+Rough sizes: B1 ≈ half a session; B2 ≈ half–one; D2 ≈ one;
 D3 ≈ one+; C ≈ several, with its own design checkpoints (C1 API review before C3/C4).
 
 ## Verification (all workstreams)
 
 Per landing: `cmake --build build -j` (0 warnings) + `ctest` (all green) + headless
-smoke run (SIGTERM → exit 0). A and B2 additionally need interactive checks (penalty
-feel, leeward drift); C needs a scripted scenario run (e.g. plot screen: one AI rider
+smoke run (SIGTERM → exit 0). B2 additionally needs an interactive check (leeward
+drift), as does A's still-open penalty-feel tuning; C needs a scripted scenario run (e.g. plot screen: one AI rider
 with climb-pacing policy vs. one scheduled rider on `create_endulating`).
