@@ -69,8 +69,14 @@ double Course::get_road_width(double pos) const {
   return segments[find_segment(pos)].road_width;
 }
 
-// TODO - fix this to query whatever holds the values?
-Wind Course::get_wind(double /*pos*/) const { return Wind{0, 1}; }
+double Course::get_heading(double pos) const {
+  return segments[find_segment(pos)].heading;
+}
+
+// The pos parameter stays: per-segment wind overrides are future scope.
+Wind Course::get_wind(double /*pos*/) const { return wind_; }
+
+void Course::set_wind(Wind w) { wind_ = w; }
 
 MatrixX2d Course::get_points(double x_min, double x_max) const {
   if (x_min > x_max)

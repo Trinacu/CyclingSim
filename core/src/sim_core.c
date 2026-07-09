@@ -214,7 +214,9 @@ static double pow_speed(double v_new, double v_old, double dt,
   double total_mass = r->mass_rider + r->mass_bike;
   double mass_ir = equivalent_mass(r);
 
-  double P_aero = drag_coeff * v_air * v_air * v_new;
+  /* v_air * |v_air|, not v_air^2: a tailwind stronger than rider speed
+   * (v_air < 0) must push, not resist. */
+  double P_aero = drag_coeff * v_air * fabs(v_air) * v_new;
   double P_roll = r->crr * total_mass * env->g * v_new;
   double P_bear = (env->bearing_c0 + env->bearing_c1 * v_new) * v_new;
   double P_grav = total_mass * env->g * sin(atan(env->slope)) * v_new;
@@ -236,7 +238,8 @@ static double pow_speed_prime(double v, double dt, const RiderState* r,
   double total_mass = r->mass_rider + r->mass_bike;
   double mass_ir = equivalent_mass(r);
 
-  double dP = drag_coeff * (2.0 * v_air * v + v_air * v_air) +
+  /* derivative of v_air * |v_air| * v (see pow_speed) */
+  double dP = drag_coeff * (2.0 * fabs(v_air) * v + v_air * fabs(v_air)) +
               r->crr * total_mass * env->g + env->bearing_c0 +
               2.0 * env->bearing_c1 * v +
               total_mass * env->g * sin(atan(env->slope)) + mass_ir * v / dt;
@@ -249,7 +252,8 @@ static double resistive_force(double v, const RiderState* r,
   double v_air = v + env->headwind;
 
   double cda = (r->cda_rider + r->cda_wheel_drag) * r->cda_factor;
-  double drag = 0.5 * env->rho * cda * v_air * v_air;
+  /* v_air * |v_air|: signed drag so a strong tailwind pushes */
+  double drag = 0.5 * env->rho * cda * v_air * fabs(v_air);
 
   double total_mass = r->mass_rider + r->mass_bike;
   double roll = (r->crr + env->crr) * total_mass * env->g;

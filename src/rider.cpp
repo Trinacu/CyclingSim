@@ -88,6 +88,7 @@ void Rider::update(double dt) {
   env.crr = course->get_crr(state.pos);
   state.slope = env.slope;
 
+  heading = course->get_heading(state.pos);
   auto [wind_dir, wind_speed] = course->get_wind(state.pos);
   env.headwind = wind_speed * std::cos(wind_dir - heading);
 

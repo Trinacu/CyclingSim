@@ -6,6 +6,11 @@
 #include <iostream>
 #include <vector>
 
+// Wind over a course.  `heading` is the direction the wind blows *from*, in
+// the same angular convention as Segment::heading: wind.heading == rider
+// heading means a full headwind (positive env.headwind via the cos projection
+// in Rider::update); the matching sin projection gives the signed crosswind
+// that the drafting wake axis and the rotation swing side consume.
 struct Wind {
   double heading;
   double speed;
@@ -36,6 +41,7 @@ public:
   virtual double get_altitude(double pos) const = 0;
   virtual double get_crr(double pos) const = 0;
   virtual double get_road_width(double pos) const = 0;
+  virtual double get_heading(double pos) const = 0;
   virtual Wind get_wind(double pos) const = 0;
   // virtual bool isCheckpoint(double pos) const = 0;
   virtual ~ICourseView() = default;
@@ -49,6 +55,7 @@ protected:
 class Course : public ICourseView {
 private:
   std::vector<Segment> segments;
+  Wind wind_{0.0, 0.0};
   // std::vector<double> altitudes; // y at each segment start
 
 public:
@@ -64,7 +71,9 @@ public:
   double get_slope(double pos) const override;
   double get_crr(double pos) const override;
   double get_road_width(double pos) const override;
+  double get_heading(double pos) const override;
   Wind get_wind(double pos) const override;
+  void set_wind(Wind w);
 
   int find_segment(double pos) const;
 
