@@ -7,6 +7,14 @@
 
 #include "snapshot.h"
 
+// B2 yaw-drag constants — empirical knobs, tune by recompile (same precedent
+// as the lateral kPenaltyScale locals; settle at the interactive feel-check).
+// kYawDragGain ~ 1 gives +10-15% CdA at ~20 deg yaw.  The floor and cap only
+// matter near a standing start, where u -> 0 while the true force -> 0.
+static constexpr double kYawDragGain = 1.0;   // k_yaw in CdA_ratio
+static constexpr double kMinApparentLon = 1.0; // m/s floor on |u|
+static constexpr double kYawFactorCap = 3.0;
+
 Bike::Bike(double mass_, double wheel_i_, double wheel_r_, double wheelbase_,
            double wheel_drag_factor_, double crr_, double dt_loss_,
            BikeType type_)
@@ -71,6 +79,8 @@ void Rider::set_course(const ICourseView* cv) { course = cv; }
 
 void Rider::reset() {
   rider_reset(&state);
+  draft_factor_ = 1.0;
+  yaw_factor_ = 1.0;
   state.cda_factor = 1.0; // not covered by rider_reset
   lat_pos = 0.0;
   lat_vel = 0.0;
@@ -91,6 +101,25 @@ void Rider::update(double dt) {
   heading = course->get_heading(state.pos);
   auto [wind_dir, wind_speed] = course->get_wind(state.pos);
   env.headwind = wind_speed * std::cos(wind_dir - heading);
+
+  // B2: crosswind costs energy through yaw-dependent longitudinal drag.  The
+  // core's drag term is 1/2 rho CdA cda_factor v_air |v_air|, so scaling
+  // cda_factor by yaw_factor_ = CdA_ratio(yaw) V_a / |u| reproduces the
+  // target force 1/2 rho CdA CdA_ratio V_a u exactly, signs included.
+  const double c = wind_speed * std::sin(wind_dir - heading);
+  if (c == 0.0) {
+    // Exact by definition: pure longitudinal wind is fully carried by
+    // env.headwind (and V_a = |u| would only misbehave under the |u| floor).
+    yaw_factor_ = 1.0;
+  } else {
+    const double u = state.speed + env.headwind; // longitudinal apparent wind
+    const double va2 = u * u + c * c;            // V_a^2, > 0 since c != 0
+    const double cda_ratio = 1.0 + kYawDragGain * (c * c) / va2;
+    yaw_factor_ =
+        std::min(kYawFactorCap, cda_ratio * std::sqrt(va2) /
+                                    std::max(std::fabs(u), kMinApparentLon));
+  }
+  state.cda_factor = draft_factor_ * yaw_factor_;
 
   double altitude = course->get_altitude(state.pos);
   env.altitude = altitude;
@@ -144,7 +173,8 @@ RiderSnapshot Rider::snapshot() const {
       .effort = this->state.effort,
       .power = this->state.power,
       .wbal_fraction = this->get_energy_fraction(),
-      .cda_factor = this->state.cda_factor,
+      .cda_factor = this->get_cda_factor(),
+      .yaw_factor = this->yaw_factor_,
       .lat_pos = this->lat_pos,
       .pos2d = this->_pos2d,
       .team_id = this->team.id,

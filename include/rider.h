@@ -70,6 +70,12 @@ private:
 
   double heading = 0;
 
+  // state.cda_factor is the product of these two named factors, recomputed
+  // in update(): shelter (written by the drafting phase) and crosswind yaw
+  // drag (computed from the wind projection) stay separable.
+  double draft_factor_ = 1.0;
+  double yaw_factor_ = 1.0;
+
   Vector2d _pos2d;
   double lat_pos = 0.0;
   double lat_vel = 0.0;
@@ -122,8 +128,11 @@ public:
   double get_bike_len() const { return bike.wheelbase + 2 * bike.wheel_r; }
   double get_heading() const { return heading; }
 
-  double get_cda_factor() const { return state.cda_factor; }
-  void set_cda_factor(double f) { state.cda_factor = f; }
+  // The product is what physics sees; setting writes the draft factor only
+  // (drafting callers unchanged — the yaw factor is Rider-internal).
+  double get_cda_factor() const { return draft_factor_ * yaw_factor_; }
+  void set_cda_factor(double f) { draft_factor_ = f; }
+  double get_yaw_factor() const { return yaw_factor_; }
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);

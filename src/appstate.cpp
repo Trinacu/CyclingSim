@@ -8,6 +8,7 @@
 #include "implot.h"
 #include "screen.h"
 #include "screenmanager.h"
+#include <cmath>
 
 AppState::AppState() {
   // 1. Initialize SDL Core
@@ -39,6 +40,10 @@ AppState::AppState() {
   // 3. Initialize Shared Resources
   resources = std::make_unique<GameResources>(renderer);
   course = std::make_unique<Course>(Course::create_endulating());
+  // Modest angled wind (~60 deg off the course axis) for the rotation demo:
+  // expect echelon stagger, consistently windward swings, slightly lower
+  // line speed.  Interactive gate for the B2 yaw constants.
+  course->set_wind({M_PI / 3.0, 3.5});
   sim = std::make_unique<Simulation>(course.get());
   runner = std::make_unique<RealtimeSimRunner>(sim.get());
 

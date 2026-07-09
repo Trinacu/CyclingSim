@@ -1,8 +1,9 @@
 # CyclingSim — Feature Roadmap (TODO #7, #6 + drafting)
 
-Status: **Workstream D (drafting, D1–D3) is DONE** — committed through 6092bc1,
-2026-07-09. Decisions marked ⚖️ are open; everything else is the current
-recommendation. Remaining ordering: B1 → B2 → C, see Dependencies at the bottom.
+Status: **Workstreams D (drafting) and B (wind) are DONE** — D committed through
+6092bc1 (2026-07-09), B landed 2026-07-10 in the two-commit split suggested in §B.
+Decisions marked ⚖️ are open; everything else is the current recommendation.
+Remaining: workstream C, see Dependencies at the bottom.
 
 ## Context
 
@@ -31,7 +32,18 @@ offset (side-by-side is free); ambient centering via `CollisionParams::ambient_c
 
 ---
 
-## Workstream B — Wind (#7), phased — design settled 2026-07-09
+## Workstream B — Wind (#7), phased — DONE (2026-07-10)
+
+Implemented 2026-07-10 as designed below (design settled 2026-07-09). Landing
+notes: the core wind test lives at `tests/core/test_wind_core.c` — the planned
+`test_wind.c` name would collide with the C++ `tests/test_wind.cpp` CMake target;
+the ⚖️ yaw constants landed at `kYawDragGain = 1.0`, `kMinApparentLon = 1.0 m/s`,
+`kYawFactorCap = 3.0` as rider.cpp locals. Echelon integration test confirms the
+design anchor (aligned follower total cda ≈ 0.83 vs exposed ≈ 1.35 under 5 m/s
+crosswind; exposed chaser burns W′, sheltered one doesn't). **Still open ⚖️:**
+the interactive feel-check of the demo wind (echelon stagger, windward swings)
+that finalises those constants — shares a session with workstream A's
+penalty-feel tuning.
 
 **Goal (B1):** real wind exists per course and affects longitudinal physics correctly.
 **Goal (B2):** crosswind costs energy via yaw-dependent longitudinal drag.
@@ -476,9 +488,9 @@ per tick.
 ## Dependencies & suggested order
 
 ```
-B1 (wind data)      ──►  small; no prerequisites
-B2 (crosswind)      ──►  yaw drag multiplied into cda_factor (lateral force dropped —
-                         see §B2); feeds D1's wake axis (echelons) via real wind
+B1 (wind data)      ──►  DONE (2026-07-10)
+B2 (crosswind)      ──►  DONE (2026-07-10; yaw drag into cda_factor — echelons are
+                         now energetically load-bearing)
 D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)

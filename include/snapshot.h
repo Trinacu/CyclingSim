@@ -61,7 +61,8 @@ struct RiderSnapshot {
   double effort;
   double power;
   double wbal_fraction;
-  double cda_factor; // drafting multiplier; 1.0 = no shelter
+  double cda_factor; // total CdA multiplier physics sees: draft x yaw
+  double yaw_factor; // crosswind yaw component alone; 1.0 = no crosswind
 
   // interpolated
   double lat_pos;
