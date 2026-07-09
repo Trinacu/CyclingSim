@@ -35,6 +35,15 @@ struct FollowState {
   // Bootstrapped from the rider's current target_effort on assignment so a
   // mode switch never steps effort discontinuously.
   double integrator = 0.0;
+
+  // Merge state (rotation, D3).  side != 0 means the rider is off the line
+  // merging back: the swing offset applies to its lat_target (full while the
+  // wheel gap to the followed rider is <= 0, fading to 0 at the setpoint)
+  // and the drift speed-hold competes with the gap controller via max().
+  // Set on swing-off; cleared by the engine the first time the gap reaches
+  // the setpoint (the offset has already faded to 0 there — no lateral step).
+  double side = 0.0;             // +1 / -1 swing side; 0 = not merging
+  double drift_integrator = 0.0; // speed-hold I, clamped [0, max_effort]
 };
 
 // Per-tick input, built by the engine from one-tick-stale positions (fine at
@@ -50,5 +59,13 @@ struct FollowInput {
 // [0, in.max_effort].
 double follow_effort(const FollowInput& in, double dt, double& integrator,
                      const FollowParams& p);
+
+// Drift speed-hold PI (rotation, D3): v_err = (v_leader - drift_delta) -
+// v_own.  Same clamping discipline as the gap controller.  The caller
+// max()es this with follow_effort for a merging rider — far from the tail
+// the gap controller wants 0 and this holds the drift speed; approaching
+// the wheel the gap controller rises through it and takes over smoothly.
+double drift_effort(double v_err, double dt, double& integrator,
+                    double max_effort, const FollowParams& p);
 
 #endif

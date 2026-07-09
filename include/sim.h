@@ -14,6 +14,8 @@
 #include "lateral_behavior.h"
 #include "lateral_solver.h"
 #include "rider.h"
+#include "rotation.h"
+#include "rotation_params.h"
 #include "snapshot.h"
 #include <functional>
 #include <memory>
@@ -65,12 +67,20 @@ private:
   // (see EffortSource below) and this controller owns its target_effort.
   std::unordered_map<RiderId, FollowState> follow_states_;
 
+  // Optional paceline rotation (D3).  Its directives drive the follow
+  // subsystem each tick; members' follow targets are owned by the rotation
+  // while it exists — don't mix with manual set_follow_target on the same
+  // riders.
+  std::unique_ptr<PacelineRotation> rotation_;
+  std::vector<RotationInput> rotation_inputs_; // rebuilt each tick
+
   // One rider's flat drafting input (position, extent, apparent-wind
   // components).  Used by step_draft_apply for every rider and by
   // step_follow_apply for each follower's leader.
   DraftRiderState build_draft_state(RiderId id, const Rider& r) const;
 
   void step_draft_apply(); // computes and writes per-rider cda_factor
+  void step_rotation_apply(double dt); // rotation directives -> follow states
   void step_follow_apply(double dt); // gap controllers write target_effort
                                      // and wake-axis lat_target
   void step_longitudinal(double dt);
@@ -131,6 +141,16 @@ public:
   void clear_follow_targets(); // all — used by Simulation::reset()
   bool has_follow_target(RiderId rider) const {
     return follow_states_.count(rider) > 0;
+  }
+
+  // Paceline rotation (physics-thread-only, like follow targets).  Replaces
+  // any existing rotation; roster order is the initial line order (first
+  // rotator = initial puller).
+  void set_paceline_rotation(const std::vector<RotationMember>& roster,
+                             const RotationParams& params);
+  void clear_paceline_rotation();
+  const PacelineRotation* get_paceline_rotation() const {
+    return rotation_.get();
   }
 
   ~PhysicsEngine() = default;
@@ -206,6 +226,9 @@ public:
   void set_rider_effort(RiderId rider_id, double effort);
   void set_follow_target(RiderId rider, RiderId leader);
   void clear_follow_target(RiderId rider);
+  void set_paceline_rotation(std::vector<RotationMember> roster,
+                             RotationParams params);
+  void clear_paceline_rotation();
 
   // Reads physics-thread state — call from the physics thread or while no
   // driver is stepping (tests, debug UI via snapshot preferred).

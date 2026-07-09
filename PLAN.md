@@ -105,7 +105,7 @@ Drafting decomposes into three separable problems, implemented in order:
 
 ### D1. Aero model — DONE
 
-Completed 2026-07-08. Pure solver in `include/drafting.h` / `src/drafting.cpp`
+Completed 2026-07-08. Amended same day by D3.0 (best-wheel link selection — see D3). Pure solver in `include/drafting.h` / `src/drafting.cpp`
 (`compute_draft_factors`), params in `include/drafting_params.h`; wired via
 `PhysicsEngine::step_draft_apply()` (before `step_longitudinal`, one-tick-stale
 positions). `Rider::set_cda_factor` writes the core's `cda_factor`; the factor is in
@@ -202,13 +202,100 @@ state in `PhysicsEngine` beside `behaviors_`.
   back to Manual restores the slider path.
 - Determinism / dt-independence of the controller step.
 
-### D3. Rotation
+### D3. Rotation — design settled 2026-07-08, implemented 2026-07-09
 
-For `paceline_position == 0` (GroupContext already provides it): pull policy (time- or
-W′-based), then swing off as an `ILateralBehavior` (interface fits as-is), ease off,
-rejoin at the rear of the paceline. D1's continuous lateral falloff makes the handoff
-smooth; D2 makes the reformed line hold. First genuinely decision-flavored piece —
-scoped to paceline mechanics, not tactics (C4 decides *whether* to participate).
+Implementation notes (beyond the design below): `PacelineRotation` in
+`include/rotation.h` / `src/rotation.cpp`, params in `include/rotation_params.h`;
+merge mechanics (drift speed-hold PI max-combined with the gap controller, swing
+offset fading over [0, setpoint] wheel gap) live in `FollowState`/`follow.cpp` and
+`step_follow_apply`; on merge completion the drift integrator seeds the gap
+integrator so the takeover doesn't dip effort. Tests in `tests/test_rotation.cpp`.
+Accepted finding from the multi-drifter stress test: sustained deep flight (short
+`pull_time` drains the line to 2) can swap adjacent drifters' merge order —
+physically induced, deterministic, pack coheres; order is only guaranteed for
+single-drifter flight.
+
+Scoped to paceline mechanics, not tactics (C4 later decides *whether/who* participates
+by editing the roster). Swing-off is **not** an `ILateralBehavior` (earlier sketch
+dropped): the drift lateral needs the follow gap as its signal, which behaviors can't
+see — it lives in the follow subsystem. The behavior-override hook stays reserved for
+real tactics.
+
+#### D3.0 Prerequisite — best-wheel link selection (D1 amendment)
+
+D1's "nearest strictly-ahead draftable wheel" rule breaks under rotation merges:
+(1) a barely-aligned near wheel beats a well-aligned far wheel (wrong shelter), and
+(2) when the near wheel's alignment fades to exactly 0 it stops being a candidate and
+the link *snaps* to the farther wheel — a step of up to ~0.2 in `cda_factor`, violating
+the 100 Hz continuity rule. A tidy single chain never exercises this; a rotating
+paceline does every cycle.
+
+Fix: evaluate the full benefit `(1 − table(depth_via_j)) · falloff · align` for the
+**longitudinally closest `link_candidates` (= 3) in-range riders ahead** and link to the
+argmax. Max of continuous functions → continuous across wheel switches; clean chains
+are unchanged (nearest = best there). Accepted residuals, documented in the header:
+tiny step in the ~2% front-push transfer at a switch; candidate-set changes beyond the
+top-3 can step (rare — a rider whose 3 nearest wheels are all offset gets no draft from
+a 4th aligned one).
+
+#### Roster & roles
+
+`PacelineRotation` (new `include/rotation.h` / `src/rotation.cpp`), engine-owned,
+ticked in `step_rotation_apply()` before the follow phase. It owns an explicit ordered
+**roster** — a membership contract, deliberately separate from `GroupTracker` (which
+stays the emergent proximity classifier for aero/display). Members are `Rotator`
+(take pulls) or `SittingIn` (never pull, ride the rear). Rotator states: `Pulling`,
+`InLine`, `Drifting`.
+
+#### Follow graph — resolved dynamically every tick (no event rewiring)
+
+- Puller: no follow target; own effort source is live (each rider decides its own
+  pace — on promotion the new puller inherits the previous puller's `target_effort`
+  for now; a C3 policy replaces that later. ⚖️ C-era: group pace negotiation.)
+- `InLine` rotator: follows the previous rider in InLine order.
+- `Drifting` rotator: follows the **last InLine rider** (dynamic).
+- First `SittingIn` rider: follows the **last InLine rider** (same rule — this is what
+  makes the merge choreography emerge); the rest chain behind each other.
+
+#### Rotation event & drift mechanics
+
+- Pull trigger: time-based (`pull_time` param); W′-based variants slot in behind the
+  same seam later (note: W′ triggers only work above FTP pace). Guard: no new rotation
+  if the InLine count would drop below 2.
+- Swing side: **windward**, from the same crosswind component the wake axis uses;
+  `default_side` param while crosswind ≈ 0 (until B1 lands real wind/heading).
+- Drift lateral: wake axis ± `3 · rider_radius`; full offset while the wheel gap to the
+  rider ahead in line is ≤ 0, then fades linearly to sit exactly on the axis when the
+  gap reaches the setpoint.
+- Drift longitudinal: speed-hold PI at `v_leader − drift_delta` (~0.4 m/s), combined
+  with the D2 gap controller as **max(drift effort, gap effort)** — smooth handover,
+  kd gives the anticipatory speed-up, arrival speed bounded → asymptotic approach, no
+  overshoot-sprint (energy-honest).
+- Attach: when the drifter's **position** drops below the last InLine rider's
+  (pos delta > 0 — not wheel gap), append to InLine order. One-shot and monotone → no
+  timer/hysteresis. "InLine" is bookkeeping; the lateral fade finishes the merge
+  physically. At that instant the first SittingIn rider's dynamic target flips to the
+  new tail and computes to ≈ the setpoint gap already (geometry) — its controller then
+  opens the slot naturally as the merger drops in.
+- Accepted quirk: the SittingIn rider wiggles ~0.5 m toward the merging rider's wake
+  (D2 steering targets the leader's actual axis). Ship it; upgrade path if it looks
+  twitchy: key the follower's axis on the leader's lat *target* (intent) instead of
+  position. D3.0 guarantees the wiggle at least prices the aero correctly.
+- Dropped members: an InLine/SittingIn member whose gap to the rider ahead exceeds
+  `max_draft_gap` persistently (a few seconds) is removed from the roster — physics
+  already dropped them; smarter role handling is C4-era.
+
+#### D3 files & tests
+
+- `include/rotation.h`, `src/rotation.cpp`; `include/follow.h`, `src/follow.cpp`
+  (Drifting mode: side, `drift_delta`, speed-hold + max-combine); `include/sim.h`,
+  `src/sim.cpp` (`step_rotation_apply`, roster API); `src/drafting.cpp` (D3.0).
+- Tests: D3.0 in `tests/test_drafting.cpp` (best-wheel beats nearest-wheel; factor
+  continuous under a lateral sweep of the merging rider; candidate-cap semantics);
+  `tests/test_rotation.cpp` (front sequence cycles through all rotators repeatedly;
+  line holds through swaps; multi-drifter flight with short `pull_time`; SittingIn
+  slot-open on merge; weak member removed from roster; determinism).
+- Demo: appstate becomes a rotating paceline (~6 rotators + 1 SittingIn).
 
 ### D. Files & tests
 
@@ -296,7 +383,7 @@ B2 (crosswind)      ──►  adds force into the free_movement/solver code A s
                          also feeds D1's wake axis (echelons)
 D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  makes formations hold at matched effort
-D3 (rotation)       ──►  after D2 (swing-off is an ILateralBehavior)
+D3 (rotation)       ──►  after D2; D3.0 amends D1's link rule first
 C  (decision layer) ──►  biggest; C4 declares roles that drafting rewards
 ```
 

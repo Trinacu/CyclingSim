@@ -84,33 +84,50 @@ compute_draft_factors(const std::vector<DraftRiderState>& riders,
     const int i = order[k];
     const DraftRiderState& me = riders[i];
 
-    // Nearest strictly-ahead rider with a draftable wheel.  order[0..k) are
-    // the riders at or ahead of me; N is small, so scan them all.
+    // Link to the best wheel, not the nearest: evaluate the full benefit for
+    // up to link_candidates of the longitudinally closest in-range riders
+    // ahead and take the argmax.  The nearest wheel is the wrong shelter when
+    // it is laterally offset (rotation merges), and "nearest with any
+    // alignment" steps discontinuously when that alignment fades to 0 —
+    // max over continuous per-candidate benefits stays continuous across a
+    // wheel switch.  In a tidy chain nearest = best, so nothing changes.
+    //
+    // order[0..k) are the riders at or ahead of me, so walking k2 downward
+    // visits them nearest-first.  Out-of-range wheels don't consume a
+    // candidate slot (no early break: bike_len differences make lon_sep
+    // ordering not strictly gap ordering).
     int best = -1;
-    double best_sep = 0.0;
-    for (int k2 = 0; k2 < k; ++k2) {
+    double best_benefit = 0.0, best_s = 0.0, best_depth = 0.0;
+    int evaluated = 0;
+    for (int k2 = k - 1; k2 >= 0 && evaluated < p.link_candidates; --k2) {
       const int j = order[k2];
       const double lon_sep = riders[j].lon_pos - me.lon_pos;
       if (lon_sep <= 0.0)
         continue; // co-located: no link
-      if (lon_sep - riders[j].bike_len >= p.max_draft_gap)
+      const double gap = lon_sep - riders[j].bike_len;
+      if (gap >= p.max_draft_gap)
         continue;
-      if (alignment(wake_offset(riders[j], me), riders[j].radius, p) <= 0.0)
+      ++evaluated;
+
+      const double s = draft_gap_falloff(gap, p) *
+                       alignment(wake_offset(riders[j], me), riders[j].radius, p);
+      if (s <= 0.0)
         continue;
-      if (best < 0 || lon_sep < best_sep) {
+      const double d = 1.0 + link_s[j] * depth[j];
+      const double benefit = (1.0 - table_value(d, p)) * s;
+      if (benefit > best_benefit) {
         best = j;
-        best_sep = lon_sep;
+        best_benefit = benefit;
+        best_s = s;
+        best_depth = d;
       }
     }
     if (best < 0)
       continue;
 
-    const double gap = best_sep - riders[best].bike_len;
-    const double off = wake_offset(riders[best], me);
     leader_of[i] = best;
-    link_s[i] =
-        draft_gap_falloff(gap, p) * alignment(off, riders[best].radius, p);
-    depth[i] = 1.0 + link_s[best] * depth[best];
+    link_s[i] = best_s;
+    depth[i] = best_depth;
   }
 
   constexpr int NB = sizeof(DraftingParams{}.body_curve) / sizeof(double);

@@ -82,19 +82,27 @@ AppState::AppState() {
   screens = std::make_unique<ScreenManager>(this);
   screens->push(ScreenType::Simulation);
 
-  // D2 follow-chain demo: Pedro pulls on a schedule, everyone else holds the
-  // wheel of the rider ahead (EffortSource::Follow) — one 8-rider paceline.
+  // D3 rotating-paceline demo: riders 0-6 rotate through the front (pulls
+  // swing off windward, drift back and merge onto the tail); Luka (7) sits in
+  // and never pulls.  The rotation owns everyone's follow targets from the
+  // first tick.  Pedro's schedule anchors the line's pace: it only writes
+  // while he has no follow target (i.e. while he pulls), so it composes with
+  // the rotation — every other puller rides the inherited target_effort.
   auto schedule = std::make_shared<StepEffortSchedule>(std::vector<EffortBlock>{
-      {10.0, 0.3},  // roll-out: let the chain latch on
-      {90.0, 0.85}, // steady pull: the line settles at the 0.25 m gap
-      {30.0, 1.1},  // surge: watch the accordion travel down the chain
-      {600.0, 0.85} // settle again
+      {10.0, 0.3},   // roll-out: let the line form
+      {1e9, 0.85}    // steady pace for every one of Pedro's pulls
   });
 
   sim->set_effort_schedule(0, schedule);
 
-  for (int id = 1; id <= 7; ++id)
-    sim->set_follow_target(id, id - 1);
+  std::vector<RotationMember> roster;
+  for (int id = 0; id <= 6; ++id)
+    roster.push_back({id, false});
+  roster.push_back({7, true}); // Luka sits in
+
+  RotationParams rot_params;
+  rot_params.pull_time = 45.0; // first swing well after the line settles
+  sim->set_paceline_rotation(roster, rot_params);
 
   // Declare the formation so the group phase classifies it as a paceline
   // (aero already treats every non-Body rider as chain).  Direct rider access

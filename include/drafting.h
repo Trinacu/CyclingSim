@@ -5,12 +5,22 @@
 // LateralSolver — so it is unit-testable on flat state (tests/test_drafting.cpp).
 //
 // Model (chain riders, i.e. every role except Body):
-//   Each rider links to the nearest strictly-ahead rider whose wheel is
-//   draftable: wheel gap < max_draft_gap and lateral displacement from that
-//   leader's wake axis < lat_cutoff_radii * leader radius.  The wake axis
-//   trails along the leader's apparent wind — straight behind in still air,
-//   tilted sideways by crosswind (that tilt is what makes echelons work once
-//   B2 lands real wind).
+//   Each rider links to the *best* wheel — the one giving the largest draft
+//   benefit — among the link_candidates longitudinally closest in-range
+//   riders ahead (D3.0: nearest-wheel linking picked the wrong shelter and
+//   stepped discontinuously when a near wheel drifted out of alignment).
+//   A wheel is draftable when its gap < max_draft_gap and the rider's
+//   lateral displacement from that leader's wake axis is
+//   < lat_cutoff_radii * leader radius.  The wake axis trails along the
+//   leader's apparent wind — straight behind in still air, tilted sideways
+//   by crosswind (that tilt is what makes echelons work once B2 lands real
+//   wind).
+//
+//   Known accepted discontinuity residuals (both tiny): the ~2% front-push
+//   transfers between wheels with a small step at a link switch, and a
+//   candidate-set change beyond the top-link_candidates can step (a rider
+//   whose 3 nearest wheels are all offset gets nothing from a 4th, aligned
+//   one).
 //
 //   cda_factor = 1 − (1 − table(depth)) · falloff(gap) · align(Δlat)
 //

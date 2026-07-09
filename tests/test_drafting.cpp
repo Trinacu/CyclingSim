@@ -180,6 +180,66 @@ static void test_split_continuity() {
   check(std::fabs(lo[0] - hi[0]) < 1e-3, "knee: follower continuous at 5 m");
 }
 
+// D3.0: the link picks the best wheel, not the nearest one.
+static void test_best_wheel_selection() {
+  const DraftingParams p{};
+
+  // A merging rider (id 2) sits right on id 1's wheel but 1.2 m off the
+  // line; the line wheel (id 3) is a whole position further up.  Nearest
+  // linking would take the weak sliver of id 2's wake; best-wheel linking
+  // takes id 3's well-aligned wheel through the gap.
+  const DraftRiderState me = ds(1, 0.0);
+  const DraftRiderState merger = ds(2, 1.6, 1.2);
+  const DraftRiderState line = ds(3, 3.2);
+  const auto f = compute_draft_factors({me, merger, line}, p);
+
+  // Benefit via the line wheel: depth 1, gap 1.7, on-axis.
+  const double expected = 1.0 - 0.39 * draft_gap_falloff(1.7, p);
+  check(approx(f[0], expected, 1e-6),
+        "best-wheel: drafts the aligned far wheel, not the offset near one");
+
+  // Fully offset merger: same link (this also held under the old rule).
+  const DraftRiderState merger_out = ds(2, 1.6, 1.5);
+  const auto f2 = compute_draft_factors({me, merger_out, line}, p);
+  check(approx(f2[0], expected, 1e-6),
+        "best-wheel: fully offset near wheel is skipped entirely");
+}
+
+// D3.0: cda_factor stays continuous while a merging rider sweeps laterally
+// across the follower's link-switch point.
+static void test_link_switch_continuity() {
+  const DraftingParams p{};
+
+  double prev = -1.0, max_step = 0.0;
+  for (double lat = 0.0; lat <= 2.0 + 1e-9; lat += 0.01) {
+    const auto f =
+        compute_draft_factors({ds(1, 0.0), ds(2, 1.6, lat), ds(3, 3.2)}, p);
+    if (prev >= 0.0)
+      max_step = std::max(max_step, std::fabs(f[0] - prev));
+    prev = f[0];
+  }
+  check(max_step < 0.02,
+        "link switch: factor continuous under lateral sweep of the merger");
+}
+
+// D3.0: candidate cap — only the link_candidates closest in-range wheels are
+// considered.  Three offset wheels between me and an aligned one starve the
+// link at the default cap; raising the cap restores it.
+static void test_link_candidate_cap() {
+  DraftingParams p{};
+
+  const std::vector<DraftRiderState> riders = {
+      ds(1, 0.0),      ds(2, 1.6, 3.0), ds(3, 1.7, 3.0),
+      ds(4, 1.8, 3.0), ds(5, 3.5)};
+
+  const auto f = compute_draft_factors(riders, p);
+  check(approx(f[0], 1.0), "cap: 3 offset wheels starve the link (documented)");
+
+  p.link_candidates = 4;
+  const auto f4 = compute_draft_factors(riders, p);
+  check(f4[0] < 0.75, "cap: raising link_candidates reaches the aligned wheel");
+}
+
 static void test_body_role() {
   const DraftingParams p{};
 
@@ -274,6 +334,9 @@ int main() {
   test_wake_axis_lat();
   test_crosswind_axis();
   test_split_continuity();
+  test_best_wheel_selection();
+  test_link_switch_continuity();
+  test_link_candidate_cap();
   test_body_role();
   test_engine_integration();
 

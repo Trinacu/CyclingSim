@@ -22,6 +22,12 @@ typedef struct DraftingParams {
   // wake axis reaches lat_cutoff_radii * leader radius.
   double lat_cutoff_radii = 3.0;
 
+  // A rider links to the best (max-benefit) wheel among this many of the
+  // longitudinally closest in-range riders ahead — not simply the nearest
+  // wheel, which picks the wrong shelter (and steps discontinuously) when a
+  // near wheel is laterally offset, as happens throughout rotation merges.
+  int link_candidates = 3;
+
   // Body-role blob heuristic (dormant until the decision layer declares
   // roles): CdA multiplier by number of same-group riders ahead within
   // body_window.  Placeholder values — tune when roles go live.

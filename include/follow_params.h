@@ -20,6 +20,15 @@ typedef struct FollowParams {
   double kp = 2.8;
   double ki = 0.35;
   double kd = 5.0;
+
+  // Drift-back (rotation, D3): while merging, the rider holds
+  // v_leader - drift_delta via a speed-hold PI, max-combined with the gap
+  // controller, and rides offset from the wake axis by swing_offset_radii *
+  // own radius (fading to 0 as the wheel gap opens to the setpoint).
+  double drift_delta = 0.4; // m/s backward relative to the line
+  double drift_kp = 2.0;    // effort per (m/s) of speed error
+  double drift_ki = 0.4;    // effort per (m/s · s)
+  double swing_offset_radii = 3.0;
 } FollowParams;
 
 #endif

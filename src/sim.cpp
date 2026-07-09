@@ -4,6 +4,7 @@
 #include "lateral_solver.h"
 #include "rider.h"
 #include "snapshot.h"
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cmath>
@@ -48,6 +49,7 @@ void PhysicsEngine::update(double dt) {
   step_group_classify();
   step_group_role_apply();
   step_draft_apply();
+  step_rotation_apply(dt);
   step_follow_apply(dt);
   step_longitudinal(dt);
   step_lateral_behavior();
@@ -151,6 +153,81 @@ void PhysicsEngine::clear_follow_targets() {
   follow_states_.clear();
 }
 
+// --- Paceline rotation (physics-thread-only) ---
+
+void PhysicsEngine::set_paceline_rotation(
+    const std::vector<RotationMember>& roster, const RotationParams& params) {
+  rotation_ = std::make_unique<PacelineRotation>(roster, params);
+}
+
+void PhysicsEngine::clear_paceline_rotation() { rotation_.reset(); }
+
+// Rotation phase: feed the coordinator flat member state, apply its
+// directives to the follow subsystem.  Runs right before step_follow_apply
+// so this tick's controllers see this tick's follow graph.
+void PhysicsEngine::step_rotation_apply(double dt) {
+  if (!rotation_)
+    return;
+
+  rotation_inputs_.clear();
+  for (const auto& [id, r] : riders) {
+    if (!rotation_->is_member(id))
+      continue;
+    const auto [wind_dir, wind_speed] = course->get_wind(r->get_pos());
+    rotation_inputs_.push_back(RotationInput{
+        .id = id,
+        .lon_pos = r->get_pos(),
+        .speed = r->get_speed(),
+        .bike_len = r->get_bike_len(),
+        .crosswind =
+            wind_speed * std::sin(wind_dir - r->get_heading()),
+        .target_effort = r->get_target_effort(),
+    });
+  }
+
+  const auto directives = rotation_->tick(dt, rotation_inputs_);
+  for (const auto& d : directives) {
+    auto it = riders.find(d.id);
+    if (it == riders.end())
+      continue;
+
+    if (d.pulling) {
+      clear_follow_target(d.id); // also drops the wake-axis lat target
+      if (d.set_effort)
+        it->second->set_effort(*d.set_effort);
+      continue;
+    }
+    if (d.follow < 0)
+      continue; // line fully depleted — leave the rider be
+
+    auto fit = follow_states_.find(d.id);
+    if (fit == follow_states_.end()) {
+      set_follow_target(d.id, d.follow); // bootstraps the gap integrator
+      fit = follow_states_.find(d.id);
+      if (fit == follow_states_.end())
+        continue; // set_follow_target rejected the pair
+    } else {
+      fit->second.leader = d.follow; // dynamic retarget keeps the integrator
+    }
+
+    if (d.swing_side != 0.0) {
+      fit->second.side = d.swing_side;
+      // Seed the drift speed-hold from the current effort so the swing-off
+      // eases from the pull rather than dipping to zero and rebuilding.
+      double seed = it->second->get_target_effort();
+      const double max_effort = it->second->get_config().max_effort;
+      if (seed < 0.0)
+        seed = 0.0;
+      else if (seed > max_effort)
+        seed = max_effort;
+      fit->second.drift_integrator = seed;
+    }
+  }
+
+  for (RiderId id : rotation_->removed_last_tick())
+    clear_follow_target(id);
+}
+
 // Follow phase: each gap controller writes its rider's target_effort — the
 // single active effort writer for riders in Follow mode.  Runs before
 // step_longitudinal() so the command applies this tick; positions are
@@ -170,7 +247,7 @@ void PhysicsEngine::step_follow_apply(double dt) {
         .own_speed = r.get_speed(),
         .max_effort = r.get_config().max_effort,
     };
-    r.set_effort(follow_effort(in, dt, fs.integrator, follow_params_));
+    double effort = follow_effort(in, dt, fs.integrator, follow_params_);
 
     // Steer to the leader's wake axis (apparent-wind direction — the same
     // axis the shelter test scores against), not to the leader's line:
@@ -178,8 +255,42 @@ void PhysicsEngine::step_follow_apply(double dt) {
     // forms echelons once B2 lands real wind.  An assigned ILateralBehavior
     // overrides this (it runs later in the tick) — that's the D3 swing-off
     // hook.
-    r.set_lat_target(
-        wake_axis_lat(build_draft_state(fs.leader, leader), r.get_pos()));
+    double lat = wake_axis_lat(build_draft_state(fs.leader, leader),
+                               r.get_pos());
+
+    // Merging back after a pull (rotation, D3): hold v_leader - drift_delta
+    // via the speed-hold PI, max-combined with the gap controller — far from
+    // the tail the gap controller wants ~0 and the drift term paces the
+    // fall-back; near the wheel the gap controller rises through it.  Ride
+    // offset to the swing side, full while overlapped (gap <= 0), fading
+    // linearly to sit exactly on the axis at the gap setpoint.
+    if (fs.side != 0.0) {
+      const double setpoint =
+          follow_params_.d0 + follow_params_.h * in.own_speed;
+      if (in.gap >= setpoint) {
+        // Merge complete — the offset has already faded to 0 here, so
+        // clearing causes no lateral step.  Hand the drift integrator's held
+        // cruise effort to the gap integrator (same bootstrap discipline as
+        // set_follow_target) so the takeover doesn't dip effort and reopen
+        // the gap.
+        fs.integrator = std::max(fs.integrator, fs.drift_integrator);
+        fs.side = 0.0;
+        fs.drift_integrator = 0.0;
+      } else {
+        const double v_err = (leader.get_speed() - follow_params_.drift_delta)
+                             - r.get_speed();
+        effort = std::max(effort,
+                          drift_effort(v_err, dt, fs.drift_integrator,
+                                       in.max_effort, follow_params_));
+        const double fade =
+            (in.gap <= 0.0) ? 1.0 : 1.0 - in.gap / setpoint;
+        lat += fs.side * follow_params_.swing_offset_radii * r.get_radius() *
+               fade;
+      }
+    }
+
+    r.set_effort(effort);
+    r.set_lat_target(lat);
   }
 }
 
@@ -557,6 +668,19 @@ void Simulation::clear_follow_target(RiderId rider) {
       [this, rider]() { engine.clear_follow_target(rider); });
 }
 
+void Simulation::set_paceline_rotation(std::vector<RotationMember> roster,
+                                       RotationParams params) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this, roster = std::move(roster), params]() {
+    engine.set_paceline_rotation(roster, params);
+  });
+}
+
+void Simulation::clear_paceline_rotation() {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this]() { engine.clear_paceline_rotation(); });
+}
+
 EffortSource Simulation::get_effort_source(RiderId rider_id) const {
   if (engine.has_follow_target(rider_id))
     return EffortSource::Follow;
@@ -571,6 +695,7 @@ EffortSource Simulation::get_effort_source(RiderId rider_id) const {
 void Simulation::reset() {
   sim_seconds = 0.0;
   effort_schedules.clear();
+  engine.clear_paceline_rotation();
   engine.clear_follow_targets();
   {
     std::scoped_lock lock(commands_mtx);
