@@ -7,6 +7,9 @@
 #include "visualmodel.h"
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <vector>
 
 double effort_to_freq(double effort, double max_effort) {
@@ -249,4 +252,96 @@ void RiderDrawable::draw_rider(const RenderContext* ctx,
   SDL_RenderTextureRotated(ctx->renderer, tex_mgr->get_texture("rider_front"),
                            &src, &rider_dst, -geom.tilt_deg, &rider_pivot,
                            SDL_FLIP_NONE);
+}
+
+// ============================================================
+//  GroupBoardDrawable (C0)
+// ============================================================
+
+GroupBoardDrawable::~GroupBoardDrawable() {
+  for (auto& l : lines_)
+    if (l.tex)
+      SDL_DestroyTexture(l.tex);
+}
+
+void GroupBoardDrawable::render(const RenderContext* ctx) {
+  if (ctx->groups.empty())
+    return;
+  TTF_Font* font = ctx->resources->get_fontManager()->get_font("default");
+  if (!font)
+    return;
+
+  // Shrink the texture cache when groups merge away.
+  while (lines_.size() > ctx->groups.size()) {
+    if (lines_.back().tex)
+      SDL_DestroyTexture(lines_.back().tex);
+    lines_.pop_back();
+  }
+  lines_.resize(ctx->groups.size());
+
+  char buf[96];
+  for (size_t i = 0; i < ctx->groups.size(); ++i) {
+    const Group& g = ctx->groups[i];
+    if (g.time_gap_ahead >= 0.0) {
+      const long s = std::lround(g.time_gap_ahead);
+      std::snprintf(buf, sizeof buf, "%s (%d)  +%ld:%02ld",
+                    g.display_name.c_str(), g.size(), s / 60, s % 60);
+    } else {
+      std::snprintf(buf, sizeof buf, "%s (%d)", g.display_name.c_str(),
+                    g.size());
+    }
+    Line& l = lines_[i];
+    if (l.text != buf) { // re-render only when the string ticks over
+      l.text = buf;
+      if (l.tex) {
+        SDL_DestroyTexture(l.tex);
+        l.tex = nullptr;
+      }
+      SDL_Surface* surf =
+          TTF_RenderText_Blended(font, buf, 0, {255, 255, 255, 255});
+      if (!surf)
+        continue;
+      l.w = surf->w;
+      l.h = surf->h;
+      l.tex = SDL_CreateTextureFromSurface(ctx->renderer, surf);
+      SDL_DestroySurface(surf);
+    }
+  }
+
+  // Layout: top-right overlay — dark plate, one swatch + text row per group.
+  constexpr float kPad = 8.0f, kSwatch = 12.0f, kGap = 6.0f, kLead = 4.0f;
+  float board_w = 0.0f, board_h = kPad;
+  for (const auto& l : lines_) {
+    board_w = std::max(board_w, kSwatch + kGap + float(l.w));
+    board_h += std::max(float(l.h), kSwatch) + kLead;
+  }
+  board_w += 2 * kPad;
+  board_h += kPad - kLead;
+
+  int out_w = 0, out_h = 0;
+  SDL_GetCurrentRenderOutputSize(ctx->renderer, &out_w, &out_h);
+  const float x0 = float(out_w) - board_w - 10.0f;
+  const float y0 = 10.0f;
+
+  SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 140);
+  const SDL_FRect plate{x0, y0, board_w, board_h};
+  SDL_RenderFillRect(ctx->renderer, &plate);
+
+  float y = y0 + kPad;
+  for (size_t i = 0; i < lines_.size(); ++i) {
+    const Line& l = lines_[i];
+    const float row_h = std::max(float(l.h), kSwatch);
+    const SDL_FColor c = group_colour(ctx->groups[i].id);
+    SDL_SetRenderDrawColor(ctx->renderer, Uint8(c.r * 255), Uint8(c.g * 255),
+                           Uint8(c.b * 255), 255);
+    const SDL_FRect sw{x0 + kPad, y + (row_h - kSwatch) / 2, kSwatch, kSwatch};
+    SDL_RenderFillRect(ctx->renderer, &sw);
+    if (l.tex) {
+      const SDL_FRect dst{x0 + kPad + kSwatch + kGap, y + (row_h - l.h) / 2,
+                          float(l.w), float(l.h)};
+      SDL_RenderTexture(ctx->renderer, l.tex, nullptr, &dst);
+    }
+    y += row_h + kLead;
+  }
 }

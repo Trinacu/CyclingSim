@@ -1,6 +1,7 @@
 #include "course.h"
 #include "SDL3/SDL_log.h"
 #include "pch.hpp"
+#include <algorithm>
 #include <stdexcept>
 
 // make CourseSegment easier to print
@@ -26,6 +27,15 @@ Course::Course(const std::vector<std::array<double, 5>> segments_,
 
   total_length_ = x;
   SDL_Log("Total course length: %.1f m", total_length_);
+
+  checkpoints_.push_back({total_length_, "Finish"});
+}
+
+void Course::add_checkpoint(double pos, std::string label) {
+  auto it = std::upper_bound(
+      checkpoints_.begin(), checkpoints_.end(), pos,
+      [](double p, const Checkpoint& c) { return p < c.pos; });
+  checkpoints_.insert(it, Checkpoint{pos, std::move(label)});
 }
 
 Course

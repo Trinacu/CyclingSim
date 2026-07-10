@@ -8,6 +8,7 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <unordered_map>
@@ -608,7 +609,36 @@ GroupContext PhysicsEngine::build_group_context(RiderId id) const {
 
 // SIMULATION
 
-Simulation::Simulation(const Course* c) : engine(c) {}
+Simulation::Simulation(const Course* c) : engine(c), decision_(c) {}
+
+// C0: derive race-style time gaps for the snapshot.  Groups are ordered
+// front-to-back (ordinal 0 leads); each chasing group's gap is measured
+// against the *rearmost* rider of the group ahead crossing this group's
+// front position.
+static void fill_time_gaps(FrameSnapshot& snap, const RaceClock& clock,
+                           double now) {
+  for (size_t gi = 1; gi < snap.groups.size(); ++gi) {
+    Group& g = snap.groups[gi];
+    const Group& ahead = snap.groups[gi - 1];
+
+    RiderId rear = -1;
+    double rear_pos = std::numeric_limits<double>::infinity();
+    auto scan = [&](const std::vector<GroupMember>& v) {
+      for (const auto& m : v)
+        if (m.lon_pos < rear_pos) {
+          rear_pos = m.lon_pos;
+          rear = m.id;
+        }
+    };
+    scan(ahead.paceline);
+    scan(ahead.body);
+    if (rear < 0)
+      continue; // empty group ahead (shouldn't happen after update)
+
+    const auto gap = clock.time_gap(rear, g.front_pos(), now);
+    g.time_gap_ahead = gap.value_or(-1.0);
+  }
+}
 
 void Simulation::add_riders(const std::vector<RiderConfig>& configs) {
   for (const auto& cfg : configs) {
@@ -666,6 +696,13 @@ void Simulation::step_fixed(double dt) {
   engine.step_and_snapshot(dt, snap_back);
 
   sim_seconds += dt;
+
+  // Perception feed + snapshot post-processing (C0): the RaceClock sees the
+  // post-step positions at the post-step time, then the group time gaps are
+  // stamped into the outgoing frame.
+  decision_.observe(engine, sim_seconds);
+  fill_time_gaps(snap_back, decision_.race_clock(), sim_seconds);
+
   snap_back.sim_time = sim_seconds;
   snap_back.sim_dt = dt;
   snap_back.time_factor = time_factor;
@@ -743,6 +780,7 @@ void Simulation::reset() {
   effort_schedules.clear();
   engine.clear_paceline_rotation();
   engine.clear_follow_targets();
+  decision_.reset();
   {
     std::scoped_lock lock(commands_mtx);
     pending_commands.clear();

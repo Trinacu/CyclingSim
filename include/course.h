@@ -4,6 +4,7 @@
 
 #include "pch.hpp"
 #include <iostream>
+#include <string>
 #include <vector>
 
 // Wind over a course.  `heading` is the direction the wind blows *from*, in
@@ -33,6 +34,14 @@ struct CoursePoint {
   Vector2d vec2() const { return Vector2d(x, y); }
 };
 
+// Named timing point (C0) — course data, not derived intel: TT timechecks,
+// KOM lines, the finish.  RaceClock captures exact per-rider crossing times
+// for each (they never go through the interpolated gap grid).
+struct Checkpoint {
+  double pos;
+  std::string label;
+};
+
 std::ostream& operator<<(std::ostream& os, const Segment& seg);
 
 class ICourseView {
@@ -56,6 +65,9 @@ class Course : public ICourseView {
 private:
   std::vector<Segment> segments;
   Wind wind_{0.0, 0.0};
+  // Sorted by pos; the finish (at total_length) is implicit — every course
+  // ends with it.
+  std::vector<Checkpoint> checkpoints_;
   // std::vector<double> altitudes; // y at each segment start
 
 public:
@@ -74,6 +86,12 @@ public:
   double get_heading(double pos) const override;
   Wind get_wind(double pos) const override;
   void set_wind(Wind w);
+
+  // Inserts sorted by pos (ahead of the implicit finish).
+  void add_checkpoint(double pos, std::string label);
+  const std::vector<Checkpoint>& get_checkpoints() const {
+    return checkpoints_;
+  }
 
   int find_segment(double pos) const;
 

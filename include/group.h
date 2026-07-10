@@ -24,6 +24,12 @@ typedef struct Group {
   std::vector<GroupMember> paceline;
   std::vector<GroupMember> body;
 
+  // Race-style time gap to the group ahead in seconds (C0): now minus when
+  // the rearmost rider of the group ahead crossed this group's front
+  // position.  -1 = leading group (or not yet measurable).  Written at
+  // snapshot time from the RaceClock, not by GroupTracker.
+  double time_gap_ahead = -1.0;
+
   int size() const { return static_cast<int>(paceline.size() + body.size()); }
 
   // Position of the frontmost member.

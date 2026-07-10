@@ -70,6 +70,27 @@ struct RiderVisualState {
   double last_anim_sim_time = std::numeric_limits<double>::quiet_NaN();
 };
 
+// C0: race board — one line per group (colour swatch matching the rider
+// halos, name, size, time gap to the group ahead), drawn as a fixed
+// top-right overlay.  Text textures are re-rendered only when a line's
+// string changes (gaps are displayed at 1 s resolution, so roughly once a
+// second per chasing group).
+class GroupBoardDrawable : public Drawable {
+public:
+  GroupBoardDrawable() = default;
+  ~GroupBoardDrawable() override;
+  RenderLayer layer() const override { return RenderLayer::UI; }
+  void render(const RenderContext* ctx) override;
+
+private:
+  struct Line {
+    std::string text;
+    SDL_Texture* tex = nullptr;
+    int w = 0, h = 0;
+  };
+  std::vector<Line> lines_;
+};
+
 class RiderDrawable : public Drawable {
   std::unordered_map<int, RiderVisualState> visuals;
   const RiderVisualModel& model = ROAD_BIKE_VISUAL;

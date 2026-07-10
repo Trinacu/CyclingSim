@@ -4,6 +4,7 @@
 
 #include "collision_params.h"
 #include "course.h"
+#include "decision.h"
 #include "drafting.h"
 #include "drafting_params.h"
 #include "effortschedule.h"
@@ -191,6 +192,10 @@ class Simulation {
 private:
   PhysicsEngine engine;
 
+  // Perception & decision layer (workstream C).  Fed every step from
+  // step_fixed on the physics thread; C0 = RaceClock only.
+  DecisionSystem decision_;
+
   // written by the UI thread (via a driver), read by the physics loop
   std::atomic<double> time_factor{1.0};
   double sim_seconds = 0.0;
@@ -234,6 +239,10 @@ public:
   double get_sim_seconds() const;
   const PhysicsEngine* get_engine() const;
   PhysicsEngine* get_engine();
+
+  // Physics-thread state (like get_effort_source): call from the physics
+  // thread or while no driver is stepping.
+  const DecisionSystem& get_decision() const { return decision_; }
 
   // Queued: applied on the physics thread at the start of the next step.
   // set_rider_effort is a no-op unless the rider's EffortSource is Manual.
