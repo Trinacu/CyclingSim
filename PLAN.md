@@ -433,7 +433,32 @@ hierarchy is race plan → per-team director (commands + rider-side feasibility 
 rider policy → existing 100 Hz controllers, while groups stay emergent — no "group
 brain", group cooperation is role declaration + rotation reconcile (C4).
 
-### C-pre. Prerequisites: team registry + MoveUp maneuver
+### C-pre. Prerequisites: team registry + sitter promotion — DONE
+
+**Landed 2026-07-10, commit c94c0f4** (gate: 0 warnings, 17/17 ctest, headless
+smoke exit 0). As-built notes / deviations from the text below:
+- `team.h` is **header-only** (TeamRegistry methods inline, the effortschedule.h
+  precedent) — no `team.cpp`, so the CMake source glob stays untouched.
+- `sim_cruise_power` turned out to be a three-line wrapper: the core already had
+  the force math factored as `resistive_force()` shared with the ACCEL_FORCE
+  solver, so the no-drift property came for free.  Round-trip test
+  (`tests/core/test_cruise_power.c`) is exact at terminal velocity on flat,
+  3 % climb, head- and tailwind.
+- **Attach criterion amended**: roster attach at "wheel gap ≤ engage_gap" could
+  admit a promoter still physically *behind* the first sitter, making that
+  sitter retarget to a tail behind itself and brake.  As built, roster attach is
+  positional like the drifter rule — past the first sitter (engage_gap fallback
+  when no sitters remain) — while the follow-side transit (offset + cap) clears
+  independently at the setpoint, same decoupling as the drifter merge.
+- The generalized transit lives in the **follow subsystem**: `FollowState` gains
+  `approach_side`/`effort_cap` (refreshed each tick by the `move_up_side`
+  directive; cap recomputed as the rider's draft changes), FollowParams gains
+  `approach_fade_len = 2 m`.  This is the piece C4's MoveUp join reuses.
+- Measured (engine test, depth-2 promotion into a 3-line + 2 sitters at 0.85
+  effort): transit ≈ 10 s, max effort 1.017 (cap active — uncapped controller
+  would demand max_effort), full 1.5 m advance-side offset, cut-in to 0.23 m,
+  queue reforms at ≈ 0.25 m gaps; in a live rotation the promoted rider takes
+  its first pull while true sitters never do.
 
 **C-pre-a. Team registry.** The current `Team` in rider.h is a stub — `id` always 0,
 copied by value into every rider, so there is no shared entity for a director to
@@ -673,8 +698,9 @@ step.
 ### C. Order, sizes, files
 
 ```
-C-pre  teams + sitter promotion    ~1 session   team.h(+cpp), mytypes.h, rider.*, sim.* (promote API),
-                                                sim_core.* (cruise_power), rotation.*, follow.*, appstate.cpp
+C-pre  teams + sitter promotion    DONE         2026-07-10 (c94c0f4): team.h (header-only), mytypes.h,
+                                                rider.*, sim.* (promote API), sim_core.* (cruise_power),
+                                                rotation.*, follow.*, appstate.cpp
 C0     RaceClock + skeleton        ~1 session   race_clock.*, decision.* (observe), course.* (checkpoints), sim.*, snapshot.h, UI touch
 C1     intel+core+estimator+ctx    ~1–1.5       course_intel.*, sim_core.* (cruise_speed), course.h, decision.*
 C2     cadence+policies+reconcile  ~1           decision.*, sim.*, rotation.h/.cpp, snapshot.h, UI touch
@@ -702,9 +728,9 @@ B2 (crosswind)      ──►  DONE (2026-07-10; yaw drag into cda_factor — ec
 D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
-C  (decision layer) ──►  biggest; sub-order C-pre → C0 → C1 → C2 →
-                         (feel-check) → C3 → C4; C4 declares roles that
-                         drafting rewards
+C  (decision layer) ──►  in progress; sub-order C-pre (DONE 2026-07-10,
+                         c94c0f4) → C0 → C1 → C2 → (feel-check) → C3 → C4;
+                         C4 declares roles that drafting rewards
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
