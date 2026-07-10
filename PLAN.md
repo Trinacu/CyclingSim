@@ -562,7 +562,34 @@ robust on gradients where the instantaneous estimate is wrong.
   speed step inside a cell → bounded error; checkpoint capture exact vs analytic;
   query ahead of a rider's progress → nullopt.
 
-### C1. CourseIntel + core cruise helpers + W′-pace estimator + DecisionContext
+### C1. CourseIntel + core cruise helpers + W′-pace estimator + DecisionContext — DONE
+
+**Landed 2026-07-10, commit 15631fd** (gate: 0 warnings, 21/21 ctest, headless
+smoke exit 0). As-built notes / deviations:
+- `sim_cruise_speed` agrees with the ACCEL_FORCE terminal velocity to 1e-4 in
+  every env (shared force model did its job).  Fixed a latent `find_segment`
+  edge on the way: `x == total_length` (exactly the finish — climbs crest
+  there) fell through the binary search and threw.
+- Estimator entry point is `Rider::cruise_speed_at(power, slope, headwind,
+  cda_factor)` — a what-if copy of the rider's state/env — so
+  `estimate_wprime_pace` needs no RiderState/EnvState plumbing in the decision
+  layer.  End-to-end check: riding the estimated pace up a 2.5 km 6 % climb
+  from a standing start lands at **wbal_frac 0.008 at the crest, duration
+  within 1 %** of the estimate — comfortably inside the planned 10–15 %
+  tolerance (the energy model's effort-limit throttle below 20 % W′bal is the
+  soft landing).
+- The decision-scale rider descriptor is **`PerceivedRider`** — `NearbyRider`
+  already names the lateral-scale one (lateral_behavior.h).
+- `EffortSource` moved sim.h → mytypes.h so DecisionContext can carry it
+  without an include cycle.  `PacelineRotation` gained `line_depth(id)` /
+  `is_sitting(id)` introspection for the context's rotation block.
+- `build_group_context` is now public and consumed (what it was kept for);
+  engine also exposes `get_group_tracker()` for the rider window.  Context
+  time gaps come as both precomputed ahead/behind fields and const
+  CourseIntel/RaceClock handles for ad-hoc queries.  The C4 `Directive`
+  struct + inbox exist now so C2/C3 compile against the final context shape.
+- DecisionSystem owns the shared-const `CourseIntel` (built in its ctor;
+  survives reset — static course knowledge).
 
 **C1a. Core cruise-speed helper** (`core/include/sim_core.h`, `core/src/sim_core.c`):
 - `sim_cruise_speed(rider, env, power)` — Newton (bisection fallback) on
@@ -722,7 +749,10 @@ C-pre  teams + sitter promotion    DONE         2026-07-10 (c94c0f4): team.h (he
 C0     RaceClock + skeleton        DONE         2026-07-10 (56962f6): race_clock.*, decision.* (observe),
                                                 course.* (checkpoints), sim.*, group.h (time_gap_ahead),
                                                 display.* (GroupBoardDrawable), screen.cpp
-C1     intel+core+estimator+ctx    ~1–1.5       course_intel.*, sim_core.* (cruise_speed), course.h, decision.*
+C1     intel+core+estimator+ctx    DONE         2026-07-10 (15631fd): course_intel.*, sim_core.*
+                                                (cruise_speed), course.* (get_segments + find_segment fix),
+                                                decision.*, rider.* (cruise_speed_at), rotation.*
+                                                (line_depth/is_sitting), mytypes.h (EffortSource), sim.h
 C2     cadence+policies+reconcile  ~1           decision.*, sim.*, rotation.h/.cpp, snapshot.h, UI touch
        — feel-check session (interactive, A + B2 constants) —
 C3     pacing policy               ~1           decision.*, analysis scenario
@@ -748,10 +778,10 @@ B2 (crosswind)      ──►  DONE (2026-07-10; yaw drag into cda_factor — ec
 D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
-C  (decision layer) ──►  in progress; sub-order C-pre (DONE 2026-07-10,
-                         c94c0f4) → C0 (DONE 2026-07-10, 56962f6) → C1 →
-                         C2 → (feel-check) → C3 → C4; C4 declares roles
-                         that drafting rewards
+C  (decision layer) ──►  in progress; C-pre, C0, C1 DONE (2026-07-10:
+                         c94c0f4, 56962f6, 15631fd) → next C2 →
+                         (feel-check) → C3 → C4; C4 declares roles that
+                         drafting rewards
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
