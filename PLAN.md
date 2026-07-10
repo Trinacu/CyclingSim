@@ -680,7 +680,7 @@ smoke exit 0). As-built notes / deviations:
   effort, policy name), snapshot fields stamped by Simulation at frame time —
   closes the deferred D-era "UI exposure of follow/rotation modes".
 
-**Next before C3: the interactive feel-check milestone below.**
+**Next: C3.0, the manual feel-check step below.**
 
 - `DecisionSystem::decide(PhysicsEngine&)` fired from `step_fixed` via sim-time
   accumulator every `decision_period` (param, default **1.0 s**). Cadence ≠ thread:
@@ -712,13 +712,37 @@ smoke exit 0). As-built notes / deviations:
   determinism; arbitration transitions (policy↔schedule↔follow, slider inert when a
   policy is assigned); reconcile respects manual rotations.
 
-**Milestone between C2 and C3 — interactive feel-check session** (user present;
-blocks C3/C4 sign-off, not their start): A's `kPenaltyScale`/`kMaxPenaltyRate`
-(believable lateral speed dip + natural centering) and B2's yaw constants
-(`kYawDragGain` etc., rider.cpp locals — few-% CdA at 3.5 m/s @ 60°, sensible
-windward swings, echelon worth forming) against the appstate rotating-paceline demo.
-Do it before AI behavior lands so "the paceline looks weird" stays attributable to
-constants, not decisions.
+### C3.0. Feel-check session — MANUAL, before C3/C4
+
+Interactive tuning session, **user present** — the one step in this workstream
+that cannot land from tests alone.  Blocks C3/C4 *sign-off*, not their start.
+Do it before AI behavior goes live so "the paceline looks weird" stays
+attributable to constants, not decisions.
+
+**How to run:** `./game` from build/, the appstate rotating-paceline demo
+(7 rotators + Luka sitting in, wind 3.5 m/s @ 60°, first swing at ~45 s at
+time factor 0.2).  The C0/C2 overlays help: group gaps top-right, per-rider
+mode letters + efforts bottom-left.  Tuning is by recompile — all constants
+are named locals.
+
+**What to eyeball, and which knobs:**
+- **A — lateral feel** (`kPenaltyScale`, `kMaxPenaltyRate`, lateral_solver /
+  lateral_behavior locals): does cutting across the road cost a believable
+  speed dip?  Do riders settle back toward their line naturally — neither
+  magnetized nor sluggish?  Watch the drifters' swing-off and merge-back.
+- **B2 — yaw drag** (`kYawDragGain`, `kMinApparentLon`, `kYawFactorCap` —
+  rider.cpp locals): crosswind penalty magnitude plausible (a few % CdA at
+  3.5 m/s @ 60°, not dramatic — compare cda_factor in the plot screen)?
+  Swings consistently windward?  Echelon stagger visible and energetically
+  worth forming (windward riders visibly working harder)?
+- **C-pre-b — promotion transit** (opportunistic, same session): promote a
+  sitter mid-run if reachable via test hooks, or just confirm the D3 merges
+  still read right after the C2 multi-rotation refactor.
+
+**Pass = user says it looks right.**  Record the final constant values and any
+retunes here when done:
+- [ ] A constants signed off (values: ____)
+- [ ] B2 constants signed off (values: ____)
 
 ### C3. First consumer — W′-budgeted pacing policy
 
@@ -792,7 +816,8 @@ C2     cadence+policies+reconcile  DONE         2026-07-10 (bc1afd5): decision.*
                                                 reconcile), rotation.*, mytypes.h (EffortSource::Policy),
                                                 snapshot.h, simrenderer.cpp, display.* (RiderBoardDrawable),
                                                 screen.cpp
-       — feel-check session (interactive, A + B2 constants) —
+C3.0   feel-check session          MANUAL       interactive, user present — A + B2 constants vs the
+                                                appstate demo; blocks C3/C4 sign-off
 C3     pacing policy               ~1           decision.*, analysis scenario
 C4     director+tactics+MoveUp join ~1.5        decision.*, team.h, sim.* (join API), rotation.*
 ```
@@ -818,8 +843,8 @@ D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
 C  (decision layer) ──►  in progress; C-pre, C0, C1, C2 DONE (2026-07-10:
                          c94c0f4, 56962f6, 15631fd, bc1afd5) → next:
-                         **feel-check session** (interactive) → C3 → C4;
-                         C4 declares roles that drafting rewards
+                         **C3.0 feel-check (manual, user present)** → C3 →
+                         C4; C4 declares roles that drafting rewards
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
@@ -830,7 +855,7 @@ breakdown in "C. Order, sizes, files" above).
 Per landing: `cmake --build build -j` (0 warnings) + `ctest` (all green) + headless
 smoke run (SIGTERM → exit 0). B2 additionally needs an interactive check (echelon
 stagger + windward swings under angled wind; gates the ⚖️ yaw constants), as does A's
-still-open penalty-feel tuning (both bundled into the C2→C3 feel-check milestone);
+still-open penalty-feel tuning (both bundled into the C3.0 manual feel-check step);
 C needs scripted scenario runs — the C3 offline scenario (policy vs. schedule on
 `create_endulating`) and a C4 chase scenario (two groups, director orders a chase,
 gap closes and the time-gap readout falls), both runnable headless — plus one
