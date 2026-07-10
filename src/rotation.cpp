@@ -42,6 +42,30 @@ bool PacelineRotation::is_member(RiderId id) const {
   return has(inline_) || has(drifting_) || has(sitting_) || has(promoting_);
 }
 
+void PacelineRotation::add_member(RiderId id, bool sits_in) {
+  if (is_member(id))
+    return;
+  detach_timer(id) = 0.0;
+  if (sits_in)
+    sitting_.push_back(id);
+  else
+    inline_.push_back(id);
+}
+
+void PacelineRotation::remove_member(RiderId id) {
+  for (auto* list : {&inline_, &drifting_, &sitting_, &promoting_})
+    list->erase(std::remove(list->begin(), list->end(), id), list->end());
+}
+
+std::vector<RiderId> PacelineRotation::members() const {
+  std::vector<RiderId> out;
+  out.reserve(inline_.size() + drifting_.size() + sitting_.size() +
+              promoting_.size());
+  for (const auto* list : {&inline_, &drifting_, &sitting_, &promoting_})
+    out.insert(out.end(), list->begin(), list->end());
+  return out;
+}
+
 int PacelineRotation::line_depth(RiderId id) const {
   auto it = std::find(inline_.begin(), inline_.end(), id);
   return it == inline_.end()

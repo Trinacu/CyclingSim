@@ -92,6 +92,8 @@ void SimulationRenderer::render_frame() {
 
     rs.group_id = s1.group_id;
     rs.group_role = s1.group_role;
+    rs.effort_source = s1.effort_source;
+    rs.policy = s1.policy;
     // rs.power_breakdown = s1.power_breakdown;
 
     ctx.riders[id] = std::move(rs);

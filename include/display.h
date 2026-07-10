@@ -91,6 +91,26 @@ private:
   std::vector<Line> lines_;
 };
 
+// C2: rider mode board — one line per rider (name, effort-source letter
+// M/S/F/P, target effort, policy name if any), bottom-left overlay.  Closes
+// the D-era "UI exposure of follow/rotation modes" leftover; same texture
+// caching as the group board.
+class RiderBoardDrawable : public Drawable {
+public:
+  RiderBoardDrawable() = default;
+  ~RiderBoardDrawable() override;
+  RenderLayer layer() const override { return RenderLayer::UI; }
+  void render(const RenderContext* ctx) override;
+
+private:
+  struct Line {
+    std::string text;
+    SDL_Texture* tex = nullptr;
+    int w = 0, h = 0;
+  };
+  std::vector<Line> lines_;
+};
+
 class RiderDrawable : public Drawable {
   std::unordered_map<int, RiderVisualState> visuals;
   const RiderVisualModel& model = ROAD_BIKE_VISUAL;

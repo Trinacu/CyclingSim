@@ -87,6 +87,17 @@ public:
   // False when the rider is not a sitter or there is no line to join.
   bool promote_sitter(RiderId id);
 
+  // Roster membership changes (C2 reconcile).  add_member appends at the
+  // InLine tail (or the sitting queue) — the caller gates on physical
+  // proximity; the follow dynamics absorb small ordering errors, C4's join
+  // maneuver handles real approaches.  remove_member erases the rider from
+  // every list (the engine clears its follow target, as with detach).
+  void add_member(RiderId id, bool sits_in);
+  void remove_member(RiderId id);
+
+  // All current member ids (inline, drifting, sitting, promoting).
+  std::vector<RiderId> members() const;
+
   // Introspection (tests / debug UI).
   RiderId puller() const { return inline_.empty() ? -1 : inline_.front(); }
   // Index in the InLine order (0 = puller); -1 when not in line (drifting /

@@ -48,6 +48,8 @@ SimulationScreen::SimulationScreen(AppState* s) : state(s) {
   sim_renderer->add_world_drawable(std::make_unique<RiderDrawable>());
   // C0: group time-gap board (top-right overlay; added last = drawn on top).
   sim_renderer->add_world_drawable(std::make_unique<GroupBoardDrawable>());
+  // C2: rider effort-source/policy board (bottom-left overlay).
+  sim_renderer->add_world_drawable(std::make_unique<RiderBoardDrawable>());
 
   auto ui = std::make_unique<UIRoot>(screensize[0], screensize[1]);
 

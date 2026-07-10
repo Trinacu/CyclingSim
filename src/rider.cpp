@@ -162,6 +162,9 @@ RiderSnapshot Rider::snapshot() const {
       .id = this->id,
       .group_id = this->group_id,
       .group_role = this->group_role,
+      // Stamped by Simulation at snapshot time; the engine doesn't know.
+      .effort_source = EffortSource::Manual,
+      .policy = {},
       .name = this->name,
       .max_effort = this->state.max_effort,
       .pos = this->state.pos,

@@ -26,6 +26,11 @@ struct RiderRenderState {
   RiderId id;
   GroupId group_id = kNoGroup;
   GroupRole group_role = GroupRole::Unassigned;
+  // C2: who owns the rider's effort right now + the policy's name (empty =
+  // no policy).  Stamped by Simulation at snapshot time (the engine alone
+  // can't know about schedules/policies).
+  EffortSource effort_source = EffortSource::Manual;
+  std::string policy;
   std::string name;
   double max_effort;
   double pos;
@@ -52,6 +57,9 @@ struct RiderSnapshot {
   RiderId id;
   GroupId group_id;
   GroupRole group_role;
+  // C2: see RiderRenderState — stamped by Simulation at snapshot time.
+  EffortSource effort_source = EffortSource::Manual;
+  std::string policy;
   std::string name;
   double max_effort;
   double pos;

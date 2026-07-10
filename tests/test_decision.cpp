@@ -198,11 +198,277 @@ static void test_build_context() {
   check(none.id == -1, "ctx: unknown rider -> empty context");
 }
 
+// --- C2: policies, cadence, arbitration, reconcile ---
+
+// Records its calls; emits a constant effort plus optional role / follow /
+// one-shot promote.
+struct ProbePolicy : IRiderPolicy {
+  double effort;
+  GroupRole role = GroupRole::Unassigned;
+  std::optional<RiderId> follow_target;
+  bool promote_once = false;
+  int calls = 0;
+  std::vector<double> call_times;
+
+  explicit ProbePolicy(double e) : effort(e) {}
+  PolicyOutput decide(const DecisionContext& ctx) override {
+    ++calls;
+    call_times.push_back(ctx.now);
+    PolicyOutput out;
+    out.target_effort = effort;
+    out.role_decl = role;
+    out.follow = follow_target;
+    if (promote_once) {
+      out.maneuver = Maneuver{};
+      promote_once = false;
+    }
+    return out;
+  }
+  const char* name() const override { return "probe"; }
+};
+
+static void test_decide_cadence() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1)});
+  auto p = std::make_shared<ProbePolicy>(0.7);
+  sim.set_rider_policy(1, p);
+
+  for (int i = 0; i < 1000; ++i) // 10 s
+    sim.step_fixed(dt);
+
+  check(p->calls == 10, "cadence: 10 decide ticks in 10 s at 1 Hz");
+  check(p->call_times.size() >= 2 &&
+            near(p->call_times[1] - p->call_times[0], 1.0, 1e-9),
+        "cadence: ticks 1 s apart");
+  check(near(sim.get_engine()->get_rider_by_id(1)->get_target_effort(), 0.7,
+             1e-12),
+        "cadence: policy effort held between ticks");
+  check(sim.get_effort_source(1) == EffortSource::Policy,
+        "cadence: source is Policy");
+
+  // Slider inert for a policy rider.
+  sim.set_rider_effort(1, 0.3);
+  sim.step_fixed(dt);
+  check(near(sim.get_engine()->get_rider_by_id(1)->get_target_effort(), 0.7,
+             1e-12),
+        "cadence: slider is inert under a policy");
+
+  // Snapshot carries the mode + policy name.
+  FrameSnapshot prev, curr;
+  sim.consume_latest_frame_pair(prev, curr);
+  check(curr.riders.at(1).effort_source == EffortSource::Policy &&
+            curr.riders.at(1).policy == "probe",
+        "cadence: snapshot stamped with source + policy name");
+}
+
+static void test_arbitration() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2)});
+  sim.set_rider_effort(2, 0.8);
+
+  // Policy -> Schedule replaces it -> Policy replaces the schedule.
+  sim.set_rider_policy(1, std::make_shared<ProbePolicy>(0.7));
+  sim.step_fixed(dt);
+  check(sim.get_effort_source(1) == EffortSource::Policy, "arb: policy set");
+  sim.set_effort_schedule(
+      1, std::make_shared<StepEffortSchedule>(
+             std::vector<EffortBlock>{{1e9, 0.5}}));
+  sim.step_fixed(dt);
+  check(sim.get_effort_source(1) == EffortSource::Schedule,
+        "arb: schedule replaces the policy");
+  sim.set_rider_policy(1, std::make_shared<ProbePolicy>(0.7));
+  sim.step_fixed(dt);
+  check(sim.get_effort_source(1) == EffortSource::Policy,
+        "arb: policy replaces the schedule");
+
+  // A follow target outranks the policy; the policy didn't install it, so
+  // emitting follow = nullopt must NOT clear it.
+  sim.set_follow_target(1, 2);
+  for (int i = 0; i < 200; ++i) // two decide ticks
+    sim.step_fixed(dt);
+  check(sim.get_effort_source(1) == EffortSource::Follow,
+        "arb: follow outranks policy");
+  check(sim.get_engine()->has_follow_target(1),
+        "arb: manual follow target survives the policy's nullopt");
+
+  sim.clear_follow_target(1);
+  sim.clear_rider_policy(1);
+  sim.step_fixed(dt);
+  check(sim.get_effort_source(1) == EffortSource::Manual,
+        "arb: cleared back to Manual");
+}
+
+static void test_policy_follow_ownership() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2)});
+  sim.set_rider_effort(1, 0.8);
+
+  auto p = std::make_shared<ProbePolicy>(0.7);
+  p->follow_target = 1;
+  sim.set_rider_policy(2, p);
+  for (int i = 0; i < 150; ++i)
+    sim.step_fixed(dt);
+  check(sim.get_engine()->has_follow_target(2) &&
+            sim.get_effort_source(2) == EffortSource::Follow,
+        "policy follow: installed, source Follow");
+
+  p->follow_target = std::nullopt;
+  for (int i = 0; i < 100; ++i)
+    sim.step_fixed(dt);
+  check(!sim.get_engine()->has_follow_target(2) &&
+            sim.get_effort_source(2) == EffortSource::Policy,
+        "policy follow: policy-installed target cleared on nullopt");
+}
+
+static void test_policy_promote_maneuver() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2), cfg(3), cfg(4)});
+  sim.set_rider_effort(1, 0.5);
+  std::vector<RotationMember> roster = {
+      {1, false}, {2, false}, {3, false}, {4, true}};
+  sim.set_paceline_rotation(roster, RotationParams{});
+  sim.step_fixed(dt);
+  const auto* rot = sim.get_engine()->get_paceline_rotation();
+  check(rot->inline_count() == 3, "maneuver: sitter starts outside the line");
+
+  auto p = std::make_shared<ProbePolicy>(0.7);
+  p->promote_once = true;
+  sim.set_rider_policy(4, p);
+  for (int i = 0; i < 150; ++i) // past one decide tick
+    sim.step_fixed(dt);
+  check(rot->inline_count() == 4,
+        "maneuver: policy promote -> first-sitter fast path into the line");
+}
+
+static void test_reconcile() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2), cfg(3), cfg(4)});
+  for (int id = 1; id <= 4; ++id)
+    sim.set_rider_effort(id, 0.7);
+  // Declared intent, appstate-style (no policies involved): reconcile is
+  // driven by roles however they got set.
+  for (const auto& [id, r] : sim.get_engine()->get_riders())
+    r->set_group_role(GroupRole::Paceline);
+
+  for (int i = 0; i < 150; ++i) // past the first decide tick
+    sim.step_fixed(dt);
+
+  const PhysicsEngine& eng = *sim.get_engine();
+  check(eng.auto_rotation_count() == 1, "reconcile: one rotation formed");
+  const PacelineRotation* rot = eng.get_rotation_for(1);
+  check(rot != nullptr && rot->member_count() == 4,
+        "reconcile: all four declarers in it");
+  check(eng.get_paceline_rotation() == nullptr,
+        "reconcile: no manual rotation involved");
+
+  // Un-declare one: removed on the next tick, rotation survives.
+  sim.get_engine()->get_riders().at(3)->set_group_role(GroupRole::Unassigned);
+  for (int i = 0; i < 120; ++i)
+    sim.step_fixed(dt);
+  check(eng.get_rotation_for(3) == nullptr && rot->member_count() == 3,
+        "reconcile: ex-declarer removed");
+  check(!eng.has_follow_target(3),
+        "reconcile: removed rider's follow target cleared");
+
+  // Un-declare all but one: rotation dissolves.
+  sim.get_engine()->get_riders().at(2)->set_group_role(GroupRole::Unassigned);
+  sim.get_engine()->get_riders().at(4)->set_group_role(GroupRole::Unassigned);
+  for (int i = 0; i < 120; ++i)
+    sim.step_fixed(dt);
+  check(eng.auto_rotation_count() == 0,
+        "reconcile: below two declarers the rotation dissolves");
+}
+
+static void test_reconcile_per_group_and_manual_wins() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2), cfg(3), cfg(4), cfg(5), cfg(6)});
+  // 1+2 manual rotation, riding away; 3+4 fast pair; 5+6 slow pair.
+  sim.set_rider_effort(1, 0.95);
+  sim.set_paceline_rotation({{1, false}, {2, false}}, RotationParams{});
+  sim.set_rider_effort(3, 0.8);
+  sim.set_rider_effort(4, 0.8);
+  sim.set_rider_effort(5, 0.5);
+  sim.set_rider_effort(6, 0.5);
+
+  // Split FIRST, declare after: declaring while everyone is still one bunch
+  // would form a single rotation whose follow controllers glue the pack
+  // together (the slow pair can hold any wheel, they're just unwilling).
+  for (int i = 0; i < 15000; ++i) // 150 s: three separated groups
+    sim.step_fixed(dt);
+  for (const auto& [id, r] : sim.get_engine()->get_riders())
+    r->set_group_role(GroupRole::Paceline);
+  for (int i = 0; i < 200; ++i) // past a decide tick
+    sim.step_fixed(dt);
+
+  const PhysicsEngine& eng = *sim.get_engine();
+  check(eng.get_group_tracker().get_snapshot().size() == 3,
+        "reconcile groups: three groups (premise)");
+  check(eng.auto_rotation_count() == 2,
+        "reconcile groups: one auto rotation per non-manual group");
+  check(eng.get_rotation_for(1) == eng.get_paceline_rotation(),
+        "reconcile groups: manual roster wins for its riders");
+  check(eng.get_rotation_for(3) != nullptr &&
+            eng.get_rotation_for(3) == eng.get_rotation_for(4) &&
+            eng.get_rotation_for(3) != eng.get_rotation_for(5),
+        "reconcile groups: pairs rotate within their own groups");
+}
+
+static void test_decide_determinism() {
+  auto run = [](std::vector<double>& pos) {
+    const double dt = 0.01;
+    Course course = Course::create_flat();
+    Simulation sim(&course);
+    sim.add_riders({cfg(1), cfg(2), cfg(3)});
+    for (int id = 1; id <= 3; ++id) {
+      // Dynamic, state-dependent policy: effort tracks W' and declares
+      // paceline intent, so decisions couple riders via the reconcile.
+      struct DynPolicy : IRiderPolicy {
+        PolicyOutput decide(const DecisionContext& ctx) override {
+          PolicyOutput out;
+          out.target_effort = 0.6 + 0.4 * ctx.wbal_frac;
+          out.role_decl = GroupRole::Paceline;
+          return out;
+        }
+        const char* name() const override { return "dyn"; }
+      };
+      sim.set_rider_policy(id, std::make_shared<DynPolicy>());
+    }
+    for (int i = 0; i < 10000; ++i) // 100 s
+      sim.step_fixed(dt);
+    for (int id = 1; id <= 3; ++id)
+      pos.push_back(sim.get_engine()->get_rider_by_id(id)->get_pos());
+  };
+
+  std::vector<double> a, b;
+  run(a);
+  run(b);
+  check(a == b, "determinism: identical runs -> bit-identical positions");
+}
+
 int main() {
   test_draft_helpers();
   test_estimator_properties();
   test_estimator_budget_on_climb();
   test_build_context();
+  test_decide_cadence();
+  test_arbitration();
+  test_policy_follow_ownership();
+  test_policy_promote_maneuver();
+  test_reconcile();
+  test_reconcile_per_group_and_manual_wins();
+  test_decide_determinism();
 
   if (checks_failed) {
     std::cout << checks_failed << " check(s) FAILED\n";

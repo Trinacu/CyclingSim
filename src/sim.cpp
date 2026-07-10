@@ -164,20 +164,139 @@ void PhysicsEngine::set_paceline_rotation(
 
 void PhysicsEngine::clear_paceline_rotation() { rotation_.reset(); }
 
-bool PhysicsEngine::promote_sitter(RiderId id) {
-  return rotation_ ? rotation_->promote_sitter(id) : false;
+void PhysicsEngine::clear_auto_rotations() {
+  for (const auto& rot : auto_rotations_)
+    for (RiderId id : rot->members())
+      clear_follow_target(id);
+  auto_rotations_.clear();
 }
 
-// Rotation phase: feed the coordinator flat member state, apply its
+bool PhysicsEngine::promote_sitter(RiderId id) {
+  if (rotation_ && rotation_->is_member(id))
+    return rotation_->promote_sitter(id);
+  for (auto& rot : auto_rotations_)
+    if (rot->is_member(id))
+      return rot->promote_sitter(id);
+  return false;
+}
+
+const PacelineRotation* PhysicsEngine::get_rotation_for(RiderId id) const {
+  if (rotation_ && rotation_->is_member(id))
+    return rotation_.get();
+  for (const auto& rot : auto_rotations_)
+    if (rot->is_member(id))
+      return rot.get();
+  return nullptr;
+}
+
+// C2 reconcile: one rotation per group from declared Paceline roles.
+// Deterministic by construction: the group snapshot is ordered front-to-back,
+// members within a group are position-sorted, and auto_rotations_ keeps
+// creation order.
+void PhysicsEngine::reconcile_rotations() {
+  const GroupSnapshot& groups = group_tracker_.get_snapshot();
+
+  // Rotations whose members should stay this round (by rotation pointer).
+  std::vector<PacelineRotation*> touched;
+
+  for (const Group& g : groups) {
+    // Declared set for this group: rider intent (get_group_role), skipping
+    // the manual rotation's riders — that roster is API-owned.
+    std::vector<RiderId> declared;
+    for (const GroupMember& m : g.all_members()) {
+      auto it = riders.find(m.id);
+      if (it == riders.end())
+        continue;
+      if (it->second->get_group_role() != GroupRole::Paceline)
+        continue;
+      if (rotation_ && rotation_->is_member(m.id))
+        continue;
+      declared.push_back(m.id);
+    }
+
+    // Existing rotation for this group: first with any declared member.
+    PacelineRotation* rot = nullptr;
+    for (auto& r : auto_rotations_) {
+      for (RiderId id : declared)
+        if (r->is_member(id)) {
+          rot = r.get();
+          break;
+        }
+      if (rot)
+        break;
+    }
+
+    if (!rot) {
+      if (declared.size() < 2)
+        continue; // nothing to form
+      // Roster in position order, front first (same-group => already near).
+      std::sort(declared.begin(), declared.end(),
+                [this](RiderId a, RiderId b) {
+                  return riders.at(a)->get_pos() > riders.at(b)->get_pos();
+                });
+      std::vector<RotationMember> roster;
+      for (RiderId id : declared)
+        roster.push_back({id, false});
+      auto_rotations_.push_back(
+          std::make_unique<PacelineRotation>(roster, auto_rotation_params_));
+      touched.push_back(auto_rotations_.back().get());
+      continue;
+    }
+    touched.push_back(rot);
+
+    // Remove ex-declarers (left the group, un-declared, or went manual).
+    for (RiderId id : rot->members()) {
+      if (std::find(declared.begin(), declared.end(), id) != declared.end())
+        continue;
+      rot->remove_member(id);
+      clear_follow_target(id);
+    }
+    // Admit new declarers within detach_gap of a current member (interim
+    // proximity gate — C4's join maneuver replaces this with a real
+    // approach).
+    for (RiderId id : declared) {
+      if (rot->is_member(id))
+        continue;
+      const double pos = riders.at(id)->get_pos();
+      double nearest = std::numeric_limits<double>::infinity();
+      for (RiderId mid : rot->members())
+        nearest = std::min(nearest,
+                           std::fabs(riders.at(mid)->get_pos() - pos));
+      if (nearest <= auto_rotation_params_.detach_gap)
+        rot->add_member(id, false);
+    }
+  }
+
+  // Dissolve rotations that lost their group's declarers or fell below 2.
+  auto_rotations_.erase(
+      std::remove_if(auto_rotations_.begin(), auto_rotations_.end(),
+                     [&](std::unique_ptr<PacelineRotation>& r) {
+                       const bool keep =
+                           std::find(touched.begin(), touched.end(),
+                                     r.get()) != touched.end() &&
+                           r->member_count() >= 2;
+                       if (!keep)
+                         for (RiderId id : r->members())
+                           clear_follow_target(id);
+                       return !keep;
+                     }),
+      auto_rotations_.end());
+}
+
+// Rotation phase: feed each coordinator flat member state, apply its
 // directives to the follow subsystem.  Runs right before step_follow_apply
 // so this tick's controllers see this tick's follow graph.
 void PhysicsEngine::step_rotation_apply(double dt) {
-  if (!rotation_)
-    return;
+  if (rotation_)
+    apply_rotation(*rotation_, dt);
+  for (auto& rot : auto_rotations_)
+    apply_rotation(*rot, dt);
+}
 
+void PhysicsEngine::apply_rotation(PacelineRotation& rot, double dt) {
   rotation_inputs_.clear();
   for (const auto& [id, r] : riders) {
-    if (!rotation_->is_member(id))
+    if (!rot.is_member(id))
       continue;
     const auto [wind_dir, wind_speed] = course->get_wind(r->get_pos());
     rotation_inputs_.push_back(RotationInput{
@@ -191,7 +310,7 @@ void PhysicsEngine::step_rotation_apply(double dt) {
     });
   }
 
-  const auto directives = rotation_->tick(dt, rotation_inputs_);
+  const auto directives = rot.tick(dt, rotation_inputs_);
   for (const auto& d : directives) {
     auto it = riders.find(d.id);
     if (it == riders.end())
@@ -244,7 +363,7 @@ void PhysicsEngine::step_rotation_apply(double dt) {
     }
   }
 
-  for (RiderId id : rotation_->removed_last_tick())
+  for (RiderId id : rot.removed_last_tick())
     clear_follow_target(id);
 }
 
@@ -703,6 +822,23 @@ void Simulation::step_fixed(double dt) {
   decision_.observe(engine, sim_seconds);
   fill_time_gaps(snap_back, decision_.race_clock(), sim_seconds);
 
+  // Decision tick (C2): after the step and the perception feed, so contexts
+  // read fully-resolved state and outputs take effect from the next step —
+  // one tick of reaction delay, by design.
+  decision_accum_ += dt;
+  if (decision_accum_ >= decision_.decision_period()) {
+    decision_accum_ = 0.0;
+    decision_.decide(*this);
+  }
+
+  // C2: stamp effort ownership into the frame (only Simulation knows about
+  // schedules and policies).
+  for (auto& [id, snap] : snap_back.riders) {
+    snap.effort_source = get_effort_source(id);
+    if (const IRiderPolicy* p = decision_.get_policy(id))
+      snap.policy = p->name();
+  }
+
   snap_back.sim_time = sim_seconds;
   snap_back.sim_dt = dt;
   snap_back.time_factor = time_factor;
@@ -715,7 +851,23 @@ void Simulation::set_effort_schedule(int rider_id,
   std::scoped_lock lock(commands_mtx);
   pending_commands.push_back([this, rider_id, s = std::move(schedule)]() {
     effort_schedules[rider_id] = s;
+    decision_.clear_policy(rider_id); // schedule replaces any policy (C2)
   });
+}
+
+void Simulation::set_rider_policy(RiderId rider_id,
+                                  std::shared_ptr<IRiderPolicy> policy) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this, rider_id, p = std::move(policy)]() {
+    effort_schedules.erase(rider_id); // policy replaces any schedule (C2)
+    decision_.set_policy(rider_id, p);
+  });
+}
+
+void Simulation::clear_rider_policy(RiderId rider_id) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back(
+      [this, rider_id]() { decision_.clear_policy(rider_id); });
 }
 
 void Simulation::clear_effort_schedule(RiderId rider_id) {
@@ -767,6 +919,8 @@ void Simulation::promote_sitter(RiderId id) {
 EffortSource Simulation::get_effort_source(RiderId rider_id) const {
   if (engine.has_follow_target(rider_id))
     return EffortSource::Follow;
+  if (decision_.has_policy(rider_id))
+    return EffortSource::Policy;
   if (effort_schedules.count(rider_id) > 0)
     return EffortSource::Schedule;
   return EffortSource::Manual;
@@ -777,10 +931,12 @@ EffortSource Simulation::get_effort_source(RiderId rider_id) const {
 // concurrent access.
 void Simulation::reset() {
   sim_seconds = 0.0;
+  decision_accum_ = 0.0;
   effort_schedules.clear();
   engine.clear_paceline_rotation();
+  engine.clear_auto_rotations();
   engine.clear_follow_targets();
-  decision_.reset();
+  decision_.reset(); // drops traces and policies
   {
     std::scoped_lock lock(commands_mtx);
     pending_commands.clear();

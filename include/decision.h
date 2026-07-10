@@ -1,10 +1,15 @@
 // decision.h — perception & decision layer (workstream C).
 //
-// C0 gave the skeleton (DecisionSystem + RaceClock feed); C1 adds the
-// perception products: CourseIntel (owned here, one shared const digest),
-// the per-rider DecisionContext, and the W′-budget pace estimator.  C2 adds
-// decide() — the 1 Hz decision cadence, per-rider policies and team
-// directors — consuming these.
+// C0 gave the skeleton (DecisionSystem + RaceClock feed); C1 the perception
+// products (CourseIntel — owned here, one shared const digest — the
+// per-rider DecisionContext, the W′-budget pace estimator); C2 the decision
+// cadence: decide() runs every decision_period seconds of sim time, builds
+// each policy rider's context (sorted id order — cross-rider decisions must
+// be deterministic), lets its IRiderPolicy answer, applies the outputs
+// through the engine's public API, then reconciles declared-role rotations.
+// Outputs are *held* between ticks (nothing else writes a Policy rider's
+// effort), and a decision made at tick N takes effect from N+1 — one tick of
+// reaction delay is intended.  Team directors land in C4.
 //
 // Owned by Simulation (not PhysicsEngine): the engine stays pure mechanics,
 // the decision layer reads it through its public API.  Everything runs on
@@ -20,7 +25,10 @@
 #include "group.h"
 #include "mytypes.h"
 #include "race_clock.h"
+#include <memory>
 #include <optional>
+#include <set>
+#include <unordered_map>
 #include <vector>
 
 class PhysicsEngine;
@@ -30,6 +38,7 @@ class Simulation;
 struct DecisionParams {
   double grid_spacing = 100.0;       // m, RaceClock crossing-time grid
   double perception_horizon = 200.0; // m, rider window is ±this
+  double decision_period = 1.0;      // s of sim time between decide() ticks
 };
 
 // One rider the context owner can see (±perception_horizon).  Deliberately
@@ -120,6 +129,38 @@ double rotation_avg_draft_factor(int n, const DraftingParams& p);
 // behind — in a line with sitters there is one).  d < 0 → 1.0.
 double line_slot_draft_factor(int depth, const DraftingParams& p);
 
+// --- C2: policies ---
+
+// A physical action the policy asks the engine to start (grows in C4 with
+// the paceline join).
+struct Maneuver {
+  enum class Type { PromoteSitter };
+  Type type = Type::PromoteSitter;
+};
+
+// One decision tick's outputs.  Everything is *operated through* the
+// existing arbitration, not around it: a follow request installs a normal
+// follow target (whose controller then owns the effort — Follow outranks
+// Policy); target_effort lands on the engine's ordinary effort path and
+// simply holds until the next tick.
+struct PolicyOutput {
+  std::optional<double> target_effort; // FTP-relative
+  std::optional<RiderId> follow; // set/keep a follow target; nullopt clears
+                                 // a policy-installed one
+  GroupRole role_decl = GroupRole::Unassigned; // policy owns the rider's role
+  std::optional<Maneuver> maneuver;
+};
+
+// The meta-controller above EffortSource: selects modes and targets rather
+// than competing as another 100 Hz writer.  Stateful (pull timers, hysteresis)
+// — hence non-const decide; one instance per rider unless deliberately shared.
+class IRiderPolicy {
+public:
+  virtual ~IRiderPolicy() = default;
+  virtual PolicyOutput decide(const DecisionContext& ctx) = 0;
+  virtual const char* name() const = 0;
+};
+
 // --- The system ---
 
 class DecisionSystem {
@@ -136,9 +177,25 @@ public:
   void reset();
 
   // Build one rider's view of the world from the last completed tick.
-  // Physics-thread-only (reads engine + Simulation state).  C2's decide()
-  // calls this per rider at the decision cadence.
+  // Physics-thread-only (reads engine + Simulation state).  decide() calls
+  // this per policy rider at the decision cadence.
   DecisionContext build_context(const Simulation& sim, RiderId id) const;
+
+  // One decision tick (C2): contexts -> policies -> apply -> rotation
+  // reconcile.  Called by Simulation::step_fixed every decision_period of
+  // sim time, after the engine stepped and observe() ran.
+  void decide(Simulation& sim);
+
+  // Per-rider policy assignment (physics-thread-only; Simulation's queued
+  // set_rider_policy is the UI-safe path).  Assigning replaces any previous
+  // policy; nullptr clears.  A policy rider's group role, follow target and
+  // held effort are policy-owned from the next tick.
+  void set_policy(RiderId id, std::shared_ptr<IRiderPolicy> policy);
+  void clear_policy(RiderId id);
+  bool has_policy(RiderId id) const { return policies_.count(id) > 0; }
+  const IRiderPolicy* get_policy(RiderId id) const;
+
+  double decision_period() const { return params_.decision_period; }
 
   const RaceClock& race_clock() const { return clock_; }
   const CourseIntel& course_intel() const { return intel_; }
@@ -147,6 +204,11 @@ private:
   DecisionParams params_;
   RaceClock clock_;
   CourseIntel intel_;
+
+  std::unordered_map<RiderId, std::shared_ptr<IRiderPolicy>> policies_;
+  // Follow targets this layer installed (vs. rotation/UI ones): only these
+  // are cleared when a policy stops emitting `follow`.
+  std::set<RiderId> policy_follow_;
 };
 
 #endif

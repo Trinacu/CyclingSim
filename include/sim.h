@@ -80,6 +80,16 @@ private:
   std::unique_ptr<PacelineRotation> rotation_;
   std::vector<RotationInput> rotation_inputs_; // rebuilt each tick
 
+  // Reconciled rotations (C2): formed per group from riders declaring
+  // GroupRole::Paceline, by reconcile_rotations() at the decision cadence.
+  // The manual rotation_ wins — its members are never reconciled.
+  std::vector<std::unique_ptr<PacelineRotation>> auto_rotations_;
+  RotationParams auto_rotation_params_;
+
+  // One rotation's directives -> follow subsystem (the body shared by the
+  // manual and reconciled rotations in step_rotation_apply).
+  void apply_rotation(PacelineRotation& rot, double dt);
+
   // One rider's flat drafting input (position, extent, apparent-wind
   // components).  Used by step_draft_apply for every rider and by
   // step_follow_apply for each follower's leader.
@@ -171,8 +181,28 @@ public:
   // sitter: pure roster bookkeeping.  Deeper sitter: enters move-up transit —
   // rides the advance side past the sitters ahead with effort capped at
   // max(1.0, 1.2 * P_hold / ftp), joining the InLine tail on arrival.
-  // False when no rotation exists or the rider is not a sitter.
+  // False when the rider is not a sitter of any rotation.
   bool promote_sitter(RiderId id);
+
+  // C2 reconcile (physics-thread-only, decision cadence): form/update one
+  // rotation per group from riders declaring GroupRole::Paceline.  The
+  // manual rotation_ wins — its members are skipped.  A declarer is admitted
+  // only when within detach_gap of an existing member (interim gate; C4's
+  // join maneuver replaces it); an ex-declarer is removed; a rotation
+  // shrinking below 2 dissolves.
+  void reconcile_rotations();
+
+  // The rotation (manual or reconciled) this rider belongs to, else nullptr.
+  const PacelineRotation* get_rotation_for(RiderId id) const;
+
+  void set_auto_rotation_params(const RotationParams& p) {
+    auto_rotation_params_ = p;
+  }
+  int auto_rotation_count() const {
+    return static_cast<int>(auto_rotations_.size());
+  }
+
+  void clear_auto_rotations();
 
   ~PhysicsEngine() = default;
 };
@@ -185,9 +215,10 @@ class Simulation {
 private:
   PhysicsEngine engine;
 
-  // Perception & decision layer (workstream C).  Fed every step from
-  // step_fixed on the physics thread; C0 = RaceClock only.
+  // Perception & decision layer (workstream C).  observe() feeds it every
+  // step; decide() fires every decision_period of sim time (C2).
   DecisionSystem decision_;
+  double decision_accum_ = 0.0;
 
   // written by the UI thread (via a driver), read by the physics loop
   std::atomic<double> time_factor{1.0};
@@ -239,9 +270,14 @@ public:
 
   // Queued: applied on the physics thread at the start of the next step.
   // set_rider_effort is a no-op unless the rider's EffortSource is Manual.
+  // Policies and schedules are mutually exclusive: assigning either replaces
+  // the other (C2).
   void set_effort_schedule(int rider_id,
                            std::shared_ptr<EffortSchedule> schedule);
   void clear_effort_schedule(RiderId rider_id);
+  void set_rider_policy(RiderId rider_id,
+                        std::shared_ptr<IRiderPolicy> policy);
+  void clear_rider_policy(RiderId rider_id);
   void set_rider_effort(RiderId rider_id, double effort);
   void set_follow_target(RiderId rider, RiderId leader);
   void clear_follow_target(RiderId rider);

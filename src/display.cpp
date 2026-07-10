@@ -345,3 +345,109 @@ void GroupBoardDrawable::render(const RenderContext* ctx) {
     y += row_h + kLead;
   }
 }
+
+// ============================================================
+//  RiderBoardDrawable (C2)
+// ============================================================
+
+static char effort_source_letter(EffortSource s) {
+  switch (s) {
+  case EffortSource::Manual:
+    return 'M';
+  case EffortSource::Schedule:
+    return 'S';
+  case EffortSource::Follow:
+    return 'F';
+  case EffortSource::Policy:
+    return 'P';
+  }
+  return '?';
+}
+
+RiderBoardDrawable::~RiderBoardDrawable() {
+  for (auto& l : lines_)
+    if (l.tex)
+      SDL_DestroyTexture(l.tex);
+}
+
+void RiderBoardDrawable::render(const RenderContext* ctx) {
+  if (ctx->riders.empty())
+    return;
+  TTF_Font* font = ctx->resources->get_fontManager()->get_font("default");
+  if (!font)
+    return;
+
+  // Stable id order (ctx->riders is an unordered_map).
+  std::vector<const RiderRenderState*> sorted;
+  sorted.reserve(ctx->riders.size());
+  for (const auto& [id, rs] : ctx->riders)
+    sorted.push_back(&rs);
+  std::sort(sorted.begin(), sorted.end(),
+            [](const RiderRenderState* a, const RiderRenderState* b) {
+              return a->id < b->id;
+            });
+
+  while (lines_.size() > sorted.size()) {
+    if (lines_.back().tex)
+      SDL_DestroyTexture(lines_.back().tex);
+    lines_.pop_back();
+  }
+  lines_.resize(sorted.size());
+
+  char buf[128];
+  for (size_t i = 0; i < sorted.size(); ++i) {
+    const RiderRenderState& rs = *sorted[i];
+    if (rs.policy.empty())
+      std::snprintf(buf, sizeof buf, "%s  %c %.2f", rs.name.c_str(),
+                    effort_source_letter(rs.effort_source), rs.effort);
+    else
+      std::snprintf(buf, sizeof buf, "%s  %c %.2f  %s", rs.name.c_str(),
+                    effort_source_letter(rs.effort_source), rs.effort,
+                    rs.policy.c_str());
+    Line& l = lines_[i];
+    if (l.text != buf) {
+      l.text = buf;
+      if (l.tex) {
+        SDL_DestroyTexture(l.tex);
+        l.tex = nullptr;
+      }
+      SDL_Surface* surf =
+          TTF_RenderText_Blended(font, buf, 0, {255, 255, 255, 255});
+      if (!surf)
+        continue;
+      l.w = surf->w;
+      l.h = surf->h;
+      l.tex = SDL_CreateTextureFromSurface(ctx->renderer, surf);
+      SDL_DestroySurface(surf);
+    }
+  }
+
+  constexpr float kPad = 8.0f, kLead = 2.0f;
+  float board_w = 0.0f, board_h = kPad;
+  for (const auto& l : lines_) {
+    board_w = std::max(board_w, float(l.w));
+    board_h += float(l.h) + kLead;
+  }
+  board_w += 2 * kPad;
+  board_h += kPad - kLead;
+
+  int out_w = 0, out_h = 0;
+  SDL_GetCurrentRenderOutputSize(ctx->renderer, &out_w, &out_h);
+  (void)out_w;
+  const float x0 = 10.0f;
+  const float y0 = float(out_h) - board_h - 10.0f;
+
+  SDL_SetRenderDrawBlendMode(ctx->renderer, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawColor(ctx->renderer, 0, 0, 0, 140);
+  const SDL_FRect plate{x0, y0, board_w, board_h};
+  SDL_RenderFillRect(ctx->renderer, &plate);
+
+  float y = y0 + kPad;
+  for (const auto& l : lines_) {
+    if (l.tex) {
+      const SDL_FRect dst{x0 + kPad, y, float(l.w), float(l.h)};
+      SDL_RenderTexture(ctx->renderer, l.tex, nullptr, &dst);
+    }
+    y += float(l.h) + kLead;
+  }
+}

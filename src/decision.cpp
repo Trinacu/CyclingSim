@@ -24,7 +24,78 @@ void DecisionSystem::observe(const PhysicsEngine& engine, double t) {
     clock_.record(id, r->get_pos(), t);
 }
 
-void DecisionSystem::reset() { clock_.reset(); }
+void DecisionSystem::reset() {
+  clock_.reset();
+  policies_.clear();
+  policy_follow_.clear();
+}
+
+// --- C2: policy management + the decision tick ---
+
+void DecisionSystem::set_policy(RiderId id,
+                                std::shared_ptr<IRiderPolicy> policy) {
+  if (policy)
+    policies_[id] = std::move(policy);
+  else
+    clear_policy(id);
+}
+
+void DecisionSystem::clear_policy(RiderId id) {
+  policies_.erase(id);
+  policy_follow_.erase(id);
+}
+
+const IRiderPolicy* DecisionSystem::get_policy(RiderId id) const {
+  auto it = policies_.find(id);
+  return it == policies_.end() ? nullptr : it->second.get();
+}
+
+void DecisionSystem::decide(Simulation& sim) {
+  PhysicsEngine& eng = *sim.get_engine();
+
+  // Sorted id order: cross-rider decisions must not depend on the riders
+  // map's unspecified iteration order.
+  std::vector<RiderId> ids;
+  ids.reserve(policies_.size());
+  for (const auto& [id, p] : policies_)
+    ids.push_back(id);
+  std::sort(ids.begin(), ids.end());
+
+  for (RiderId id : ids) {
+    if (!eng.get_rider_by_id(id)) {
+      clear_policy(id); // rider left the sim
+      continue;
+    }
+    const DecisionContext ctx = build_context(sim, id);
+    const PolicyOutput out = policies_.at(id)->decide(ctx);
+
+    // The rider's group role is policy-owned (declares paceline intent the
+    // reconcile below consumes).
+    eng.get_riders().at(id)->set_group_role(out.role_decl);
+
+    // Follow: skip for rotation members (the rotation resolves the follow
+    // graph every tick — a policy shapes it via roles/maneuvers instead).
+    if (!eng.get_rotation_for(id)) {
+      if (out.follow) {
+        eng.set_follow_target(id, *out.follow);
+        policy_follow_.insert(id);
+      } else if (policy_follow_.count(id)) {
+        eng.clear_follow_target(id);
+        policy_follow_.erase(id);
+      }
+    }
+
+    if (out.maneuver && out.maneuver->type == Maneuver::Type::PromoteSitter)
+      eng.promote_sitter(id);
+
+    // Held effort: lands on the ordinary path; a live follow controller
+    // simply overwrites it every tick (Follow > Policy, by mechanism).
+    if (out.target_effort)
+      eng.set_rider_effort(id, *out.target_effort);
+  }
+
+  eng.reconcile_rotations();
+}
 
 // --- C1c: pace estimation helpers ---
 
@@ -108,8 +179,7 @@ DecisionContext DecisionSystem::build_context(const Simulation& sim,
   c.target_effort = r->get_target_effort();
   c.effort_source = sim.get_effort_source(id);
 
-  if (const auto* rot = eng.get_paceline_rotation();
-      rot && rot->is_member(id)) {
+  if (const auto* rot = eng.get_rotation_for(id)) {
     c.in_rotation = true;
     c.rotation_size = rot->member_count();
     c.line_depth = rot->line_depth(id);
