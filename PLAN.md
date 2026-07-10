@@ -508,7 +508,25 @@ decision-layer and lands in C4, reusing the transit mechanics built here.
   enters InLine at tail, then gets cycled into pulling); first-sitter fast path is
   instant; sitting queue closes the vacated gap.
 
-### C0. RaceClock — race-style time gaps & checkpoints
+### C0. RaceClock — race-style time gaps & checkpoints — DONE
+
+**Landed 2026-07-10, commit 56962f6** (gate: 0 warnings, 18/18 ctest, headless
+smoke exit 0). As-built notes:
+- `record(id, pos, t)` keeps the previous sample internally (anchor + latest
+  per trace) — no `pos_before/dt` plumbing; DecisionSystem just feeds
+  positions.  Queries interpolate between cell gridlines *or the trace's live
+  endpoints*, so the first cell and the stretch just behind a rider's current
+  position answer exactly too.  Stalls are ignored → stored times are always
+  *first* crossings.
+- Measured roughness matches the prediction: a 15→5 m/s step mid-cell gives
+  +1.67 s query error; gridlines/checkpoints stay exact (finish margins
+  resolve to ~50 µs).
+- UI is a `GroupBoardDrawable` (display.h/.cpp, top-right overlay: colour
+  swatch matching the halos + "name (size) +m:ss"), registered in screen.cpp —
+  there were no existing group labels to attach to, so the board is new.
+- Test-design note: near-equal riders started together draft each other to a
+  wheel-to-wheel finish, so the finish-order test separates the pair by
+  effort, not ftp.
 
 New `include/race_clock.h`, `src/race_clock.cpp` — pure and engine-free, same
 isolation as drafting/follow/rotation. Replaces the old "gap/speed" idea: a real
@@ -701,7 +719,9 @@ step.
 C-pre  teams + sitter promotion    DONE         2026-07-10 (c94c0f4): team.h (header-only), mytypes.h,
                                                 rider.*, sim.* (promote API), sim_core.* (cruise_power),
                                                 rotation.*, follow.*, appstate.cpp
-C0     RaceClock + skeleton        ~1 session   race_clock.*, decision.* (observe), course.* (checkpoints), sim.*, snapshot.h, UI touch
+C0     RaceClock + skeleton        DONE         2026-07-10 (56962f6): race_clock.*, decision.* (observe),
+                                                course.* (checkpoints), sim.*, group.h (time_gap_ahead),
+                                                display.* (GroupBoardDrawable), screen.cpp
 C1     intel+core+estimator+ctx    ~1–1.5       course_intel.*, sim_core.* (cruise_speed), course.h, decision.*
 C2     cadence+policies+reconcile  ~1           decision.*, sim.*, rotation.h/.cpp, snapshot.h, UI touch
        — feel-check session (interactive, A + B2 constants) —
@@ -729,8 +749,9 @@ D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
 C  (decision layer) ──►  in progress; sub-order C-pre (DONE 2026-07-10,
-                         c94c0f4) → C0 → C1 → C2 → (feel-check) → C3 → C4;
-                         C4 declares roles that drafting rewards
+                         c94c0f4) → C0 (DONE 2026-07-10, 56962f6) → C1 →
+                         C2 → (feel-check) → C3 → C4; C4 declares roles
+                         that drafting rewards
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
