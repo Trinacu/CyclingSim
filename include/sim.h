@@ -17,6 +17,7 @@
 #include "rotation.h"
 #include "rotation_params.h"
 #include "snapshot.h"
+#include "team.h"
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -38,6 +39,10 @@ private:
                                  //
   GroupingParams group_params_;
   GroupTracker group_tracker_;
+
+  // Static team entities (C-pre-a); populated at setup, read by the decision
+  // phase.  add_rider registers each rider with its config's team_id.
+  TeamRegistry teams_;
 
   DraftingParams drafting_params_;
 
@@ -114,6 +119,11 @@ public:
   bool add_rider(const RiderConfig cfg);
   void update(double dt);
 
+  // Setup-time (before stepping starts) — create teams first, then add
+  // riders whose configs carry the returned TeamId.
+  TeamId add_team(std::string name) { return teams_.add_team(std::move(name)); }
+  const TeamRegistry& get_teams() const { return teams_; }
+
   const Course* get_course() const { return course; }
   double get_course_length() const { return course->get_total_length(); }
 
@@ -152,6 +162,13 @@ public:
   const PacelineRotation* get_paceline_rotation() const {
     return rotation_.get();
   }
+
+  // SittingIn -> InLine promotion (C-pre-b; physics-thread-only).  First
+  // sitter: pure roster bookkeeping.  Deeper sitter: enters move-up transit —
+  // rides the advance side past the sitters ahead with effort capped at
+  // max(1.0, 1.2 * P_hold / ftp), joining the InLine tail on arrival.
+  // False when no rotation exists or the rider is not a sitter.
+  bool promote_sitter(RiderId id);
 
   ~PhysicsEngine() = default;
 };
@@ -229,6 +246,7 @@ public:
   void set_paceline_rotation(std::vector<RotationMember> roster,
                              RotationParams params);
   void clear_paceline_rotation();
+  void promote_sitter(RiderId id);
 
   // Reads physics-thread state — call from the physics thread or while no
   // driver is stepping (tests, debug UI via snapshot preferred).

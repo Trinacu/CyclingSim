@@ -105,7 +105,7 @@ static RiderConfig cfg(int id, double ftp = 250, double w_prime = 24000) {
                      700, 3.5,
                      65,  0.3,
                      w_prime, Bike::create_road(),
-                     Team("T")};
+                     kNoTeam};
 }
 
 static double wheel_gap(const PhysicsEngine& e, int follower, int leader) {

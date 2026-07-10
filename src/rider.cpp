@@ -31,11 +31,9 @@ Bike Bike::create_tt() {
               BikeType::TT);
 }
 
-Team::Team(const char* name_) : name(name_) { id = 0; }
-
 Rider::Rider(RiderConfig config_)
     : config(config_), id(config_.rider_id), bike(config_.bike),
-      team(config_.team), name(config_.name) {
+      name(config_.name) {
   RiderInitParams p{};
   p.ftp_base = config_.ftp_base;
   p.w_prime = config_.w_prime_base;
@@ -63,16 +61,16 @@ Rider::Rider(RiderConfig config_)
   // as regression references (see tests/core/test_solver_compare.c).
 }
 
-std::unique_ptr<Rider> Rider::create_generic(Team team_) {
+std::unique_ptr<Rider> Rider::create_generic(TeamId team_id) {
   RiderConfig cfg = {0,    "Joe Moe", 250, 6,   2,     0.05,
                      700,  3.5,       65,  0.3, 24000, Bike::create_road(),
-                     team_};
+                     team_id};
   return std::make_unique<Rider>(cfg);
 }
 
-RiderConfig Rider::default_config(Team team_) {
+RiderConfig Rider::default_config(TeamId team_id) {
   return {0,     "Joe Moe",           250,  6, 2, 0.05, 100, 3.5, 65, 0.3,
-          24000, Bike::create_road(), team_};
+          24000, Bike::create_road(), team_id};
 }
 
 void Rider::set_course(const ICourseView* cv) { course = cv; }
@@ -177,7 +175,11 @@ RiderSnapshot Rider::snapshot() const {
       .yaw_factor = this->yaw_factor_,
       .lat_pos = this->lat_pos,
       .pos2d = this->_pos2d,
-      .team_id = this->team.id,
+      .team_id = this->config.team_id,
       .visual_type = this->bike.type,
   };
+}
+
+double Rider::cruise_power(double v) const {
+  return sim_cruise_power(&state, &env, v);
 }

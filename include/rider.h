@@ -16,15 +16,6 @@
 
 struct SDL_Texture;
 
-class Team {
-private:
-public:
-  std::string name;
-  Team(const char* name_);
-
-  int id;
-};
-
 class Bike {
 public:
   double mass;
@@ -58,7 +49,7 @@ struct RiderConfig {
   double w_prime_base;
 
   Bike bike;
-  Team team;
+  TeamId team_id = kNoTeam; // registry lives on the engine (team.h)
 };
 
 class Rider {
@@ -82,20 +73,20 @@ private:
   std::optional<double> lat_target = std::nullopt;
 
   Bike bike;
-  Team team;
   const ICourseView* course = nullptr;
 
-  // C core
+  // C core.  env is value-initialised so pre-first-update queries
+  // (cruise_power from the rotation phase) read zeros, not garbage.
   RiderState state;
-  EnvState env;
+  EnvState env{};
 
 public:
   std::string name;
   const SDL_Texture* image;
 
   explicit Rider(RiderConfig config_);
-  static std::unique_ptr<Rider> create_generic(Team team_);
-  static RiderConfig default_config(Team team_);
+  static std::unique_ptr<Rider> create_generic(TeamId team_id);
+  static RiderConfig default_config(TeamId team_id);
 
   void set_course(const ICourseView* cv);
 
@@ -123,6 +114,13 @@ public:
   double get_energy_fraction() const;
   double get_effort_limit() const { return energy_effort_limit(&state.energy); }
   double get_target_effort() const { return state.target_effort; }
+  double get_ftp() const { return state.ftp; } // current (degradable) FTP
+  TeamId get_team_id() const { return config.team_id; }
+
+  // Crank power needed to hold speed v in the rider's current environment
+  // and draft (one-tick-stale env, same as every perception input).  Backed
+  // by the core's solver force model — see sim_cruise_power (sim_core.h).
+  double cruise_power(double v) const;
   double get_total_mass() const { return state.mass_rider + state.mass_bike; }
   double get_radius() const { return 0.5; }
   double get_bike_len() const { return bike.wheelbase + 2 * bike.wheel_r; }

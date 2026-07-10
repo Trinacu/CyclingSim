@@ -39,7 +39,22 @@ bool PacelineRotation::is_member(RiderId id) const {
   auto has = [id](const std::vector<RiderId>& v) {
     return std::find(v.begin(), v.end(), id) != v.end();
   };
-  return has(inline_) || has(drifting_) || has(sitting_);
+  return has(inline_) || has(drifting_) || has(sitting_) || has(promoting_);
+}
+
+bool PacelineRotation::promote_sitter(RiderId id) {
+  auto it = std::find(sitting_.begin(), sitting_.end(), id);
+  if (it == sitting_.end() || inline_.empty())
+    return false;
+
+  const bool first = (it == sitting_.begin());
+  sitting_.erase(it);
+  detach_timer(id) = 0.0;
+  if (first)
+    inline_.push_back(id); // already on the tail's wheel: pure bookkeeping
+  else
+    promoting_.push_back(id); // physical move-up; attaches in tick()
+  return true;
 }
 
 double& PacelineRotation::detach_timer(RiderId id) {
@@ -56,6 +71,7 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
   prune_missing(inline_, in);
   prune_missing(drifting_, in);
   prune_missing(sitting_, in);
+  prune_missing(promoting_, in);
 
   // --- 1. Attach drifters positionally ---
   // A drifter whose position has dropped below the last InLine rider's joins
@@ -79,6 +95,50 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
       inline_.push_back(drifting_[best]);
       drifting_.erase(drifting_.begin() + best);
       attached = true;
+    }
+  }
+
+  // --- 1b. Attach promoting sitters ---
+  // Positional, like the drifter rule: a promoting rider joins the InLine
+  // tail once it has passed the first sitter — nobody from the queue is left
+  // between it and the line, so the first sitter's dynamic retarget to the
+  // new tail lands on a rider *ahead* of it (its controller opens the slot
+  // naturally, same geometry as the drifter merge).  With no sitters left
+  // the criterion falls back to closing within engage_gap of the tail.  The
+  // follow subsystem finishes the cut-in (offset fade) on its own.  Several
+  // arriving in one tick append in spatial order, frontmost first.  Like
+  // drifters, promoting riders are exempt from the detach rule below — the
+  // whole point of the transit is riding deliberately gapped; one that never
+  // closes just keeps riding capped (smarter handling is C4-era).
+  {
+    bool attached_p = true;
+    while (attached_p && !promoting_.empty() && !inline_.empty()) {
+      attached_p = false;
+      const RotationInput* tail = find_input(in, inline_.back());
+      int best = -1;
+      double best_pos = 0.0;
+      for (int i = 0; i < static_cast<int>(promoting_.size()); ++i) {
+        const RotationInput* p = find_input(in, promoting_[i]);
+        bool arrived;
+        if (!sitting_.empty()) {
+          const RotationInput* front_sitter = find_input(in, sitting_.front());
+          arrived = p->lon_pos > front_sitter->lon_pos;
+        } else {
+          arrived =
+              (tail->lon_pos - p->lon_pos - tail->bike_len) <=
+              params_.engage_gap;
+        }
+        if (arrived && (best < 0 || p->lon_pos > best_pos)) {
+          best = i;
+          best_pos = p->lon_pos;
+        }
+      }
+      if (best >= 0) {
+        inline_.push_back(promoting_[best]);
+        detach_timer(promoting_[best]) = 0.0;
+        promoting_.erase(promoting_.begin() + best);
+        attached_p = true;
+      }
     }
   }
 
@@ -149,7 +209,8 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
 
   // --- 4. Directives ---
   std::vector<RotationDirective> out;
-  out.reserve(inline_.size() + drifting_.size() + sitting_.size());
+  out.reserve(inline_.size() + drifting_.size() + sitting_.size() +
+              promoting_.size());
   for (size_t i = 0; i < inline_.size(); ++i) {
     RotationDirective d;
     d.id = inline_[i];
@@ -177,6 +238,20 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
     RotationDirective d;
     d.id = sitting_[k];
     d.follow = (k == 0) ? tail : sitting_[k - 1];
+    out.push_back(d);
+  }
+  for (RiderId id : promoting_) {
+    RotationDirective d;
+    d.id = id;
+    d.follow = tail; // dynamic: always the current tail
+    if (tail >= 0) {
+      // Advance side: opposite the swing (windward) side — move up on the
+      // sheltered flank, clear of drifting traffic.
+      const RotationInput* me = find_input(in, id);
+      d.move_up_side = (std::fabs(me->crosswind) > 1e-6)
+                           ? (me->crosswind > 0.0 ? 1.0 : -1.0)
+                           : -params_.default_side;
+    }
     out.push_back(d);
   }
   return out;

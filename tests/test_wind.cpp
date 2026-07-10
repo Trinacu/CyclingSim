@@ -40,7 +40,7 @@ static RiderConfig cfg(int id, double ftp = 250) {
                      700, 3.5,
                      65,  0.3,
                      24000, Bike::create_road(),
-                     Team("T")};
+                     kNoTeam};
 }
 
 // Three equal flat legs pointing 0, pi/2 and pi — with a wind blowing from

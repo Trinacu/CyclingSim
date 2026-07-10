@@ -418,70 +418,278 @@ Still open across D (deferred, not blockers): body-heuristic tuning when
 
 ## Workstream C — Perception & decision layer (#6)
 
-**Goal:** a per-rider `DecisionContext` (course window + rider window) driving two first
-consumers: effort pacing and group tactics. Same architecture pattern as the lateral
-pipeline (engine builds context → pure strategy object decides → engine applies).
+**Goal:** AI riders that perceive the race (course, groups, time gaps) and decide
+(pacing, tactics, cooperation) on top of the complete A/B/D machinery. Same
+architecture pattern as the lateral pipeline: engine builds context → pure strategy
+object decides → engine applies.
 
-### C1. DecisionContext (new `include/decision.h`)
+Design converged 2026-07-10 (supersedes the earlier C1–C4 sketch). Key amendments:
+teams become real entities (C-pre); time gaps are trace-based, position-indexed (C0);
+course knowledge is a separate `CourseIntel` object plus a deliberately rough W′-pace
+estimator backed by a core `cruise_speed` helper (C1); decisions live in a
+`DecisionSystem` owned by `Simulation`, not more `PhysicsEngine` members, with
+policies as *meta-controllers* above the `EffortSource` arbitration (C2); the decision
+hierarchy is race plan → per-team director (commands + rider-side feasibility clamp) →
+rider policy → existing 100 Hz controllers, while groups stay emergent — no "group
+brain", group cooperation is role declaration + rotation reconcile (C4).
 
-Two windows, both from the start:
+### C-pre. Prerequisites: team registry + MoveUp maneuver
 
-- **Course knowledge — perfect, whole course** ("the course book"): riders may query the
-  full profile. Practical API: not raw segments but digested queries the consumers need —
-  `distance_to_finish`, `avg_gradient(from, to)`, `next_climb()` (start/length/avg %),
-  `distance_to_crest()`. Backed by `ICourseView` (already on every rider); consider
-  precomputing a climb index once per course.
-- **Rider awareness — limited, ±200 m** (perception horizon, parameter): descriptors like
-  `NearbyRider` but for the decision scale: `lon_offset`, `speed`, `group ordinal/size`
-  (from the group snapshot), and (⚖️ open) whether `w_prime_frac` of others is visible —
-  recommend **no** (you can't see another rider's legs; maybe a noisy "looks fresh /
-  struggling" signal later).
-- Reuses: `GroupContext` + `PhysicsEngine::build_group_context` (include/sim.h — built,
-  never wired; this is what it was kept for), `GroupTracker` snapshot for group data.
-- **Race-style time gaps** ("chase at 0:45") as a *derived perception quantity* here
-  (and in the UI) — e.g. `gap_to_group_ahead / group_speed` from the group snapshot.
-  Confirmed 2026-07-08: nothing time-gap-shaped exists in the codebase (all gap
-  concepts are metres); it belongs here, not in D2's controller.
+**C-pre-a. Team registry.** The current `Team` in rider.h is a stub — `id` always 0,
+copied by value into every rider, so there is no shared entity for a director to
+live on.
 
-### C2. Decision cadence
+- New `include/team.h`: `TeamId = int` + `kNoTeam = -1` (add in mytypes.h for
+  symmetry with `RiderId`/`GroupId`); `struct Team { TeamId id; std::string name;
+  std::vector<RiderId> roster; }` (race-plan fields land in C4); `class TeamRegistry`
+  (`add_team(name) → TeamId`, `get`, `team_of(RiderId)`).
+- `Rider`/`RiderConfig` hold `TeamId team_id` instead of a by-value `Team`; delete the
+  old class. `PhysicsEngine` owns the registry (the decision phase reads it on the
+  physics thread); `add_rider` registers the rider with its team. Update
+  `appstate.cpp` (`Team("Team1")` → registry) and the snapshot fill
+  (`RiderSnapshot::team_id` sourced from the new id).
+- Gate: build + existing suite green (registry assertions land with the C2 tests).
+  This landing also carries this PLAN.md rewrite.
 
-Decisions don't need 100 Hz. New engine phase `step_decision()` runs every N physics
-steps (e.g. 1 Hz sim-time; parameter). Outputs are *held* between ticks:
-- `target_effort` (feeds existing `PhysicsEngine::set_rider_effort` path)
-- lateral behavior selection (assign/clear `ILateralBehavior` — mechanism exists:
-  `set_rider_behavior`)
-- `GroupRole` declaration (mechanism exists: role declarations in the group phase)
+**C-pre-b. SittingIn → InLine promotion.** Completes the D3 rotation mechanics:
+a roster member can drift back and sit in, but there is no way back into the
+rotation — promotion is rotation-internal (sub-container change for an existing
+member), decision-free, driven by an engine API exactly like D2/D3 (tests/UI call
+it now; C4's directives call the same API later). Not to be confused with the
+*MoveUp join* (a non-member from the pack joining the paceline) — that is
+decision-layer and lands in C4, reusing the transit mechanics built here.
 
-Note: the per-rider *effort source* mode (Schedule/Manual/Follow) lands with D2 — C2's
-job becomes selecting modes/targets, not inventing the arbitration.
+- **First-sitter fast path**: already on the last InLine wheel (rotation.h: first
+  SittingIn follows last InLine), so promotion is pure roster bookkeeping — moved
+  from `sitting_` to the `inline_` tail, no maneuver.
+- **Deeper sitters** physically overtake the sitters ahead: ride up the
+  **rotation's advance side** (same crosswind-sign rule as the D3 swing side) to
+  the InLine tail; the sitting queue behind re-links via the existing dynamic
+  follow graph, closing the vacated gap automatically.
+- **Transit state machine** (write it generalized — C4's MoveUp join reuses it):
+  while in transit the maneuver owns `lat_target` (one lane out on the advance
+  side); effort cap `max(1.0 · ftp, 1.2 · P_hold)` with
+  `P_hold = sim_cruise_power(v_group, current draft factor)`. Completion when the
+  wheel gap to the target slot reaches the follow setpoint → enters `inline_` at
+  the tail, lat_target handed back to the follow subsystem's wake-axis logic.
+- Needs pulled forward from C1a: **`sim_cruise_power(rider, env, v)`** in the C core —
+  direct evaluation of the resistive force terms at speed v (aero incl. `cda_factor`,
+  rolling, gravity, bearings, drivetrain), factored out of the ACCEL_FORCE solver's
+  force math so the two can never drift. (The Newton inverse `sim_cruise_speed`
+  stays in C1a.)
+- Engine surface (physics-thread-only, like follow/rotation): `promote_sitter(RiderId)`.
+- Tests (tests/test_rotation.cpp + a core round-trip check for cruise_power):
+  promotion from sitting index 2 (passes two riders, effort never exceeds cap,
+  enters InLine at tail, then gets cycled into pulling); first-sitter fast path is
+  instant; sitting queue closes the vacated gap.
 
-### C3. First consumer 1 — effort pacing (`IEffortPolicy`)
+### C0. RaceClock — race-style time gaps & checkpoints
 
-Interface parallel to `ILateralBehavior`: `double compute_target_effort(const
-DecisionContext&) const`. First concrete policy: **W′-budgeted climb pacing** — push
-above FTP on gradients steep enough to matter, sized so W′ hits its floor near the
-crest; recover on descents. Coexists with `EffortSchedule` (scripted TT riders keep
-schedules; AI riders get policies — per-rider choice).
+New `include/race_clock.h`, `src/race_clock.cpp` — pure and engine-free, same
+isolation as drafting/follow/rotation. Replaces the old "gap/speed" idea: a real
+trace-based measurement (time gap = now − when the rider ahead crossed my position),
+robust on gradients where the instantaneous estimate is wrong.
 
-### C4. First consumer 2 — group tactics
+- **Crossing-time grid, per rider**: spacing parameter `grid_spacing = 100 m`;
+  `std::vector<double>` of `ceil(course_len/spacing)+1` entries, unset = NaN.
+  `record(id, pos_before, pos_after, t, dt)` writes every gridline crossed this step
+  with sub-step linear interpolation. O(1) lookups (index + lerp), memory bounded by
+  course length, whole-course history for free.
+- **Named checkpoints** at arbitrary positions — **course data**: `Course` gains a
+  `struct Checkpoint { double pos; std::string label; }` list set at construction
+  (finish implicit at `total_length`; TT timechecks / KOM lines explicit — this is
+  what the commented-out `isCheckpoint(pos)` stub in ICourseView was groping at).
+  RaceClock reads the list from `Course` at setup: same interpolation, exact
+  per-rider capture stored permanently. Finish ordering can be decided by
+  hundredths, so checkpoints never go through the grid.
+- **Queries**: `crossing_time(id, pos) → optional<double>` (nullopt if not yet
+  there); `time_gap(ahead, behind_pos, now)`. Group-level gap ("chase at 0:45") is
+  derived by the caller from the `GroupSnapshot`: `ahead` = rearmost member of the
+  group ahead (`Group::back_pos`).
+- Accepted roughness (state in header): lerp assumes constant speed within a cell —
+  worst case ≈ ±1 s across a sharp gradient transition; reads as race-radio precision.
+- **DecisionSystem skeleton** so RaceClock has a home from day one: new
+  `include/decision.h`, `src/decision.cpp` with `class DecisionSystem` holding the
+  RaceClock; only entry point `observe(const PhysicsEngine&, t, dt)` (per rider one
+  gridline-index comparison per step). Owned by `Simulation`, called from
+  `step_fixed` after `engine.update(dt)`. `decide()` arrives in C2.
+- **UI**: `Group`/`FrameSnapshot` gains `double time_gap_ahead` (−1 = leading group),
+  filled at snapshot time; render next to the existing group labels.
+- Tests `tests/test_race_clock.cpp`: constant-speed pair → exact gaps everywhere;
+  speed step inside a cell → bounded error; checkpoint capture exact vs analytic;
+  query ahead of a rider's progress → nullopt.
 
-Uses the rider window + group data: sit-in vs. chase vs. drift-back decision as effort
-deltas on top of the pacing policy (e.g. "gap to group ahead < X and W′ > Y → chase").
-Declares `GroupRole` intent (paceline participation) — finally exercising
-`build_group_context`.
+### C1. CourseIntel + core cruise helpers + W′-pace estimator + DecisionContext
 
-⚖️ Open: how pacing (C3) and tactics (C4) compose — recommend tactics as a bounded
-modifier on the pacing baseline (`effort = clamp(pacing + tactic_delta, …)`), decided
-per tick.
+**C1a. Core cruise-speed helper** (`core/include/sim_core.h`, `core/src/sim_core.c`):
+- `sim_cruise_speed(rider, env, power)` — Newton (bisection fallback) on
+  `sim_cruise_power(v) = power` (~5–10 iterations), inverting the direct-evaluation
+  helper that already landed with C-pre-b.
+- Test `tests/core/test_cruise_speed.c` (no C++ target-name collision — the
+  `test_wind_core.c` precedent): cruise_speed vs solver terminal velocity;
+  `cruise_power(cruise_speed(P)) ≈ P` round-trip; slope/headwind variants.
 
-### C. Files & tests
+**C1b. CourseIntel** (new `include/course_intel.h`, `src/course_intel.cpp`):
+- Built **once** from `Course` at sim start; one shared `const` instance (perfect
+  knowledge; per-team noisy digests are a future hook). Needs
+  `const std::vector<Segment>& get_segments() const` added to `Course` (private today).
+- Climb index: merge consecutive uphill segments (min avg gradient ~2 %, tolerate
+  dips shorter than ~200 m) → `struct Climb { start, length, avg_gradient, crest_pos }`.
+- Queries: `distance_to_finish(pos)`, `next_climb(pos)`, `distance_to_crest(pos)`
+  (nullopt when none ahead), `avg_gradient(from, to)` (O(1) via `get_altitude`).
+  (Checkpoints are *not* CourseIntel's job — they are `Course` data, consumed by
+  RaceClock in C0; CourseIntel only digests the profile.)
+- Tests `tests/test_course_intel.cpp`: climb digest on a synthetic segment list
+  (known merges/dips) and on `create_endulating`; edge cases (final descent, past
+  last crest, pos 0).
 
-- New: `include/decision.h`, `src/decision.cpp` (context build + policies).
-- Touch: `include/sim.h`, `src/sim.cpp` (`step_decision()` phase, cadence), rider/engine
-  glue for per-rider policy assignment.
-- Tests: context construction (windows, climb digest) against a synthetic course; policy
-  unit tests (W′ budget honored, crest detection); determinism (same inputs → same
-  decisions).
+**C1c. W′-budget pace estimator** (pure free function in decision.h/.cpp):
+`estimate_wprime_pace(dist, avg_gradient, avg_wind, wbal_J, ftp_W, draft_factor,
+phys) → power` — the constant power that spends the W′ budget exactly over `dist`.
+- Fixed point: `P₀ = ftp`; ~3×: `v = sim_cruise_speed(P)`, `T = dist/v`,
+  `P = ftp + wbal/T`; clamp `[ftp, max]`. Sub-µs per rider — runs every decision
+  tick (rolling re-plan self-corrects as reality diverges).
+- Deliberately rough (the honesty is the feature): averaged gradient/wind over the
+  window; ignores FTP degradation and altitude; linear W′ depletion above FTP
+  (matches `energy_update`).
+- Draft factor input: for a rotation of n riders,
+  `avg over k=0..n−1 of paceline_table[min(k, 5)]` (entries clamp at the last value,
+  so n > 6 averages in multiple 0.41s); assumes ideal alignment (falloff·align ≈ 1).
+  Solo → 1.0; sitting in at line depth d → `paceline_table[min(d, 5)]`.
+  **No steep-gradient cutoff**: at climbing speeds the aero term inside cruise_speed
+  is already small, so draft influence vanishes by itself — branch-free.
+- Tests (start `tests/test_decision.cpp`): offline sim (`OfflineSimulationRunner`)
+  holding the estimated pace over a synthetic climb → W′ within ~10–15 % of the
+  floor at the crest; draft averaging incl. the n > 6 clamp.
+
+**C1d. DecisionContext** (decision.h; built per rider per decision tick):
+- Own state: pos, speed, heading, wbal (J + fraction), ftp, `effort_limit`, current
+  `target_effort` + EffortSource, rotation membership (member / slot depth / size —
+  via `get_paceline_rotation`).
+- Group: `GroupContext` via `PhysicsEngine::build_group_context` (built, never
+  wired — this is what it was kept for; make public or expose a bulk builder).
+- Rider window ±200 m (perception-horizon param): per nearby rider
+  `{ id, lon_offset, speed, group ordinal & size }` — **no** `w_prime` of strangers
+  (decided; teammate W′ flows through the team director in C4, not the context).
+- Time gaps: `time_gap_to_group_ahead`/`behind` precomputed from RaceClock +
+  snapshot; const pointers to `CourseIntel`/`RaceClock` for ad-hoc queries.
+- Directive inbox (filled by the team director from C4 on; empty until then).
+
+### C2. Decision cadence, `decide()`, policy-as-meta-controller
+
+- `DecisionSystem::decide(PhysicsEngine&)` fired from `step_fixed` via sim-time
+  accumulator every `decision_period` (param, default **1.0 s**). Cadence ≠ thread:
+  everything stays on the physics thread; the single-writer model (command queue,
+  physics-thread-only APIs) is untouched.
+- **Determinism**: iterate riders in **sorted RiderId order** (`riders` is an
+  `unordered_map` — unspecified order would make cross-rider decisions
+  nondeterministic). Test: two identical runs → identical decision streams.
+- **`IRiderPolicy`**: `PolicyOutput decide(const DecisionContext&)` with
+  `{ optional<double> target_effort, optional<RiderId> follow, GroupRole role_decl,
+  optional<Maneuver> maneuver }`. Outputs **held** between ticks; decisions at tick N
+  apply from N+1 (one-tick reaction delay is intended).
+- **Arbitration**: policies sit *above* `EffortSource` and operate it — they may
+  set/clear follow targets and write effort. Add `EffortSource::Policy`; derived
+  priority **Follow > Schedule > Policy > Manual**; assigning a policy replaces any
+  schedule (mutually exclusive — TT riders keep schedules, AI riders get policies).
+  Policy effort writes use a dedicated engine path, not the queued UI path (decide()
+  already runs on the physics thread) and bypass the "no-op unless Manual" guard.
+- **Rotation reconcile** (decision cadence): form/update one `PacelineRotation` per
+  group from riders declaring `GroupRole::Paceline`. Manual `set_paceline_rotation`
+  wins — reconcile skips riders in a manually installed rotation. New members are
+  admitted **only when physically arrived** (via the MoveUp join, C4) —
+  declared-but-pending until then; until C4 lands, reconcile only forms rotations
+  from riders already physically in line (the C2 test scenario).
+  `PacelineRotation` gains `add_member(RiderId, sits_in)` for arrived joiners.
+- **Snapshot/UI**: `RiderSnapshot` += policy name/state + effective EffortSource —
+  closes the deferred D-leftover "UI exposure of follow/rotation modes".
+- Tests (test_decision.cpp): cadence (fires every N steps, held between);
+  determinism; arbitration transitions (policy↔schedule↔follow, slider inert when a
+  policy is assigned); reconcile respects manual rotations.
+
+**Milestone between C2 and C3 — interactive feel-check session** (user present;
+blocks C3/C4 sign-off, not their start): A's `kPenaltyScale`/`kMaxPenaltyRate`
+(believable lateral speed dip + natural centering) and B2's yaw constants
+(`kYawDragGain` etc., rider.cpp locals — few-% CdA at 3.5 m/s @ 60°, sensible
+windward swings, echelon worth forming) against the appstate rotating-paceline demo.
+Do it before AI behavior lands so "the paceline looks weird" stays attributable to
+constants, not decisions.
+
+### C3. First consumer — W′-budgeted pacing policy
+
+`WPrimePacingPolicy : IRiderPolicy`:
+- Horizon each tick: next crest if a climb lies within ~`horizon_km` (CourseIntel),
+  else the finish.
+- `target_power = estimate_wprime_pace(...)` with a **reserve**: budget
+  `wbal − wbal_floor_frac · w_prime` (param, default 0.15). Effort conversion:
+  `target_effort = target_power / ftp` (effort is FTP-relative throughout the core).
+- Descents / no horizon: recovery effort (param, ~0.6) so W′ recharges.
+- Draft assumption from own rotation membership (C1c rules). Coexists with
+  `EffortSchedule` per the C2 arbitration.
+- **Verification scenario** (the C gate): offline run on `create_endulating` — one
+  policy rider vs one `StepEffortSchedule` rider at equal average power; assert the
+  policy rider crests with `wbal_fraction ≈ floor ± tol` and arrives no later. Also
+  eyeball on the plot screen.
+- Unit tests: budget honored on synthetic climbs (steep-short vs long-shallow);
+  horizon handoff at the crest; recovery below FTP on descents.
+
+### C4. Team director, tactics, MoveUp maneuver
+
+**Directives & director:**
+- `struct Directive { enum Type { Free, Pull, SitIn, Chase, ProtectLeader }; … }`;
+  `struct RacePlan { RiderId leader; per-rider default roles; simple rules }` — per
+  team, set at scenario setup (C-pre registry).
+- `TeamDirector` (one per team, inside DecisionSystem; runs **before** rider policies
+  each decision tick, teams iterated in TeamId order): sees its own riders' full
+  DecisionContexts **including W′** (radio — deliberately the only cross-rider W′
+  visibility in the system); emits one Directive per rider into the context inbox.
+- **Commands with rider-side clamp**: policies obey directives but always clamp to
+  feasibility (`effort_limit`, W′ floor) — a cooked rider can't chase; the clamp is
+  the final authority, giving suggestion-like softness with no arbitration machinery.
+
+**Tactics (rider policy layer):**
+- Sit-in / chase / drift as a **bounded delta** on the pacing baseline:
+  `effort = clamp(pacing + tactic_delta, 0, effort_limit)`.
+- Chase rule uses C0 gaps: `time_gap_to_group_ahead < gap_max && wbal_frac > reserve
+  → chase`; declares `GroupRole::Paceline` to join the chase rotation.
+
+**MoveUp join** (Body → paceline; decision-triggered — this is what makes it
+C4-era, unlike C-pre-b's rotation-internal sitter promotion):
+- A non-member who decides to participate (own tactic, Chase declaration, or a
+  Pull/SitIn directive) physically rides up from the pack to the line tail before
+  the C2 reconcile admits them (`add_member`).
+- Mechanics: **reuses the C-pre-b transit state machine** verbatim — advance-side
+  `lat_target`, effort cap `max(1.0 · ftp, 1.2 · P_hold)`, completion at the follow
+  setpoint. New here is only the engine entry point for non-members
+  (`request_paceline_join(RiderId, sits_in)`) and the decision-side callers.
+- A Pull directive to a current sitter resolves to C-pre-b's `promote_sitter`
+  instead.
+
+Tests: director determinism + clamp (exhausted rider ignores Chase); directive flow
+(Pull → rider ends up puller within N ticks, offline — exercising join/promote
+end-to-end from a directive); join-from-pack arrives and merges without a lateral
+step.
+
+### C. Order, sizes, files
+
+```
+C-pre  teams + sitter promotion    ~1 session   team.h(+cpp), mytypes.h, rider.*, sim.* (promote API),
+                                                sim_core.* (cruise_power), rotation.*, follow.*, appstate.cpp
+C0     RaceClock + skeleton        ~1 session   race_clock.*, decision.* (observe), course.* (checkpoints), sim.*, snapshot.h, UI touch
+C1     intel+core+estimator+ctx    ~1–1.5       course_intel.*, sim_core.* (cruise_speed), course.h, decision.*
+C2     cadence+policies+reconcile  ~1           decision.*, sim.*, rotation.h/.cpp, snapshot.h, UI touch
+       — feel-check session (interactive, A + B2 constants) —
+C3     pacing policy               ~1           decision.*, analysis scenario
+C4     director+tactics+MoveUp join ~1.5        decision.*, team.h, sim.* (join API), rotation.*
+```
+
+Existing pieces reused (do not rebuild): `build_group_context` (sim.h),
+`GroupContext` (group.h), `paceline_table` (drafting_params.h), follow API
+(`set_follow_target`, sim.h), `PacelineRotation` (rotation.h), `EffortSource`
+arbitration (sim.h), `wake_axis_lat` (drafting.h), `OfflineSimulationRunner`
+(analysis.h), `energy_wbal`/`energy_update` (sim_core), `create_endulating`.
+decision.h/.cpp starts as one pair; split (policy.h, director.h) only past ~500
+lines.
 
 ---
 
@@ -494,16 +702,21 @@ B2 (crosswind)      ──►  DONE (2026-07-10; yaw drag into cda_factor — ec
 D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
-C  (decision layer) ──►  biggest; C4 declares roles that drafting rewards
+C  (decision layer) ──►  biggest; sub-order C-pre → C0 → C1 → C2 →
+                         (feel-check) → C3 → C4; C4 declares roles that
+                         drafting rewards
 ```
 
-Rough sizes: B1 ≈ half a session; B2 ≈ half–one;
-C ≈ several, with its own design checkpoints (C1 API review before C3/C4).
+Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
+breakdown in "C. Order, sizes, files" above).
 
 ## Verification (all workstreams)
 
 Per landing: `cmake --build build -j` (0 warnings) + `ctest` (all green) + headless
 smoke run (SIGTERM → exit 0). B2 additionally needs an interactive check (echelon
 stagger + windward swings under angled wind; gates the ⚖️ yaw constants), as does A's
-still-open penalty-feel tuning; C needs a scripted scenario run (e.g. plot screen: one
-AI rider with climb-pacing policy vs. one scheduled rider on `create_endulating`).
+still-open penalty-feel tuning (both bundled into the C2→C3 feel-check milestone);
+C needs scripted scenario runs — the C3 offline scenario (policy vs. schedule on
+`create_endulating`) and a C4 chase scenario (two groups, director orders a chase,
+gap closes and the time-gap readout falls), both runnable headless — plus one
+interactive plot-screen/appstate eyeball at C3 and C4.

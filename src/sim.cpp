@@ -32,6 +32,7 @@ bool PhysicsEngine::add_rider(const RiderConfig cfg) {
   std::lock_guard<std::mutex> lock(frame_mtx);
   r->set_course(course);
   riders.emplace(cfg.rider_id, std::move(r));
+  teams_.register_rider(cfg.rider_id, cfg.team_id);
   return true;
 }
 
@@ -162,6 +163,10 @@ void PhysicsEngine::set_paceline_rotation(
 
 void PhysicsEngine::clear_paceline_rotation() { rotation_.reset(); }
 
+bool PhysicsEngine::promote_sitter(RiderId id) {
+  return rotation_ ? rotation_->promote_sitter(id) : false;
+}
+
 // Rotation phase: feed the coordinator flat member state, apply its
 // directives to the follow subsystem.  Runs right before step_follow_apply
 // so this tick's controllers see this tick's follow graph.
@@ -221,6 +226,20 @@ void PhysicsEngine::step_rotation_apply(double dt) {
       else if (seed > max_effort)
         seed = max_effort;
       fit->second.drift_integrator = seed;
+    }
+
+    if (d.move_up_side != 0.0) {
+      fit->second.approach_side = d.move_up_side;
+      // Move-up effort cap (C-pre-b): 20% above the power needed to hold the
+      // line's speed with the rider's current draft, floored at threshold —
+      // enough to gain ground, never a sprint.  Recomputed every tick: as the
+      // rider pulls out of the shelter its P_hold (and so the cap) rises.
+      auto tit = riders.find(d.follow);
+      const Rider& me = *it->second;
+      if (tit != riders.end() && me.get_ftp() > 0.0) {
+        const double p_hold = me.cruise_power(tit->second->get_speed());
+        fit->second.effort_cap = std::max(1.0, 1.2 * p_hold / me.get_ftp());
+      }
     }
   }
 
@@ -286,6 +305,28 @@ void PhysicsEngine::step_follow_apply(double dt) {
             (in.gap <= 0.0) ? 1.0 : 1.0 - in.gap / setpoint;
         lat += fs.side * follow_params_.swing_offset_radii * r.get_radius() *
                fade;
+      }
+    }
+
+    // Move-up transit (sitter promotion, C-pre-b; the C4 join reuses this):
+    // approach the tail from behind riding offset to the advance side, effort
+    // clamped to the cap set by the rotation phase.  The offset fades to 0
+    // over the last approach_fade_len metres above the setpoint, so the
+    // cut-in ends exactly on the wake axis; at the setpoint the transit is
+    // complete and clearing causes no lateral step.
+    if (fs.approach_side != 0.0) {
+      const double setpoint =
+          follow_params_.d0 + follow_params_.h * in.own_speed;
+      if (in.gap <= setpoint) {
+        fs.approach_side = 0.0;
+        fs.effort_cap = -1.0;
+      } else {
+        if (fs.effort_cap >= 0.0)
+          effort = std::min(effort, fs.effort_cap);
+        const double fade = std::min(
+            1.0, (in.gap - setpoint) / follow_params_.approach_fade_len);
+        lat += fs.approach_side * follow_params_.swing_offset_radii *
+               r.get_radius() * fade;
       }
     }
 
@@ -679,6 +720,11 @@ void Simulation::set_paceline_rotation(std::vector<RotationMember> roster,
 void Simulation::clear_paceline_rotation() {
   std::scoped_lock lock(commands_mtx);
   pending_commands.push_back([this]() { engine.clear_paceline_rotation(); });
+}
+
+void Simulation::promote_sitter(RiderId id) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this, id]() { engine.promote_sitter(id); });
 }
 
 EffortSource Simulation::get_effort_source(RiderId rider_id) const {

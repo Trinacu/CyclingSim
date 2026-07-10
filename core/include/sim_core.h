@@ -180,6 +180,14 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
                     StepDiagnostics* diag /* may be NULL */
 );
 
+/* Steady-state (cruise) crank power required to hold speed v: resistive
+ * forces at v — aero (incl. cda_factor), rolling, gravity, bearings —
+ * times v, inflated by drivetrain loss.  Shares resistive_force() with the
+ * ACCEL_FORCE solver, so the two can never drift apart.  Perception /
+ * decision helper (C-pre-b move-up cap, C1 pace estimator); the solvers
+ * themselves do not call it.  Returns 0 for v <= 0. */
+double sim_cruise_power(const RiderState* r, const EnvState* env, double v);
+
 #ifdef __cplusplus
 }
 #endif

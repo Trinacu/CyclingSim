@@ -49,7 +49,7 @@ AppState::AppState() {
 
   runner->set_time_factor(0.2);
 
-  Team team("Team1");
+  TeamId team = sim->get_engine()->add_team("Team1");
   RiderConfig cfg = {0,   "Pedro", 320, 6,   2,     0.05,
                      700, 3.5,     90,  0.5, 24000, Bike::create_road(),
                      team};

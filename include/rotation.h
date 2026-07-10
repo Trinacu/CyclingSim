@@ -54,6 +54,11 @@ struct RotationDirective {
   std::optional<double> set_effort; // present on the promotion tick only
   RiderId follow = -1;              // valid when !pulling
   double swing_side = 0.0;          // +1/-1 on the swing-off tick only
+  double move_up_side = 0.0;        // +1/-1 every tick while in move-up
+                                    // transit (sitter promotion, C-pre-b);
+                                    // the engine applies the advance-side
+                                    // offset + effort cap via the follow
+                                    // subsystem
 };
 
 class PacelineRotation {
@@ -71,13 +76,25 @@ public:
   // follow targets (they revert to plain riders).
   const std::vector<RiderId>& removed_last_tick() const { return removed_; }
 
+  // SittingIn -> InLine promotion (C-pre-b).  The first sitter is already on
+  // the last InLine wheel, so it moves to the InLine tail immediately (pure
+  // bookkeeping).  A deeper sitter enters move-up transit: it rides up the
+  // advance side past the sitters ahead (directive: follow the tail +
+  // move_up_side) and is appended to InLine once it has passed the first
+  // sitter (or, with no sitters left, closed to within engage_gap of the
+  // tail) — the follow subsystem finishes the cut-in (offset fade) on its
+  // own, same decoupling as the drifter merge.
+  // False when the rider is not a sitter or there is no line to join.
+  bool promote_sitter(RiderId id);
+
   // Introspection (tests / debug UI).
   RiderId puller() const { return inline_.empty() ? -1 : inline_.front(); }
   int inline_count() const { return static_cast<int>(inline_.size()); }
   int drifting_count() const { return static_cast<int>(drifting_.size()); }
+  int promoting_count() const { return static_cast<int>(promoting_.size()); }
   int member_count() const {
     return static_cast<int>(inline_.size() + drifting_.size() +
-                            sitting_.size());
+                            sitting_.size() + promoting_.size());
   }
   bool is_member(RiderId id) const;
 
@@ -87,6 +104,8 @@ private:
   std::vector<RiderId> inline_;   // rotators in line, front (puller) first
   std::vector<RiderId> drifting_; // rotators merging back, oldest swing first
   std::vector<RiderId> sitting_;  // SittingIn members, front first
+  std::vector<RiderId> promoting_; // sitters in move-up transit toward the
+                                   // InLine tail (C-pre-b)
 
   // Per-member time spent detached (gap to the rider ahead > detach_gap).
   std::vector<std::pair<RiderId, double>> detach_timers_;

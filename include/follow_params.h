@@ -29,6 +29,12 @@ typedef struct FollowParams {
   double drift_kp = 2.0;    // effort per (m/s) of speed error
   double drift_ki = 0.4;    // effort per (m/s · s)
   double swing_offset_radii = 3.0;
+
+  // Move-up transit (C-pre-b): the advance-side offset (swing_offset_radii,
+  // shared with the drift merge) fades to 0 over the last approach_fade_len
+  // metres of wheel gap above the setpoint, so the cut-in ends exactly on
+  // the wake axis.
+  double approach_fade_len = 2.0; // m
 } FollowParams;
 
 #endif

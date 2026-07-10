@@ -285,6 +285,92 @@ static void test_detach_removal() {
         "detach: inline rotator removed too");
 }
 
+// SittingIn -> InLine promotion (C-pre-b), pure coordinator: fast path,
+// move-up directives, advance side, positional attach, queue re-link.
+static void test_promote_sitter() {
+  auto make = [](double crosswind = 0.0) {
+    auto roster = rotators({1, 2, 3});
+    roster.push_back({4, true});
+    roster.push_back({5, true});
+    roster.push_back({6, true});
+    auto rot = PacelineRotation(roster, RotationParams{});
+    // Settle the roster once so directives are current.
+    rot.tick(0.01, engaged_line({1, 2, 3, 4, 5, 6}, crosswind));
+    return rot;
+  };
+
+  {
+    PacelineRotation rot = make();
+    check(!rot.promote_sitter(9), "promote: unknown rider rejected");
+    check(!rot.promote_sitter(2), "promote: inline rider rejected");
+  }
+  {
+    // First sitter: pure bookkeeping — instantly InLine, no transit.
+    PacelineRotation rot = make();
+    check(rot.promote_sitter(4), "promote: first sitter accepted");
+    check(rot.inline_count() == 4 && rot.promoting_count() == 0,
+          "promote: first-sitter fast path is instant");
+    const auto d = rot.tick(0.01, engaged_line({1, 2, 3, 4, 5, 6}));
+    check(dir_for(d, 4) && dir_for(d, 4)->follow == 3,
+          "promote: fast-path rider follows the old tail");
+    check(dir_for(d, 5) && dir_for(d, 5)->follow == 4,
+          "promote: first sitter now chains behind the new tail");
+  }
+  {
+    // Deep sitter: enters transit, follows the tail with move_up_side set.
+    PacelineRotation rot = make();
+    check(rot.promote_sitter(6), "promote: deep sitter accepted");
+    check(rot.promoting_count() == 1 && rot.inline_count() == 3,
+          "promote: deep sitter in transit, line unchanged");
+    check(rot.is_member(6) && rot.member_count() == 6,
+          "promote: transit rider still a member");
+    auto d = rot.tick(0.01, engaged_line({1, 2, 3, 4, 5, 6}));
+    const auto* p = dir_for(d, 6);
+    check(p && p->follow == 3, "promote: transit rider follows the tail");
+    check(p && p->move_up_side == -1.0,
+          "promote: still air advance side opposes default swing side (+1)");
+    check(dir_for(d, 5) && dir_for(d, 5)->follow == 4,
+          "promote: vacated queue slot re-links (5 follows 4)");
+
+    // Attach is positional: passing the first sitter (4) joins the line.
+    std::map<int, double> pos = {{1, 100.0}, {2, 98.25}, {3, 96.5},
+                                 {4, 94.75}, {5, 93.0},  {6, 94.9}};
+    std::vector<RotationInput> in;
+    for (const auto& [id, x] : pos)
+      in.push_back(ri(id, x));
+    d = rot.tick(0.01, in);
+    check(rot.inline_count() == 4 && rot.promoting_count() == 0,
+          "promote: attaches once past the first sitter");
+    check(dir_for(d, 6) && dir_for(d, 6)->follow == 3 &&
+              dir_for(d, 6)->move_up_side == 0.0,
+          "promote: attached rider is a plain inline follower");
+    check(dir_for(d, 4) && dir_for(d, 4)->follow == 6,
+          "promote: first sitter retargets to the new tail");
+  }
+  {
+    // Advance side under crosswind: opposite the (windward) swing side.
+    PacelineRotation rot = make(2.0);
+    rot.promote_sitter(6);
+    auto d = rot.tick(0.01, engaged_line({1, 2, 3, 4, 5, 6}, 2.0));
+    check(dir_for(d, 6) && dir_for(d, 6)->move_up_side == 1.0,
+          "promote: +crosswind moves up leeward (+1, opposite swing)");
+  }
+  {
+    // Middle sitter: passes only the first sitter; last sitter re-links.
+    PacelineRotation rot = make();
+    check(rot.promote_sitter(5), "promote: middle sitter accepted");
+    const auto d = rot.tick(0.01, engaged_line({1, 2, 3, 4, 5, 6}));
+    check(dir_for(d, 6) && dir_for(d, 6)->follow == 4,
+          "promote: queue closes around the departed middle sitter");
+  }
+  {
+    // No line to join: all-sitter roster rejects promotion.
+    std::vector<RotationMember> roster = {{1, true}, {2, true}};
+    PacelineRotation rot(roster, RotationParams{});
+    check(!rot.promote_sitter(1), "promote: no inline tail -> rejected");
+  }
+}
+
 // Members absent from the input (rider removed from the engine) are silently
 // dropped from the roster.
 static void test_missing_input_prune() {
@@ -305,7 +391,7 @@ static RiderConfig cfg(int id, double ftp = 250, double w_prime = 24000) {
                      700, 3.5,
                      65,  0.3,
                      w_prime, Bike::create_road(),
-                     Team("T")};
+                     kNoTeam};
 }
 
 static double wheel_gap(const PhysicsEngine& e, int follower, int leader) {
@@ -515,6 +601,107 @@ static void test_engine_weak_member_removed() {
   check(rot->is_member(2) && rot->is_member(3), "weak: the rest stay");
 }
 
+// C-pre-b end-to-end, transit isolated (no swings): a deep sitter promoted
+// into a live line rides up the advance side past the sitters ahead with
+// capped effort, slots in at the tail, and the line reforms around it.
+static void test_engine_promote_deep_sitter() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  PhysicsEngine eng(&course);
+  settle_chain(eng, 6, 0.85, 20000); // 200 s
+
+  RotationParams rp;
+  rp.pull_time = 1e9; // no swings: isolate the transit
+  auto roster = rotators({1, 2, 3});
+  for (int id = 4; id <= 6; ++id)
+    roster.push_back({id, true});
+  eng.set_paceline_rotation(roster, rp);
+  const auto* rot = eng.get_paceline_rotation();
+  for (int i = 0; i < 500; ++i) // let the rotation take ownership
+    eng.update(dt);
+
+  check(eng.promote_sitter(6), "engine promote: accepted");
+  check(rot->promoting_count() == 1, "engine promote: in transit");
+
+  // During transit: effort capped (an uncapped gap controller facing metres
+  // of error would slam max_effort = 6), but genuinely pushing; riding
+  // off-axis to pass the sitters.
+  double max_eff = 0.0, max_off = 0.0;
+  int transit_steps = 0;
+  while (rot->promoting_count() > 0 && transit_steps < 12000) {
+    eng.update(dt);
+    ++transit_steps;
+    max_eff = std::max(max_eff, eng.get_rider_by_id(6)->get_target_effort());
+    const auto lt = eng.get_rider_by_id(6)->get_lat_target();
+    if (lt.has_value())
+      max_off = std::max(
+          max_off,
+          std::fabs(*lt - eng.get_rider_by_id(3)->get_lat_pos()));
+  }
+  std::cout << "  [promote] transit " << transit_steps * dt << " s, max effort "
+            << max_eff << ", max offset " << max_off << " m\n";
+  check(transit_steps < 12000, "promote: transit completed in time");
+  check(rot->promoting_count() == 0 && rot->inline_count() == 4,
+        "promote: attached to the line");
+  check(max_eff <= 1.3, "promote: effort capped — never a sprint");
+  check(max_eff >= 0.99, "promote: pushing at least threshold effort");
+  const double radius = eng.get_rider_by_id(6)->get_radius();
+  check(max_off > 2.0 * radius, "promote: rides off-axis during transit");
+
+  for (int i = 0; i < 3000; ++i) // 30 s: cut-in + slot-open settle
+    eng.update(dt);
+
+  // Reformed order: 1, 2, 3, 6, 4, 5 — the promoted rider passed both
+  // sitters and they chain in behind it.
+  check(eng.get_rider_by_id(6)->get_pos() > eng.get_rider_by_id(4)->get_pos(),
+        "promote: passed the first sitter");
+  check(eng.get_rider_by_id(4)->get_pos() > eng.get_rider_by_id(5)->get_pos(),
+        "promote: sitting queue order preserved behind");
+  const auto lt6 = eng.get_rider_by_id(6)->get_lat_target();
+  check(lt6.has_value() &&
+            std::fabs(*lt6 - eng.get_rider_by_id(3)->get_lat_pos()) < radius,
+        "promote: back on the wake axis after the cut-in");
+  std::cout << "  [promote] settled gaps: 6->3 " << wheel_gap(eng, 6, 3)
+            << ", 4->6 " << wheel_gap(eng, 4, 6) << ", 5->4 "
+            << wheel_gap(eng, 5, 4) << "\n";
+  check(wheel_gap(eng, 6, 3) > -2.0 && wheel_gap(eng, 6, 3) < 3.0,
+        "promote: attached wheel gap sane");
+  check(wheel_gap(eng, 4, 6) > -2.0 && wheel_gap(eng, 4, 6) < 3.0,
+        "promote: slot opened behind the new tail");
+  check(rot->member_count() == 6, "promote: nobody dropped");
+}
+
+// With a live rotation, a promoted sitter enters the pull cycle: it
+// eventually takes the front, which a SittingIn member never does.
+static void test_engine_promote_joins_cycle() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  PhysicsEngine eng(&course);
+  settle_chain(eng, 6, 0.85, 20000);
+
+  RotationParams rp;
+  rp.pull_time = 20.0;
+  auto roster = rotators({1, 2, 3});
+  for (int id = 4; id <= 6; ++id)
+    roster.push_back({id, true});
+  eng.set_paceline_rotation(roster, rp);
+  const auto* rot = eng.get_paceline_rotation();
+  for (int i = 0; i < 500; ++i)
+    eng.update(dt);
+  check(eng.promote_sitter(6), "promote cycle: accepted");
+
+  bool pulled = false;
+  for (int i = 0; i < 40000 && !pulled; ++i) { // up to 400 s
+    eng.update(dt);
+    if (rot->puller() == 6)
+      pulled = true;
+  }
+  check(pulled, "promote cycle: promoted rider eventually pulls");
+  check(rot->member_count() == 6, "promote cycle: nobody dropped");
+  check(rot->puller() != 4 && rot->puller() != 5,
+        "promote cycle: true sitters still never pull");
+}
+
 // Two identical runs, swings and merges included, land on bit-identical
 // state.
 static void test_engine_determinism() {
@@ -575,6 +762,24 @@ static void test_simulation_api() {
         "sim api: reset clears the rotation");
 }
 
+static void test_simulation_promote() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2), cfg(3), cfg(4)});
+  sim.set_rider_effort(1, 0.5);
+
+  auto roster = rotators({1, 2, 3});
+  roster.push_back({4, true});
+  sim.set_paceline_rotation(roster, RotationParams{});
+  sim.step_fixed(dt);
+  sim.promote_sitter(4); // first sitter: instant on the next step
+  sim.step_fixed(dt);
+  const auto* rot = sim.get_engine()->get_paceline_rotation();
+  check(rot && rot->inline_count() == 4,
+        "sim api: promote_sitter via the command queue");
+}
+
 int main() {
   test_roster_directives();
   test_swing_and_promotion();
@@ -583,12 +788,16 @@ int main() {
   test_attach();
   test_pull_cycle_order();
   test_detach_removal();
+  test_promote_sitter();
   test_missing_input_prune();
   test_engine_rotation_cycles();
   test_engine_multi_drifter();
   test_engine_weak_member_removed();
+  test_engine_promote_deep_sitter();
+  test_engine_promote_joins_cycle();
   test_engine_determinism();
   test_simulation_api();
+  test_simulation_promote();
 
   if (checks_failed) {
     std::cout << checks_failed << " check(s) FAILED\n";

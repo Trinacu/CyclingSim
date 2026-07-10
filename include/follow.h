@@ -44,6 +44,16 @@ struct FollowState {
   // the setpoint (the offset has already faded to 0 there — no lateral step).
   double side = 0.0;             // +1 / -1 swing side; 0 = not merging
   double drift_integrator = 0.0; // speed-hold I, clamped [0, max_effort]
+
+  // Move-up transit (sitter promotion C-pre-b; the C4 join reuses this).
+  // approach_side != 0 means the rider is closing on the tail from behind:
+  // it rides offset to the advance side (full beyond approach_fade_len above
+  // the setpoint, fading to 0 at the setpoint) with commanded effort clamped
+  // to effort_cap.  Refreshed each tick by the rotation directive; cleared by
+  // the engine the first time the gap closes to the setpoint (the offset has
+  // already faded to 0 there — no lateral step).
+  double approach_side = 0.0; // +1 / -1 advance side; 0 = not in transit
+  double effort_cap = -1.0;   // effort units; < 0 = no cap
 };
 
 // Per-tick input, built by the engine from one-tick-stale positions (fine at

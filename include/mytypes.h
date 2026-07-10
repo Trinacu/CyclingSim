@@ -8,4 +8,8 @@ using GroupId = int;
 
 inline GroupId kNoGroup = -1;
 
+using TeamId = int;
+
+inline TeamId kNoTeam = -1;
+
 #endif

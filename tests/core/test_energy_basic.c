@@ -2,7 +2,6 @@
 #include <math.h>
 #include <stdio.h>
 
-static int nearly(double a, double b, double eps) { return fabs(a - b) < eps; }
 
 int main(void) {
   EnergyState e;

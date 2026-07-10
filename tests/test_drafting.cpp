@@ -286,7 +286,7 @@ static void test_engine_integration() {
                        700, 3.5,
                        65,  0.3,
                        24000, Bike::create_road(),
-                       Team("T")};
+                       kNoTeam};
   };
   duo.add_rider(cfg(1));
   duo.add_rider(cfg(2));

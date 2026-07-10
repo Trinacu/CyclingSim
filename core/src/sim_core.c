@@ -265,6 +265,12 @@ static double resistive_force(double v, const RiderState* r,
   return drag + roll + grav + bear;
 }
 
+double sim_cruise_power(const RiderState* r, const EnvState* env, double v) {
+  if (!r || !env || v <= 0.0)
+    return 0.0;
+  return resistive_force(v, r, env) * v / (1.0 - r->drivetrain_loss);
+}
+
 static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
   double v = r->speed;
 
