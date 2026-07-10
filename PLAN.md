@@ -645,7 +645,42 @@ phys) → power` — the constant power that spends the W′ budget exactly over
   snapshot; const pointers to `CourseIntel`/`RaceClock` for ad-hoc queries.
 - Directive inbox (filled by the team director from C4 on; empty until then).
 
-### C2. Decision cadence, `decide()`, policy-as-meta-controller
+### C2. Decision cadence, `decide()`, policy-as-meta-controller — DONE
+
+**Landed 2026-07-10, commit bc1afd5** (gate: 0 warnings, 21/21 ctest, headless
+smoke exit 0). As-built notes / deviations:
+- "Follow > Policy" needs no dedicated guard — it holds *by mechanism*: a live
+  follow controller rewrites target_effort every physics step, so a policy's
+  1 Hz held effort simply never sticks.  Likewise the planned "dedicated
+  engine path bypassing the no-op-unless-Manual guard" wasn't needed: that
+  guard lives only in Simulation's queued UI path; decide() runs on the
+  physics thread and calls `PhysicsEngine::set_rider_effort` directly.
+- Policies and schedules are mutually exclusive in *both* directions
+  (assigning either replaces the other), so their relative arbitration order
+  is unobservable; `EffortSource::Policy` reports whenever a policy is
+  assigned and no follow target is live.
+- Policy-installed follow targets are tracked (`policy_follow_` set) so a
+  policy emitting nullopt clears only its own target — a manual or
+  rotation-owned one survives (tested).
+- The reconcile made the engine **multi-rotation**: `auto_rotations_` vector
+  beside the manual `rotation_`, shared `apply_rotation()` body, overlap
+  matching (a group split re-shapes rosters on the next tick), interim
+  `detach_gap` proximity admission gate, dissolve-below-2.
+  `get_rotation_for(id)` is the new universal lookup; `promote_sitter`
+  searches all rotations.  `PacelineRotation` gained
+  `add_member`/`remove_member`/`members`.
+- Test-design lesson (kept as a comment in test_decision.cpp): declaring
+  Paceline while the bunch is still together forms one rotation whose follow
+  controllers *glue the pack* — the slow riders can hold any wheel, they were
+  just unwilling.  Stage splits first, declare after.  Behavioral separation
+  (unwillingness vs. inability) is exactly C3/C4 territory.
+- Appstate demo unaffected: its riders all declare Paceline but belong to the
+  manual rotation, which the reconcile skips.
+- UI: new `RiderBoardDrawable` (bottom-left; name, M/S/F/P mode letter,
+  effort, policy name), snapshot fields stamped by Simulation at frame time —
+  closes the deferred D-era "UI exposure of follow/rotation modes".
+
+**Next before C3: the interactive feel-check milestone below.**
 
 - `DecisionSystem::decide(PhysicsEngine&)` fired from `step_fixed` via sim-time
   accumulator every `decision_period` (param, default **1.0 s**). Cadence ≠ thread:
@@ -753,7 +788,10 @@ C1     intel+core+estimator+ctx    DONE         2026-07-10 (15631fd): course_int
                                                 (cruise_speed), course.* (get_segments + find_segment fix),
                                                 decision.*, rider.* (cruise_speed_at), rotation.*
                                                 (line_depth/is_sitting), mytypes.h (EffortSource), sim.h
-C2     cadence+policies+reconcile  ~1           decision.*, sim.*, rotation.h/.cpp, snapshot.h, UI touch
+C2     cadence+policies+reconcile  DONE         2026-07-10 (bc1afd5): decision.*, sim.* (multi-rotation +
+                                                reconcile), rotation.*, mytypes.h (EffortSource::Policy),
+                                                snapshot.h, simrenderer.cpp, display.* (RiderBoardDrawable),
+                                                screen.cpp
        — feel-check session (interactive, A + B2 constants) —
 C3     pacing policy               ~1           decision.*, analysis scenario
 C4     director+tactics+MoveUp join ~1.5        decision.*, team.h, sim.* (join API), rotation.*
@@ -778,10 +816,10 @@ B2 (crosswind)      ──►  DONE (2026-07-10; yaw drag into cda_factor — ec
 D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
-C  (decision layer) ──►  in progress; C-pre, C0, C1 DONE (2026-07-10:
-                         c94c0f4, 56962f6, 15631fd) → next C2 →
-                         (feel-check) → C3 → C4; C4 declares roles that
-                         drafting rewards
+C  (decision layer) ──►  in progress; C-pre, C0, C1, C2 DONE (2026-07-10:
+                         c94c0f4, 56962f6, 15631fd, bc1afd5) → next:
+                         **feel-check session** (interactive) → C3 → C4;
+                         C4 declares roles that drafting rewards
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
