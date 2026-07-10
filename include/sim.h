@@ -108,14 +108,17 @@ private:
   // Build a LateralContext for one rider from the current lat_states_ snapshot.
   // Nearby riders are filtered to those within one bike_length longitudinally.
   LateralContext build_context(RiderId id) const;
-  // Build a GroupContext for one rider from the current GroupTracker snapshot.
-  // Called after step_group_classify() and step_group_role_apply() have run,
-  // so the snapshot reflects the fully-resolved state for this tick.
-  // NOTE: not yet wired into the step loop — kept for the upcoming
-  // group-behavior phase.
+public:
+  // Build a GroupContext for one rider from the current GroupTracker
+  // snapshot — reflects the fully-resolved state of the last completed tick.
+  // C1: consumed by DecisionSystem::build_context (this is what it was kept
+  // for since the group phase landed).
   GroupContext build_group_context(RiderId id) const;
 
-public:
+  // Read access for the decision layer's rider window (C1).  Snapshot state
+  // of the last completed tick, physics-thread-only like everything else.
+  const GroupTracker& get_group_tracker() const { return group_tracker_; }
+
   explicit PhysicsEngine(const Course* c);
   bool add_rider(const RiderConfig cfg);
   void update(double dt);
@@ -173,16 +176,6 @@ public:
 
   ~PhysicsEngine() = default;
 };
-
-// Which system owns a rider's target_effort.  Exactly one writer is active
-// per rider at any time — the mode is the arbiter, there is no blending:
-//   Follow   — the gap controller (a follow target is assigned); the effort
-//              slider and any effort schedule are inert.
-//   Schedule — an EffortSchedule drives effort each tick; the slider is inert.
-//   Manual   — set_rider_effort (UI slider / scripts) is live.
-// Derived state (Follow > Schedule > Manual), never stored — assigning or
-// clearing a follow target or schedule is what switches mode.
-enum class EffortSource { Manual, Schedule, Follow };
 
 // Passive fixed-step simulation engine: step_fixed + command queue +
 // snapshot double-buffering.  It owns no thread — a driver calls step_fixed:

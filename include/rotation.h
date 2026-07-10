@@ -89,6 +89,10 @@ public:
 
   // Introspection (tests / debug UI).
   RiderId puller() const { return inline_.empty() ? -1 : inline_.front(); }
+  // Index in the InLine order (0 = puller); -1 when not in line (drifting /
+  // sitting / promoting or non-member).
+  int line_depth(RiderId id) const;
+  bool is_sitting(RiderId id) const;
   int inline_count() const { return static_cast<int>(inline_.size()); }
   int drifting_count() const { return static_cast<int>(drifting_.size()); }
   int promoting_count() const { return static_cast<int>(promoting_.size()); }

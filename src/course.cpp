@@ -129,7 +129,9 @@ MatrixX2d Course::get_points(double x_min, double x_max) const {
 }
 
 int Course::find_segment(double x) const {
-  if (x > total_length_) {
+  // >= : x exactly at total_length (the finish) belongs to the last
+  // segment; the strict > let it fall through the binary search and throw.
+  if (x >= total_length_) {
     // SDL_Log("Trying to find segment for x > total_length (%.1f > %f.1f) in "
     //         "Course::find segment()",
     //         x, total_length_);

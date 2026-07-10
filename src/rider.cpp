@@ -183,3 +183,13 @@ RiderSnapshot Rider::snapshot() const {
 double Rider::cruise_power(double v) const {
   return sim_cruise_power(&state, &env, v);
 }
+
+double Rider::cruise_speed_at(double power, double slope, double headwind,
+                              double cda_factor) const {
+  RiderState s = state;
+  EnvState e = env;
+  s.cda_factor = cda_factor;
+  e.slope = slope;
+  e.headwind = headwind;
+  return sim_cruise_speed(&s, &e, power);
+}

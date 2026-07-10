@@ -42,6 +42,17 @@ bool PacelineRotation::is_member(RiderId id) const {
   return has(inline_) || has(drifting_) || has(sitting_) || has(promoting_);
 }
 
+int PacelineRotation::line_depth(RiderId id) const {
+  auto it = std::find(inline_.begin(), inline_.end(), id);
+  return it == inline_.end()
+             ? -1
+             : static_cast<int>(std::distance(inline_.begin(), it));
+}
+
+bool PacelineRotation::is_sitting(RiderId id) const {
+  return std::find(sitting_.begin(), sitting_.end(), id) != sitting_.end();
+}
+
 bool PacelineRotation::promote_sitter(RiderId id) {
   auto it = std::find(sitting_.begin(), sitting_.end(), id);
   if (it == sitting_.end() || inline_.empty())

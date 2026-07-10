@@ -188,6 +188,13 @@ void sim_step_rider(RiderState* r, const EnvState* env, double dt,
  * themselves do not call it.  Returns 0 for v <= 0. */
 double sim_cruise_power(const RiderState* r, const EnvState* env, double v);
 
+/* Inverse: the steady speed at which sim_cruise_power(v) == power.
+ * Safeguarded Newton inside an expanding bisection bracket (~5-10
+ * evaluations).  Returns 0 for power <= 0; agrees with the ACCEL_FORCE
+ * solver's terminal velocity by construction (shared force model). */
+double sim_cruise_speed(const RiderState* r, const EnvState* env,
+                        double power);
+
 #ifdef __cplusplus
 }
 #endif

@@ -271,6 +271,56 @@ double sim_cruise_power(const RiderState* r, const EnvState* env, double v) {
   return resistive_force(v, r, env) * v / (1.0 - r->drivetrain_loss);
 }
 
+/* d/dv of sim_cruise_power — the resistive_force terms times v,
+ * differentiated (cf. pow_speed_prime, which additionally has the inertia
+ * term the steady state doesn't). */
+static double cruise_power_prime(const RiderState* r, const EnvState* env,
+                                 double v) {
+  double v_air = v + env->headwind;
+  double cda = (r->cda_rider + r->cda_wheel_drag) * r->cda_factor;
+  double drag_coeff = 0.5 * env->rho * cda;
+  double total_mass = r->mass_rider + r->mass_bike;
+
+  double d = drag_coeff * (2.0 * fabs(v_air) * v + v_air * fabs(v_air)) +
+             (r->crr + env->crr) * total_mass * env->g +
+             total_mass * env->g * sin(atan(env->slope)) + env->bearing_c0 +
+             2.0 * env->bearing_c1 * v;
+  return d / (1.0 - r->drivetrain_loss);
+}
+
+double sim_cruise_speed(const RiderState* r, const EnvState* env,
+                        double power) {
+  if (!r || !env || power <= 0.0)
+    return 0.0;
+
+  /* Bracket the root: cruise_power(0) = 0 < power, expand hi until above. */
+  double lo = 0.0, hi = 20.0;
+  while (sim_cruise_power(r, env, hi) < power) {
+    hi *= 2.0;
+    if (hi > 200.0)
+      return hi; /* unreachable power for any sane env */
+  }
+
+  /* Safeguarded Newton: keep the bisection bracket, fall back to its
+   * midpoint whenever the Newton step leaves it. */
+  double v = 0.5 * hi;
+  for (int i = 0; i < 60; ++i) {
+    double f = sim_cruise_power(r, env, v) - power;
+    if (fabs(f) < 1e-6 || (hi - lo) < 1e-12)
+      break;
+    if (f > 0.0)
+      hi = v;
+    else
+      lo = v;
+    double fp = cruise_power_prime(r, env, v);
+    double v_next = (fp > 1e-12) ? v - f / fp : 0.5 * (lo + hi);
+    if (v_next <= lo || v_next >= hi)
+      v_next = 0.5 * (lo + hi);
+    v = v_next;
+  }
+  return v;
+}
+
 static void step_acceleration(RiderState* r, const EnvState* env, double dt) {
   double v = r->speed;
 

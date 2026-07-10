@@ -121,6 +121,12 @@ public:
   // and draft (one-tick-stale env, same as every perception input).  Backed
   // by the core's solver force model — see sim_cruise_power (sim_core.h).
   double cruise_power(double v) const;
+
+  // What-if cruise speed at `power` with slope, headwind and CdA factor
+  // substituted into the rider's current env — the estimator's
+  // window-averaged view of the road ahead (C1).
+  double cruise_speed_at(double power, double slope, double headwind,
+                         double cda_factor) const;
   double get_total_mass() const { return state.mass_rider + state.mass_bike; }
   double get_radius() const { return 0.5; }
   double get_bike_len() const { return bike.wheelbase + 2 * bike.wheel_r; }

@@ -93,6 +93,9 @@ public:
     return checkpoints_;
   }
 
+  // Raw profile access for CourseIntel's one-time digest (C1).
+  const std::vector<Segment>& get_segments() const { return segments; }
+
   int find_segment(double pos) const;
 
   MatrixX2d get_points(double x_min, double x_max) const;
