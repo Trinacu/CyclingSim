@@ -118,11 +118,12 @@ void PhysicsEngine::clear_rider_behavior(RiderId id) { behaviors_.erase(id); }
 
 // --- Follow-target management (physics-thread-only, like behaviors) ---
 
-void PhysicsEngine::set_follow_target(RiderId rider, RiderId leader) {
+void PhysicsEngine::set_follow_target(RiderId rider, RiderId target,
+                                      FollowRelation relation) {
   auto it = riders.find(rider);
-  if (it == riders.end() || riders.count(leader) == 0 || rider == leader) {
-    SDL_Log("Engine::set_follow_target: invalid pair rider %d -> leader %d",
-            rider, leader);
+  if (it == riders.end() || riders.count(target) == 0 || rider == target) {
+    SDL_Log("Engine::set_follow_target: invalid pair rider %d -> target %d",
+            rider, target);
     return;
   }
   // Bootstrap the integrator from the current effort so the controller takes
@@ -133,7 +134,8 @@ void PhysicsEngine::set_follow_target(RiderId rider, RiderId leader) {
     integ = 0.0;
   else if (integ > max_effort)
     integ = max_effort;
-  follow_states_[rider] = FollowState{.leader = leader, .integrator = integ};
+  follow_states_[rider] =
+      FollowState{.leader = target, .relation = relation, .integrator = integ};
 }
 
 void PhysicsEngine::clear_follow_target(RiderId rider) {
@@ -177,6 +179,28 @@ bool PhysicsEngine::promote_sitter(RiderId id) {
   for (auto& rot : auto_rotations_)
     if (rot->is_member(id))
       return rot->promote_sitter(id);
+  return false;
+}
+
+bool PhysicsEngine::request_paceline_join(RiderId id, bool sits_in) {
+  if (riders.count(id) == 0 || get_rotation_for(id))
+    return false;
+  // The rotation of the rider's own group: joining is a within-bunch move
+  // (Body -> paceline); bridging to another group is a chase, not a join.
+  const GroupId gid = group_tracker_.get_group_id(id);
+  if (gid == kNoGroup)
+    return false;
+  auto in_group = [&](const PacelineRotation& rot) {
+    for (RiderId mid : rot.members())
+      if (group_tracker_.get_group_id(mid) == gid)
+        return true;
+    return false;
+  };
+  if (rotation_ && in_group(*rotation_))
+    return rotation_->request_join(id, sits_in);
+  for (auto& rot : auto_rotations_)
+    if (in_group(*rot))
+      return rot->request_join(id, sits_in);
   return false;
 }
 
@@ -229,17 +253,42 @@ void PhysicsEngine::reconcile_rotations() {
     if (!rot) {
       if (declared.size() < 2)
         continue; // nothing to form
-      // Roster in position order, front first (same-group => already near).
+      // Position order, front first; the roster seeds from the largest
+      // consecutive chain of declarers (position gaps <= detach_gap) — a
+      // rotation forms from riders already physically together.  Declarers
+      // outside the chain are *not* rostered directly (C4: admitted only
+      // when physically arrived): they enter the MoveUp join transit below.
       std::sort(declared.begin(), declared.end(),
                 [this](RiderId a, RiderId b) {
                   return riders.at(a)->get_pos() > riders.at(b)->get_pos();
                 });
+      size_t best_begin = 0, best_len = 1, begin = 0;
+      for (size_t i = 1; i <= declared.size(); ++i) {
+        const bool chained =
+            i < declared.size() &&
+            riders.at(declared[i - 1])->get_pos() -
+                    riders.at(declared[i])->get_pos() <=
+                auto_rotation_params_.detach_gap;
+        if (!chained) {
+          if (i - begin > best_len) {
+            best_begin = begin;
+            best_len = i - begin;
+          }
+          begin = i;
+        }
+      }
+      if (best_len < 2)
+        continue; // no two declarers together yet — keep waiting
       std::vector<RotationMember> roster;
-      for (RiderId id : declared)
-        roster.push_back({id, false});
+      for (size_t i = best_begin; i < best_begin + best_len; ++i)
+        roster.push_back({declared[i], false});
       auto_rotations_.push_back(
           std::make_unique<PacelineRotation>(roster, auto_rotation_params_));
-      touched.push_back(auto_rotations_.back().get());
+      PacelineRotation* formed = auto_rotations_.back().get();
+      touched.push_back(formed);
+      for (RiderId id : declared)
+        if (!formed->is_member(id))
+          formed->request_join(id, false);
       continue;
     }
     touched.push_back(rot);
@@ -251,9 +300,10 @@ void PhysicsEngine::reconcile_rotations() {
       rot->remove_member(id);
       clear_follow_target(id);
     }
-    // Admit new declarers within detach_gap of a current member (interim
-    // proximity gate — C4's join maneuver replaces this with a real
-    // approach).
+    // Admit new declarers: physically arrived (within detach_gap of a
+    // member) -> straight onto the roster; still distant -> the C4 MoveUp
+    // transit, which admits them at the tail when they get there.  A rider
+    // already in transit is a member (is_member) and skipped above.
     for (RiderId id : declared) {
       if (rot->is_member(id))
         continue;
@@ -264,6 +314,8 @@ void PhysicsEngine::reconcile_rotations() {
                            std::fabs(riders.at(mid)->get_pos() - pos));
       if (nearest <= auto_rotation_params_.detach_gap)
         rot->add_member(id, false);
+      else
+        rot->request_join(id, false);
     }
   }
 
@@ -380,6 +432,26 @@ void PhysicsEngine::step_follow_apply(double dt) {
 
     Rider& r = *rit->second;
     const Rider& leader = *lit->second;
+
+    // Protect (C4): the reference rider is the ward *behind*.  The gap is the
+    // ward's own wheel-to-wheel view of the pair (own bike_len — identical
+    // quantity to what the ward's follow controller measures, so a mutual
+    // pairing agrees on the setpoint from both ends).  No lateral write: the
+    // protector holds its line and the ward's controller steers into *our*
+    // wake; there is no wake ahead to seek.  Swing/move-up mechanics never
+    // apply — only rotations set those, and rotations never install protects.
+    if (fs.relation == FollowRelation::Ahead) {
+      const Rider& ward = leader;
+      const FollowInput in{
+          .gap = (r.get_pos() - ward.get_pos()) - r.get_bike_len(),
+          .rel_speed = ward.get_speed() - r.get_speed(),
+          .own_speed = r.get_speed(),
+          .max_effort = r.get_config().max_effort,
+      };
+      r.set_effort(protect_effort(in, dt, fs.integrator, follow_params_));
+      continue;
+    }
+
     const FollowInput in{
         .gap = (leader.get_pos() - r.get_pos()) - leader.get_bike_len(),
         .rel_speed = leader.get_speed() - r.get_speed(),
@@ -870,6 +942,13 @@ void Simulation::clear_rider_policy(RiderId rider_id) {
       [this, rider_id]() { decision_.clear_policy(rider_id); });
 }
 
+void Simulation::set_race_plan(TeamId team, RacePlan plan) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back([this, team, p = std::move(plan)]() {
+    decision_.set_race_plan(team, p);
+  });
+}
+
 void Simulation::clear_effort_schedule(RiderId rider_id) {
   std::scoped_lock lock(commands_mtx);
   pending_commands.push_back(
@@ -886,10 +965,12 @@ void Simulation::set_rider_effort(RiderId rider_id, double effort) {
   });
 }
 
-void Simulation::set_follow_target(RiderId rider, RiderId leader) {
+void Simulation::set_follow_target(RiderId rider, RiderId target,
+                                   FollowRelation relation) {
   std::scoped_lock lock(commands_mtx);
-  pending_commands.push_back(
-      [this, rider, leader]() { engine.set_follow_target(rider, leader); });
+  pending_commands.push_back([this, rider, target, relation]() {
+    engine.set_follow_target(rider, target, relation);
+  });
 }
 
 void Simulation::clear_follow_target(RiderId rider) {
@@ -914,6 +995,12 @@ void Simulation::clear_paceline_rotation() {
 void Simulation::promote_sitter(RiderId id) {
   std::scoped_lock lock(commands_mtx);
   pending_commands.push_back([this, id]() { engine.promote_sitter(id); });
+}
+
+void Simulation::request_paceline_join(RiderId id, bool sits_in) {
+  std::scoped_lock lock(commands_mtx);
+  pending_commands.push_back(
+      [this, id, sits_in]() { engine.request_paceline_join(id, sits_in); });
 }
 
 EffortSource Simulation::get_effort_source(RiderId rider_id) const {

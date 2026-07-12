@@ -39,7 +39,8 @@ bool PacelineRotation::is_member(RiderId id) const {
   auto has = [id](const std::vector<RiderId>& v) {
     return std::find(v.begin(), v.end(), id) != v.end();
   };
-  return has(inline_) || has(drifting_) || has(sitting_) || has(promoting_);
+  return has(inline_) || has(drifting_) || has(sitting_) || has(promoting_) ||
+         has(joining_);
 }
 
 void PacelineRotation::add_member(RiderId id, bool sits_in) {
@@ -53,15 +54,27 @@ void PacelineRotation::add_member(RiderId id, bool sits_in) {
 }
 
 void PacelineRotation::remove_member(RiderId id) {
-  for (auto* list : {&inline_, &drifting_, &sitting_, &promoting_})
+  for (auto* list : {&inline_, &drifting_, &sitting_, &promoting_, &joining_})
     list->erase(std::remove(list->begin(), list->end(), id), list->end());
+}
+
+bool PacelineRotation::request_join(RiderId id, bool sits_in) {
+  if (is_member(id))
+    return false;
+  detach_timer(id) = 0.0;
+  if (sits_in)
+    joining_.push_back(id); // transit toward the sitting tail
+  else
+    promoting_.push_back(id); // same transit as a promoted sitter
+  return true;
 }
 
 std::vector<RiderId> PacelineRotation::members() const {
   std::vector<RiderId> out;
   out.reserve(inline_.size() + drifting_.size() + sitting_.size() +
-              promoting_.size());
-  for (const auto* list : {&inline_, &drifting_, &sitting_, &promoting_})
+              promoting_.size() + joining_.size());
+  for (const auto* list :
+       {&inline_, &drifting_, &sitting_, &promoting_, &joining_})
     out.insert(out.end(), list->begin(), list->end());
   return out;
 }
@@ -107,6 +120,7 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
   prune_missing(drifting_, in);
   prune_missing(sitting_, in);
   prune_missing(promoting_, in);
+  prune_missing(joining_, in);
 
   // --- 1. Attach drifters positionally ---
   // A drifter whose position has dropped below the last InLine rider's joins
@@ -173,6 +187,37 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
         detach_timer(promoting_[best]) = 0.0;
         promoting_.erase(promoting_.begin() + best);
         attached_p = true;
+      }
+    }
+  }
+
+  // --- 1c. Attach joining sitters (C4 MoveUp, sits_in) ---
+  // Destination is the *sitting* tail: arrived once within engage_gap of the
+  // formation's rearmost member (last sitter, else the InLine tail).  Same
+  // spatial-order tie-break as the other attach rules; same transit
+  // exemption from the detach rule (deliberately gapped while closing).
+  {
+    bool attached_j = true;
+    while (attached_j && !joining_.empty() && !inline_.empty()) {
+      attached_j = false;
+      const RiderId rear_id = sitting_.empty() ? inline_.back() : sitting_.back();
+      const RotationInput* rear = find_input(in, rear_id);
+      int best = -1;
+      double best_pos = 0.0;
+      for (int i = 0; i < static_cast<int>(joining_.size()); ++i) {
+        const RotationInput* j = find_input(in, joining_[i]);
+        const bool arrived =
+            (rear->lon_pos - j->lon_pos - rear->bike_len) <= params_.engage_gap;
+        if (arrived && (best < 0 || j->lon_pos > best_pos)) {
+          best = i;
+          best_pos = j->lon_pos;
+        }
+      }
+      if (best >= 0) {
+        sitting_.push_back(joining_[best]);
+        detach_timer(joining_[best]) = 0.0;
+        joining_.erase(joining_.begin() + best);
+        attached_j = true;
       }
     }
   }
@@ -245,7 +290,7 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
   // --- 4. Directives ---
   std::vector<RotationDirective> out;
   out.reserve(inline_.size() + drifting_.size() + sitting_.size() +
-              promoting_.size());
+              promoting_.size() + joining_.size());
   for (size_t i = 0; i < inline_.size(); ++i) {
     RotationDirective d;
     d.id = inline_[i];
@@ -282,6 +327,22 @@ PacelineRotation::tick(double dt, const std::vector<RotationInput>& in) {
     if (tail >= 0) {
       // Advance side: opposite the swing (windward) side — move up on the
       // sheltered flank, clear of drifting traffic.
+      const RotationInput* me = find_input(in, id);
+      d.move_up_side = (std::fabs(me->crosswind) > 1e-6)
+                           ? (me->crosswind > 0.0 ? 1.0 : -1.0)
+                           : -params_.default_side;
+    }
+    out.push_back(d);
+  }
+  // Joining sitters (C4): same capped move-up transit, aimed at the
+  // formation's rearmost member instead of the InLine tail.
+  const RiderId rear_ref =
+      !sitting_.empty() ? sitting_.back() : tail;
+  for (RiderId id : joining_) {
+    RotationDirective d;
+    d.id = id;
+    d.follow = rear_ref;
+    if (rear_ref >= 0) {
       const RotationInput* me = find_input(in, id);
       d.move_up_side = (std::fabs(me->crosswind) > 1e-6)
                            ? (me->crosswind > 0.0 ? 1.0 : -1.0)

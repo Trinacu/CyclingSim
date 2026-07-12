@@ -640,6 +640,331 @@ static void test_gate_policy_vs_schedule() {
         "gate: policy rider arrives no later than equal-power schedule");
 }
 
+// --- C4: director, directives, tactics, MoveUp join ---
+
+static RiderConfig cfgt(int id, TeamId team, double ftp = 250) {
+  RiderConfig c = cfg(id, ftp);
+  c.team_id = team;
+  return c;
+}
+
+// Director rules as pure functions: hand-built contexts, no engine.
+static void test_director_rules() {
+  RacePlan plan;
+  plan.leader = 1;
+  plan.assignments = {{2, Directive::Type::ProtectLeader},
+                      {3, Directive::Type::SitIn}};
+  plan.chase_gap_max = 30.0;
+  const TeamDirector director(plan);
+
+  auto ctx = [](RiderId id, double gap_ahead) {
+    DecisionContext c;
+    c.id = id;
+    c.time_gap_to_group_ahead = gap_ahead;
+    return c;
+  };
+
+  std::unordered_map<RiderId, Directive> out;
+  director.direct({ctx(1, 20.0), ctx(2, 20.0), ctx(3, 20.0), ctx(4, 20.0)},
+                  out);
+  check(out.at(2).type == Directive::Type::ProtectLeader &&
+            out.at(2).target == 1,
+        "director: standing order + leader target filled");
+  check(out.at(3).type == Directive::Type::SitIn,
+        "director: sit-in assignment holds (chase never repurposes it)");
+  check(out.at(4).type == Directive::Type::Chase,
+        "director: free rider within chase_gap_max is sent chasing");
+  check(out.at(1).type == Directive::Type::Free,
+        "director: the leader is never sent chasing");
+
+  out.clear();
+  director.direct({ctx(4, 45.0)}, out);
+  check(out.at(4).type == Directive::Type::Free,
+        "director: gap beyond chase_gap_max -> no chase");
+  out.clear();
+  director.direct({ctx(4, -1.0)}, out);
+  check(out.at(4).type == Directive::Type::Free,
+        "director: unknown gap -> no chase");
+}
+
+// Tactics as policy-level units: real context from the engine, directive
+// injected, policy called directly.
+static void test_tactics_orders_and_clamp() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2)});
+  sim.set_rider_effort(1, 0.7);
+  for (int i = 0; i < 200; ++i)
+    sim.step_fixed(dt);
+
+  WPrimePacingPolicy policy;
+  DecisionContext ctx = sim.get_decision().build_context(sim, 1);
+  const PolicyOutput free_out = policy.decide(ctx);
+  check(free_out.target_effort.has_value() &&
+            free_out.role_decl == GroupRole::Unassigned && !free_out.follow,
+        "tactics: Free baseline (premise)");
+  const double baseline = *free_out.target_effort;
+
+  // Chase: bounded delta over the baseline + Paceline declaration.
+  ctx.directive = Directive{Directive::Type::Chase, -1};
+  const PolicyOutput chase_out = policy.decide(ctx);
+  check(chase_out.role_decl == GroupRole::Paceline,
+        "tactics: Chase declares Paceline");
+  check(chase_out.target_effort.has_value() &&
+            near(*chase_out.target_effort,
+                 std::min(baseline + 0.15, ctx.effort_limit), 1e-9),
+        "tactics: Chase = baseline + chase_delta, feasibility-clamped");
+
+  // The rider-side clamp: a cooked rider ignores the order.
+  ctx.wbal_frac = 0.10; // under chase_reserve_frac
+  const PolicyOutput cooked = policy.decide(ctx);
+  check(cooked.role_decl == GroupRole::Unassigned &&
+            near(*cooked.target_effort, baseline, 1e-9),
+        "tactics: cooked rider ignores Chase (the clamp is final)");
+  ctx.wbal_frac = 1.0;
+
+  // SitIn: stop working — no paceline declaration, baseline pace.
+  ctx.directive = Directive{Directive::Type::SitIn, -1};
+  const PolicyOutput sit = policy.decide(ctx);
+  check(sit.role_decl == GroupRole::Unassigned &&
+            near(*sit.target_effort, baseline, 1e-9),
+        "tactics: SitIn -> out of the rotation, baseline pace");
+
+  // Pull: declare in; as a sitter, resolve to the promotion maneuver.
+  ctx.directive = Directive{Directive::Type::Pull, -1};
+  const PolicyOutput pull = policy.decide(ctx);
+  check(pull.role_decl == GroupRole::Paceline && !pull.maneuver,
+        "tactics: Pull as non-member -> declare Paceline");
+  ctx.sitting_in = true;
+  const PolicyOutput pull_sit = policy.decide(ctx);
+  check(pull_sit.maneuver.has_value() &&
+            pull_sit.maneuver->type == Maneuver::Type::PromoteSitter,
+        "tactics: Pull as sitter -> promotion maneuver");
+  ctx.sitting_in = false;
+
+  // ProtectLeader: protect install (relation Ahead), leave any rotation.
+  ctx.directive = Directive{Directive::Type::ProtectLeader, 2};
+  const PolicyOutput prot = policy.decide(ctx);
+  check(prot.follow && *prot.follow == 2 &&
+            prot.follow_relation == FollowRelation::Ahead &&
+            prot.role_decl == GroupRole::Unassigned,
+        "tactics: ProtectLeader -> protect the ward, out of rotations");
+  ctx.directive = Directive{Directive::Type::ProtectLeader, 1};
+  check(!policy.decide(ctx).follow,
+        "tactics: refusing to protect oneself (rides Free)");
+}
+
+// Directive flow end-to-end: a race-plan Pull order to a sitting policy
+// rider promotes it into the line and it reaches the front within a few
+// (shortened) pull cycles.
+static void test_directive_pull_flow() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  const TeamId alpha = sim.get_engine()->add_team("Alpha");
+  sim.add_riders({cfgt(1, alpha), cfgt(2, alpha), cfgt(3, alpha),
+                  cfgt(4, alpha)});
+  sim.set_rider_effort(1, 0.7);
+  RotationParams rp;
+  rp.pull_time = 3.0; // fast cycles so "ends up puller" fits a short run
+  sim.set_paceline_rotation({{1, false}, {2, false}, {3, false}, {4, true}},
+                            rp);
+  sim.set_rider_policy(4, std::make_shared<WPrimePacingPolicy>());
+  RacePlan plan;
+  plan.assignments = {{4, Directive::Type::Pull}};
+  sim.set_race_plan(alpha, plan);
+  sim.step_fixed(dt); // drain the queued setup commands
+
+  const auto* rot = sim.get_engine()->get_paceline_rotation();
+  int puller_step = -1;
+  int inline_step = -1;
+  for (int i = 0; i < 9000; ++i) { // 90 s budget
+    sim.step_fixed(dt);
+    if (inline_step < 0 && rot->line_depth(4) >= 0)
+      inline_step = i;
+    if (rot->puller() == 4) {
+      puller_step = i;
+      break;
+    }
+  }
+  check(sim.get_decision().last_directive(4).has_value() &&
+            sim.get_decision().last_directive(4)->type ==
+                Directive::Type::Pull,
+        "pull flow: directive delivered");
+  check(inline_step >= 0 && inline_step < 300,
+        "pull flow: sitter promoted into the line within ~2 decide ticks");
+  std::cout << "  [pull flow] in line at " << (inline_step * dt)
+            << " s, puller at " << (puller_step * dt) << " s\n";
+  check(puller_step >= 0, "pull flow: ordered rider reaches the front");
+
+  // Radio = team membership: the manual riders got directives too (Free),
+  // surfaced but not obeyed.
+  check(sim.get_decision().last_directive(1).has_value() &&
+            sim.get_decision().last_directive(1)->type ==
+                Directive::Type::Free,
+        "pull flow: manual teammate receives (unobeyed) directive");
+  check(!sim.get_decision().last_directive(99).has_value(),
+        "pull flow: strangers get no directive");
+}
+
+// MoveUp join from the pack: a declared rider beyond detach_gap (but inside
+// the group) is routed into the capped transit, arrives, and merges without
+// a lateral step.
+static void test_join_from_pack() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  sim.add_riders({cfg(1), cfg(2), cfg(3), cfg(4)});
+  // Three in a tight line, the fourth ~9.5 m back: same group (chain gap
+  // under break_gap) but beyond detach_gap = 8, so admission must go through
+  // the join transit, not the direct add.
+  sim.get_engine()->get_riders().at(1)->set_start_pos(21.0);
+  sim.get_engine()->get_riders().at(2)->set_start_pos(19.5);
+  sim.get_engine()->get_riders().at(3)->set_start_pos(18.0);
+  sim.get_engine()->get_riders().at(4)->set_start_pos(8.5);
+  for (int id = 1; id <= 4; ++id)
+    sim.set_rider_effort(id, 0.7);
+  for (const auto& [id, r] : sim.get_engine()->get_riders())
+    r->set_group_role(GroupRole::Paceline);
+
+  // First decide tick: rotation forms from 1-3; 4 enters transit.
+  for (int i = 0; i < 150; ++i)
+    sim.step_fixed(dt);
+  const PhysicsEngine& eng = *sim.get_engine();
+  check(eng.get_group_tracker().get_snapshot().size() == 1,
+        "join: one group (test premise)");
+  const PacelineRotation* rot = eng.get_rotation_for(4);
+  check(rot != nullptr && rot->line_depth(4) == -1 && !rot->is_sitting(4),
+        "join: distant declarer is a member in transit, not in line");
+
+  // Transit: capped effort (never a sprint), then arrival at the tail.
+  int arrived_step = -1;
+  double max_transit_effort = 0.0;
+  double max_lat_step = 0.0;
+  double prev_lat = eng.get_rider_by_id(4)->get_lat_pos();
+  for (int i = 0; i < 6000; ++i) { // 60 s budget
+    sim.step_fixed(dt);
+    const double lat = eng.get_rider_by_id(4)->get_lat_pos();
+    max_lat_step = std::max(max_lat_step, std::fabs(lat - prev_lat));
+    prev_lat = lat;
+    if (arrived_step < 0 && rot->line_depth(4) >= 0) {
+      arrived_step = i;
+      break;
+    }
+    max_transit_effort = std::max(
+        max_transit_effort, eng.get_rider_by_id(4)->get_target_effort());
+  }
+  std::cout << "  [join] arrived at " << (arrived_step * dt)
+            << " s, max transit effort " << max_transit_effort
+            << ", max lat step " << max_lat_step << " m\n";
+  check(arrived_step >= 0, "join: transit arrives and merges into the line");
+  check(max_transit_effort <= 1.35,
+        "join: transit effort stays capped (no sprint up the side)");
+  check(max_lat_step < 0.05,
+        "join: no lateral step (offset fade did its job)");
+}
+
+// ProtectLeader end-to-end: the directive installs a protect pairing through
+// the policy seam and the protector ends up riding in front of the ward.
+static void test_protect_directive_flow() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  Simulation sim(&course);
+  const TeamId alpha = sim.get_engine()->add_team("Alpha");
+  sim.add_riders({cfgt(1, alpha), cfgt(2, alpha)});
+  sim.get_engine()->get_riders().at(2)->set_start_pos(3.0);
+  sim.set_rider_effort(1, 0.7); // the ward paces manually
+  sim.set_rider_policy(2, std::make_shared<WPrimePacingPolicy>());
+  RacePlan plan;
+  plan.leader = 1;
+  plan.assignments = {{2, Directive::Type::ProtectLeader}};
+  sim.set_race_plan(alpha, plan);
+
+  for (int i = 0; i < 12000; ++i) // 120 s
+    sim.step_fixed(dt);
+
+  const PhysicsEngine& eng = *sim.get_engine();
+  const FollowState* fs = eng.get_follow_state(2);
+  check(fs != nullptr && fs->leader == 1 &&
+            fs->relation == FollowRelation::Ahead,
+        "protect flow: directive installed the protect pairing");
+  check(sim.get_effort_source(2) == EffortSource::Follow,
+        "protect flow: protect controller owns the effort");
+  const double lead = eng.get_rider_by_id(2)->get_pos() -
+                      eng.get_rider_by_id(1)->get_pos();
+  check(lead > 0.0 && lead < 5.0,
+        "protect flow: protector rides just ahead of the ward");
+  check(eng.get_rider_by_id(1)->get_cda_factor() < 0.8,
+        "protect flow: the ward is sheltered");
+}
+
+// The C4 gate scenario: two groups, the director orders a chase, the chase
+// rotation forms and the time gap falls.  Run twice: byte-identical
+// positions prove the director phase kept decide() deterministic.
+static void test_chase_scenario() {
+  const double dt = 0.01;
+  auto run = [&](std::vector<double>& final_pos) -> bool {
+    Course course = Course::create_flat();
+    Simulation sim(&course);
+    const TeamId alpha = sim.get_engine()->add_team("Alpha");
+    sim.add_riders({cfg(1), cfg(2), cfgt(10, alpha), cfgt(11, alpha),
+                    cfgt(12, alpha)});
+    // Rabbits ride away while the team soft-pedals...
+    sim.set_rider_effort(1, 0.9);
+    sim.set_follow_target(2, 1);
+    for (int id : {10, 11, 12})
+      sim.set_rider_effort(id, 0.55);
+    for (int i = 0; i < 5000; ++i) // 50 s: two separated groups
+      sim.step_fixed(dt);
+
+    // ...then the team goes on the radio.
+    for (int id : {10, 11, 12})
+      sim.set_rider_policy(id, std::make_shared<WPrimePacingPolicy>());
+    RacePlan plan;
+    plan.chase_gap_max = 60.0;
+    sim.set_race_plan(alpha, plan);
+    for (int i = 0; i < 200; ++i) // two decide ticks
+      sim.step_fixed(dt);
+
+    const DecisionSystem& ds = sim.get_decision();
+    bool ok = true;
+    ok &= sim.get_engine()->get_group_tracker().get_snapshot().size() == 2;
+    ok &= ds.last_directive(10).has_value() &&
+          ds.last_directive(10)->type == Directive::Type::Chase;
+    const double gap0 =
+        ds.build_context(sim, 10).time_gap_to_group_ahead;
+
+    // Chase up to 120 s, stopping at the catch — an unwatched chase rides
+    // clean through the rabbits and "group ahead" stops existing.
+    bool caught = false;
+    for (int i = 0; i < 12000 && !caught; ++i) {
+      sim.step_fixed(dt);
+      caught =
+          sim.get_engine()->get_group_tracker().get_snapshot().size() == 1;
+    }
+
+    ok &= sim.get_engine()->get_rotation_for(10) != nullptr &&
+          sim.get_engine()->get_rotation_for(10) ==
+              sim.get_engine()->get_rotation_for(12);
+    const double gap1 =
+        caught ? 0.0 : ds.build_context(sim, 10).time_gap_to_group_ahead;
+    std::cout << "  [chase] gap " << gap0 << " s -> " << gap1 << " s"
+              << (caught ? " (caught)" : "") << "\n";
+    ok &= gap0 > 0.0 && (caught || (gap1 >= 0.0 && gap1 < gap0 * 0.7));
+
+    for (const auto& [id, r] : sim.get_engine()->get_riders())
+      final_pos.push_back(r->get_pos());
+    std::sort(final_pos.begin(), final_pos.end());
+    return ok;
+  };
+
+  std::vector<double> pos_a, pos_b;
+  check(run(pos_a), "chase: directive -> rotation -> gap falls");
+  check(run(pos_b) && pos_a == pos_b,
+        "chase: rerun byte-identical (director phase deterministic)");
+}
+
 int main() {
   test_draft_helpers();
   test_estimator_properties();
@@ -656,6 +981,12 @@ int main() {
   test_pacing_horizon_handoff();
   test_pacing_recovery_on_descent();
   test_gate_policy_vs_schedule();
+  test_director_rules();
+  test_tactics_orders_and_clamp();
+  test_directive_pull_flow();
+  test_join_from_pack();
+  test_protect_directive_flow();
+  test_chase_scenario();
 
   if (checks_failed) {
     std::cout << checks_failed << " check(s) FAILED\n";

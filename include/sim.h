@@ -159,12 +159,21 @@ public:
   // Simulation's command queue or test/setup code before stepping starts).
   // Assigning replaces any previous target and bootstraps the controller's
   // integrator from the rider's current target_effort, so the takeover never
-  // steps effort discontinuously.
-  void set_follow_target(RiderId rider, RiderId leader);
+  // steps effort discontinuously.  Relation Ahead = protect (C4): `target` is
+  // the ward riding *behind*; same controller slot, so EffortSource::Follow
+  // still reports.
+  void set_follow_target(RiderId rider, RiderId target,
+                         FollowRelation relation = FollowRelation::Behind);
   void clear_follow_target(RiderId rider);
   void clear_follow_targets(); // all — used by Simulation::reset()
   bool has_follow_target(RiderId rider) const {
     return follow_states_.count(rider) > 0;
+  }
+  // Introspection (tests / snapshot stamping): the rider's follow record —
+  // relation distinguishes follow (Behind) from protect (Ahead) — or nullptr.
+  const FollowState* get_follow_state(RiderId rider) const {
+    auto it = follow_states_.find(rider);
+    return it == follow_states_.end() ? nullptr : &it->second;
   }
 
   // Paceline rotation (physics-thread-only, like follow targets).  Replaces
@@ -183,6 +192,16 @@ public:
   // max(1.0, 1.2 * P_hold / ftp), joining the InLine tail on arrival.
   // False when the rider is not a sitter of any rotation.
   bool promote_sitter(RiderId id);
+
+  // MoveUp join (C4; physics-thread-only): a non-member rides up from the
+  // pack to its *own group's* rotation — same capped transit as sitter
+  // promotion — and is admitted on physical arrival (rotator to the InLine
+  // tail, sitter to the sitting tail).  False when there is no rotation in
+  // the rider's group, or the rider is already a member.  The reconcile
+  // calls this for declared-but-distant riders; it is also the direct seam
+  // the C-UI join button uses.  Auto-rotation caveat: membership persists
+  // only while the rider declares GroupRole::Paceline.
+  bool request_paceline_join(RiderId id, bool sits_in);
 
   // C2 reconcile (physics-thread-only, decision cadence): form/update one
   // rotation per group from riders declaring GroupRole::Paceline.  The
@@ -278,13 +297,17 @@ public:
   void set_rider_policy(RiderId rider_id,
                         std::shared_ptr<IRiderPolicy> policy);
   void clear_rider_policy(RiderId rider_id);
+  // C4: install a team's race plan (creates/replaces its director).
+  void set_race_plan(TeamId team, RacePlan plan);
   void set_rider_effort(RiderId rider_id, double effort);
-  void set_follow_target(RiderId rider, RiderId leader);
+  void set_follow_target(RiderId rider, RiderId target,
+                         FollowRelation relation = FollowRelation::Behind);
   void clear_follow_target(RiderId rider);
   void set_paceline_rotation(std::vector<RotationMember> roster,
                              RotationParams params);
   void clear_paceline_rotation();
   void promote_sitter(RiderId id);
+  void request_paceline_join(RiderId id, bool sits_in);
 
   // Reads physics-thread state — call from the physics thread or while no
   // driver is stepping (tests, debug UI via snapshot preferred).

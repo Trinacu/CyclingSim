@@ -29,4 +29,12 @@ inline TeamId kNoTeam = -1;
 // without an include cycle.)
 enum class EffortSource { Manual, Schedule, Follow, Policy };
 
+// Which side of a follow pairing this rider takes (C4).  Behind = follow the
+// reference rider ahead (D2, today's behavior).  Ahead = protect: ride *in
+// front of* the reference rider (the ward), keeping them on your wheel — same
+// gap controller family, reference swapped, still EffortSource::Follow.
+// (Lives here so PolicyOutput (decision.h) can carry it without pulling in
+// follow.h.)
+enum class FollowRelation { Behind, Ahead };
+
 #endif

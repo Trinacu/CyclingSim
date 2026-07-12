@@ -28,6 +28,44 @@ void DecisionSystem::reset() {
   clock_.reset();
   policies_.clear();
   policy_follow_.clear();
+  // Race plans are scenario configuration (like the team registry, which
+  // also survives reset); only the per-run directive state drops.
+  directives_.clear();
+}
+
+// --- C4: race plans + the director phase ---
+
+void DecisionSystem::set_race_plan(TeamId team, RacePlan plan) {
+  directors_.insert_or_assign(team, TeamDirector(std::move(plan)));
+}
+
+std::optional<Directive> DecisionSystem::last_directive(RiderId id) const {
+  auto it = directives_.find(id);
+  return it == directives_.end() ? std::nullopt
+                                 : std::optional<Directive>(it->second);
+}
+
+void TeamDirector::direct(const std::vector<DecisionContext>& team,
+                          std::unordered_map<RiderId, Directive>& out) const {
+  for (const DecisionContext& ctx : team) {
+    Directive d;
+    auto ait = plan_.assignments.find(ctx.id);
+    if (ait != plan_.assignments.end())
+      d.type = ait->second;
+    if (d.type == Directive::Type::ProtectLeader)
+      d.target = plan_.leader;
+
+    // Chase rule (C0 gaps): only Free riders get repurposed — standing
+    // orders (protect, sit-in, pull) hold, and the leader is never sent
+    // chasing.  Feasibility is NOT checked here: the rider-side clamp is the
+    // final authority (a cooked rider ignores the order).
+    if (d.type == Directive::Type::Free && plan_.chase_gap_max > 0.0 &&
+        ctx.id != plan_.leader && ctx.time_gap_to_group_ahead > 0.0 &&
+        ctx.time_gap_to_group_ahead <= plan_.chase_gap_max)
+      d.type = Directive::Type::Chase;
+
+    out[ctx.id] = d;
+  }
 }
 
 // --- C2: policy management + the decision tick ---
@@ -53,6 +91,28 @@ const IRiderPolicy* DecisionSystem::get_policy(RiderId id) const {
 void DecisionSystem::decide(Simulation& sim) {
   PhysicsEngine& eng = *sim.get_engine();
 
+  // Director phase (C4): before rider policies, teams in TeamId order,
+  // rosters in sorted id order — deterministic like everything below.  The
+  // director reads its whole roster's contexts (radio: the one place
+  // cross-rider W′ is visible), policy-driven or not.
+  directives_.clear();
+  if (!directors_.empty()) {
+    const TeamRegistry& teams = eng.get_teams();
+    for (TeamId tid = 0; tid < teams.team_count(); ++tid) {
+      auto dit = directors_.find(tid);
+      if (dit == directors_.end())
+        continue;
+      std::vector<RiderId> roster = teams.get(tid)->roster;
+      std::sort(roster.begin(), roster.end());
+      std::vector<DecisionContext> ctxs;
+      ctxs.reserve(roster.size());
+      for (RiderId rid : roster)
+        if (eng.get_rider_by_id(rid))
+          ctxs.push_back(build_context(sim, rid));
+      dit->second.direct(ctxs, directives_);
+    }
+  }
+
   // Sorted id order: cross-rider decisions must not depend on the riders
   // map's unspecified iteration order.
   std::vector<RiderId> ids;
@@ -66,7 +126,9 @@ void DecisionSystem::decide(Simulation& sim) {
       clear_policy(id); // rider left the sim
       continue;
     }
-    const DecisionContext ctx = build_context(sim, id);
+    DecisionContext ctx = build_context(sim, id);
+    if (auto dit = directives_.find(id); dit != directives_.end())
+      ctx.directive = dit->second; // the C4 inbox, live at last
     const PolicyOutput out = policies_.at(id)->decide(ctx);
 
     // The rider's group role is policy-owned (declares paceline intent the
@@ -77,7 +139,7 @@ void DecisionSystem::decide(Simulation& sim) {
     // graph every tick — a policy shapes it via roles/maneuvers instead).
     if (!eng.get_rotation_for(id)) {
       if (out.follow) {
-        eng.set_follow_target(id, *out.follow);
+        eng.set_follow_target(id, *out.follow, out.follow_relation);
         policy_follow_.insert(id);
       } else if (policy_follow_.count(id)) {
         eng.clear_follow_target(id);
@@ -164,6 +226,76 @@ PolicyOutput WPrimePacingPolicy::decide(const DecisionContext& ctx) {
   out.role_decl = params_.role_decl;
   if (!ctx.intel || !ctx.self || ctx.ftp <= 0.0)
     return out;
+
+  out.target_effort = pacing_effort(ctx);
+  apply_tactics(ctx, out);
+  return out;
+}
+
+// C4: tactics ride on top of the baseline — directives are obeyed through
+// the same PolicyOutput seams a free rider uses (roles, follows, maneuvers,
+// bounded effort deltas), and every order passes the rider-side feasibility
+// clamp: the director commands, the legs have the last word.
+void WPrimePacingPolicy::apply_tactics(const DecisionContext& ctx,
+                                       PolicyOutput& out) const {
+  using Type = Directive::Type;
+  const Type order = ctx.directive ? ctx.directive->type : Type::Free;
+
+  switch (order) {
+  case Type::ProtectLeader: {
+    const RiderId ward = ctx.directive->target;
+    if (ward < 0 || ward == ctx.id)
+      return; // no (sane) leader to protect — ride Free
+    // Ride in front of the ward: install the protect pairing and leave any
+    // rotation (shielding and rotating contradict).  The protect controller
+    // owns effort while installed (Follow > Policy); the baseline request
+    // just holds underneath it.
+    out.follow = ward;
+    out.follow_relation = FollowRelation::Ahead;
+    out.role_decl = GroupRole::Unassigned;
+    return;
+  }
+  case Type::SitIn:
+    // Stop working: out of the rotation, baseline pace, wheels for free.
+    out.role_decl = GroupRole::Unassigned;
+    return;
+  case Type::Pull:
+    if (ctx.sitting_in) {
+      // Already a rotation member sitting at the rear — the order resolves
+      // to C-pre-b's promotion (move-up transit or fast path).
+      out.maneuver = Maneuver{Maneuver::Type::PromoteSitter};
+      out.role_decl = GroupRole::Paceline;
+    } else {
+      // Declare in: the reconcile admits us (via the C4 join transit when
+      // we're not yet physically on the line).
+      out.role_decl = GroupRole::Paceline;
+    }
+    return;
+  case Type::Chase:
+  case Type::Free: {
+    // Chase on order, or on own initiative when armed (chase_gap_max > 0)
+    // and a group dangles within reach.
+    bool chase = order == Type::Chase;
+    if (!chase && params_.chase_gap_max > 0.0 &&
+        ctx.time_gap_to_group_ahead > 0.0 &&
+        ctx.time_gap_to_group_ahead <= params_.chase_gap_max)
+      chase = true;
+    // The feasibility clamp — a cooked rider ignores the order and keeps
+    // pacing its own race.
+    if (!chase || ctx.wbal_frac <= params_.chase_reserve_frac)
+      return;
+    out.role_decl = GroupRole::Paceline; // join/form the chase rotation
+    if (out.target_effort)
+      out.target_effort = std::min(*out.target_effort + params_.chase_delta,
+                                   ctx.effort_limit);
+    return;
+  }
+  }
+}
+
+// The C3 baseline (unchanged logic): W′-budgeted pace toward the current
+// horizon, recovery on descents, FTP on a climb approach.
+double WPrimePacingPolicy::pacing_effort(const DecisionContext& ctx) const {
   const CourseIntel& intel = *ctx.intel;
 
   // Horizon: the next crest if its climb starts within horizon_m (a rider
@@ -180,19 +312,15 @@ PolicyOutput WPrimePacingPolicy::decide(const DecisionContext& ctx) {
       std::min(ctx.pos + params_.descent_lookahead, intel.total_length());
   const double grad_here =
       look_end > ctx.pos ? intel.avg_gradient(ctx.pos, look_end) : 0.0;
-  if (!on_climb && grad_here < params_.descent_gradient) {
-    out.target_effort = std::min(params_.recovery_effort, ctx.effort_limit);
-    return out;
-  }
+  if (!on_climb && grad_here < params_.descent_gradient)
+    return std::min(params_.recovery_effort, ctx.effort_limit);
 
   // Approach at threshold: with a crest horizon but the climb not yet under
   // the wheels, hold FTP and open the budget at the foot — constant power
   // over a mixed flat+climb window would leak budget into the (aero-bound,
   // poor joules-per-second-gained) approach.
-  if (crest_horizon && !on_climb) {
-    out.target_effort = std::min(1.0, ctx.effort_limit);
-    return out;
-  }
+  if (crest_horizon && !on_climb)
+    return std::min(1.0, ctx.effort_limit);
 
   const double target_pos =
       crest_horizon ? climb->crest_pos : intel.total_length();
@@ -224,8 +352,7 @@ PolicyOutput WPrimePacingPolicy::decide(const DecisionContext& ctx) {
       estimate_wprime_pace(*ctx.self, dist, avg_grad, 0.0, budget, draft);
   // Feasibility clamp: the energy model throttles realized effort anyway,
   // but the request should stay honest (it's what the UI shows).
-  out.target_effort = std::min(est.power / ctx.ftp, ctx.effort_limit);
-  return out;
+  return std::min(est.power / ctx.ftp, ctx.effort_limit);
 }
 
 // --- C1d: context construction ---

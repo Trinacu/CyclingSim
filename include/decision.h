@@ -151,6 +151,9 @@ struct PolicyOutput {
   std::optional<double> target_effort; // FTP-relative
   std::optional<RiderId> follow; // set/keep a follow target; nullopt clears
                                  // a policy-installed one
+  // Behind = follow the rider ahead; Ahead = protect them (C4) — `follow` is
+  // then the ward.  Meaningful only when `follow` is set.
+  FollowRelation follow_relation = FollowRelation::Behind;
   GroupRole role_decl = GroupRole::Unassigned; // policy owns the rider's role
   std::optional<Maneuver> maneuver;
 };
@@ -184,6 +187,17 @@ struct WPrimePacingParams {
   // Declared through PolicyOutput every tick (a policy rider's role is
   // policy-owned); Paceline makes the rider join chase rotations (C4-era).
   GroupRole role_decl = GroupRole::Unassigned;
+
+  // --- C4 tactics (bounded deltas on the pacing baseline) ---
+  double chase_delta = 0.15; // effort added over the baseline while chasing
+  // Feasibility clamp: below this W′ fraction a Chase order is refused — the
+  // rider-side clamp is the final authority over any directive.
+  double chase_reserve_frac = 0.25;
+  // > 0 arms the *own-initiative* chase rule (no directive needed): chase
+  // while the group ahead trails by less than this many seconds.  A Chase
+  // directive works regardless.  Off by default — un-directed riders pace
+  // their own race (and the C3 gate scenario stays a pacing-only gate).
+  double chase_gap_max = 0.0; // s
 };
 
 class WPrimePacingPolicy : public IRiderPolicy {
@@ -193,8 +207,52 @@ public:
   const char* name() const override { return "wp-pace"; }
 
 private:
+  // The C3 baseline: W′-budgeted pace toward the current horizon.
+  double pacing_effort(const DecisionContext& ctx) const;
+  // C4: directive obedience + own-initiative chase, applied over the
+  // baseline.  Every order passes the feasibility clamp here.
+  void apply_tactics(const DecisionContext& ctx, PolicyOutput& out) const;
+
   WPrimePacingParams params_;
   DraftingParams draft_;
+};
+
+// --- C4: race plan + team director ---
+
+// Per-team race plan, set at scenario setup (Simulation::set_race_plan).
+// Static intent, like the team roster itself — survives Simulation::reset.
+struct RacePlan {
+  RiderId leader = -1; // ProtectLeader assignments target this rider
+  // Standing per-rider orders; a rider missing from the map rides Free.
+  std::unordered_map<RiderId, Directive::Type> assignments;
+  // > 0 enables the chase rule: a Free-assigned rider (never the leader) is
+  // ordered to Chase while its group trails the group ahead by less than
+  // this many seconds.
+  double chase_gap_max = 0.0; // s
+};
+
+// One per team, inside DecisionSystem; runs *before* rider policies each
+// decision tick (teams iterated in TeamId order).  Sees its own riders' full
+// DecisionContexts including W′ — radio, deliberately the only cross-rider
+// W′ visibility in the system — and emits one Directive per rider into the
+// context inbox.  Directives are commands with a rider-side clamp: policies
+// obey but clamp to feasibility (a cooked rider can't chase), which gives
+// suggestion-like softness with no arbitration machinery.  Radio = team
+// membership, not policy state: riders in human modes receive directives too
+// (surfaced, not obeyed — the C-UI badge renders them).
+class TeamDirector {
+public:
+  explicit TeamDirector(RacePlan plan) : plan_(std::move(plan)) {}
+  const RacePlan& plan() const { return plan_; }
+
+  // Contexts arrive sorted by id (decide() builds them that way); one
+  // directive per context, appended to `out`.  Deterministic and stateless —
+  // v1 rules are pure functions of the plan and the contexts.
+  void direct(const std::vector<DecisionContext>& team,
+              std::unordered_map<RiderId, Directive>& out) const;
+
+private:
+  RacePlan plan_;
 };
 
 // --- The system ---
@@ -231,6 +289,17 @@ public:
   bool has_policy(RiderId id) const { return policies_.count(id) > 0; }
   const IRiderPolicy* get_policy(RiderId id) const;
 
+  // Per-team race plan -> director (C4; physics-thread-only, Simulation's
+  // queued set_race_plan is the UI-safe path).  Setting replaces any previous
+  // plan for the team.  Plans are scenario configuration like the team
+  // registry itself: reset() keeps them (it drops per-run state only).
+  void set_race_plan(TeamId team, RacePlan plan);
+  void clear_race_plan(TeamId team) { directors_.erase(team); }
+
+  // The directive the last decision tick issued to this rider (surfaced for
+  // tests and the C-UI badge; non-policy riders receive but don't obey).
+  std::optional<Directive> last_directive(RiderId id) const;
+
   double decision_period() const { return params_.decision_period; }
 
   const RaceClock& race_clock() const { return clock_; }
@@ -245,6 +314,11 @@ private:
   // Follow targets this layer installed (vs. rotation/UI ones): only these
   // are cleared when a policy stops emitting `follow`.
   std::set<RiderId> policy_follow_;
+
+  // C4: one director per planned team; directives_ is rebuilt every decision
+  // tick by the director phase (rider -> this tick's order).
+  std::unordered_map<TeamId, TeamDirector> directors_;
+  std::unordered_map<RiderId, Directive> directives_;
 };
 
 #endif

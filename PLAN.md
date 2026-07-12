@@ -764,7 +764,43 @@ Original sketch:
 - Unit tests: budget honored on synthetic climbs (steep-short vs long-shallow);
   horizon handoff at the crest; recovery below FTP on descents.
 
-### C4. Team director, tactics, protect mechanism, MoveUp maneuver
+### C4. Team director, tactics, protect mechanism, MoveUp maneuver — DONE
+
+**Landed 2026-07-13** (gate: 0 warnings, 21/21 ctest, headless smoke exit 0;
+sign-off awaits the manual feel-check workstream).  As-built notes /
+deviations from the sketch below:
+- **RacePlan + TeamDirector live in decision.h / DecisionSystem** (installed
+  via queued `Simulation::set_race_plan(TeamId, RacePlan)`), not on `Team` —
+  team.h holding a `Directive`-bearing plan would invert the header
+  dependency.  Plans survive `reset()` (scenario configuration, like the
+  registry itself); `DecisionSystem::last_directive(id)` surfaces the inbox
+  for tests and the C-UI badge.
+- **Reconcile formation gates on arrival too**: a new rotation's roster seeds
+  from the largest consecutive chain of declarers (position gaps ≤
+  detach_gap); declarers outside the chain go through the join transit
+  instead of being rostered at distance (the join test caught the original
+  C2 form-from-everyone behavior violating "admitted only when physically
+  arrived").
+- **Sitter joins have their own transit queue** (`joining_`, destination the
+  *sitting* tail, arrival within engage_gap of the rearmost member); rotator
+  joins reuse the C-pre-b promoting queue verbatim.
+  `request_paceline_join(id, sits_in)` is scoped to the rider's own group —
+  a join is a within-bunch move; bridging to another group is a chase.
+- **Own-initiative chase** also exists per policy (`WPrimePacingParams.
+  chase_gap_max`, default off so the C3 gate stays pacing-only); a Chase
+  directive works regardless.  Both paths pass the same rider-side clamp
+  (`chase_reserve_frac` 0.25, delta `chase_delta` 0.15 — ADJUSTABLE_PARAMS.md
+  § 4).
+- **Protect gains** `protect_kp/ki/kd = 1.4/0.35/5.0` (follow_params.h, ⚖️):
+  mutual pair on rollers locks at the shared setpoint with *shrinking* ripple
+  (0.039 → 0.017 m p2p).  The protector reads `paceline_table[0]` (0.98) with
+  the ward attached — the D1 front-push, not shelter.  Engine exposes
+  `get_follow_state(id)` (relation introspection; C-UI snapshot stamping
+  reuses it).
+- Chase gate scenario: 8 s gap, order at 50 s, rabbits caught inside 120 s of
+  chasing; the run repeats byte-identical (director phase deterministic).
+
+Original design:
 
 **Protect mechanism** (folded in from the C-UI design — 2026-07-13 — so
 `Directive::ProtectLeader` ships with a real mechanism instead of a permanently
@@ -933,9 +969,12 @@ C3     pacing policy               DONE         2026-07-12: decision.* (WPrimePa
 FEEL   manual feel-check           MANUAL       own workstream (end of file; formerly C3.0) — interactive,
                                                 user present; A + B2 constants vs the appstate demo;
                                                 blocks C3/C4 sign-off; PENDING
-C4     director+tactics+protect+join ~2         decision.* (director, PolicyOutput relation), team.h,
-                                                sim.* (join API), rotation.*, follow.* + follow_params.h
-                                                (relation + protect gains)
+C4     director+tactics+protect+join DONE       2026-07-13: decision.* (RacePlan/TeamDirector, tactics,
+                                                PolicyOutput relation), follow.* + follow_params.h
+                                                (protect controller + gains), rotation.* (request_join,
+                                                joining_ queue), sim.* (join API, chain-gated formation,
+                                                relation plumbing, get_follow_state), mytypes.h
+                                                (FollowRelation); sign-off awaits the feel-check
 C-UI   modes+attack+panel          ~2           simcontrol.h, sim.* (attack flag/watchdog, suspend,
                                                 snapshot stamping), decision.* (suspend path), snapshot.h,
                                                 widget.*, sliders.*, simrenderer.*, screen.cpp
@@ -962,11 +1001,11 @@ D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
 C  (decision layer) ──►  in progress; C-pre, C0, C1, C2 DONE (2026-07-10:
                          c94c0f4, 56962f6, 15631fd, bc1afd5); C3 DONE
-                         (2026-07-12, sign-off awaits the feel-check) → next:
+                         (2026-07-12); C4 DONE (2026-07-13, protect folded
+                         in; C3/C4 sign-off awaits the feel-check) → next:
                          **manual feel-check workstream (user present)** →
-                         C4 (protect folded in; declares roles that drafting
-                         rewards) → C-UI (human control modes; compiles onto
-                         C4's join/promote/protect seams)
+                         C-UI (human control modes; compiles onto C4's
+                         join/promote/protect seams)
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase

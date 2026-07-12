@@ -307,6 +307,143 @@ static void test_wake_axis_steering() {
         "steering: clear_follow_target drops the lat target");
 }
 
+// --- Protect (C4): swapped-reference controller ---
+
+static void test_protect_controller() {
+  const FollowParams p;
+  const double dt = 0.01;
+
+  // Steady state at the setpoint: output = integrator, integrator frozen.
+  double integ = 0.7;
+  FollowInput in{.gap = p.d0, .rel_speed = 0.0, .own_speed = 10.0,
+                 .max_effort = 6.0};
+  double u = protect_effort(in, dt, integ, p);
+  check(approx(u, 0.7), "protect steady state: output = integrator");
+  check(approx(integ, 0.7), "protect steady state: integrator frozen at e = 0");
+
+  // Mirrored response: ward dropping back (gap above setpoint) -> ease.
+  integ = 0.7;
+  in.gap = p.d0 + 2.0;
+  check(protect_effort(in, dt, integ, p) < 0.7,
+        "protect: ward dropping -> ease");
+
+  // Ward closing in (gap under setpoint) -> push.
+  integ = 0.7;
+  in.gap = p.d0 - 0.5;
+  check(protect_effort(in, dt, integ, p) > 0.7,
+        "protect: ward closing -> push");
+
+  // Speed-matching feedforward: a faster ward (rel_speed > 0) raises effort
+  // before the position error moves.
+  integ = 0.7;
+  in.gap = p.d0;
+  in.rel_speed = 1.0;
+  check(protect_effort(in, dt, integ, p) > 0.7,
+        "protect: faster ward -> feedforward push");
+
+  // Same clamping discipline as the follow side.
+  integ = 0.7;
+  in.gap = p.d0 + 100.0;
+  in.rel_speed = -5.0;
+  for (int i = 0; i < 1000; ++i)
+    u = protect_effort(in, dt, integ, p);
+  check(approx(integ, 0.0), "protect: runaway ward bleeds integrator to 0");
+  check(approx(u, 0.0), "protect: commanded effort floors at 0");
+}
+
+// Ward on constant effort, protector installed ahead with relation Ahead:
+// the protector must regulate the *same* wheel gap the ward's own follow
+// view would measure, sit in the wind, and never steer (no lat target — the
+// ward is behind, there is no wake to seek).
+static void test_protect_holds_ward() {
+  const double dt = 0.01;
+  Course course = Course::create_flat();
+  PhysicsEngine eng(&course);
+  eng.add_rider(cfg(1)); // ward
+  eng.add_rider(cfg(2)); // protector
+  eng.get_riders().at(2)->set_start_pos(10.0);
+  eng.set_rider_effort(1, 0.75);
+  eng.set_follow_target(2, 1, FollowRelation::Ahead);
+
+  for (int i = 0; i < 12000; ++i) // 120 s to acquire + converge
+    eng.update(dt);
+
+  double min_gap = 1e9, max_gap = -1e9, sum = 0.0;
+  const int window = 3000; // 30 s observation
+  for (int i = 0; i < window; ++i) {
+    eng.update(dt);
+    const double g = wheel_gap(eng, 1, 2); // ward's view of the pair
+    min_gap = std::min(min_gap, g);
+    max_gap = std::max(max_gap, g);
+    sum += g;
+  }
+  const double mean = sum / window;
+  std::cout << "  [protect] gap mean " << mean << " m, range [" << min_gap
+            << ", " << max_gap << "]\n";
+  check(std::fabs(mean - 0.25) < 0.05, "protect: ward held at the setpoint");
+  check(max_gap - min_gap < 0.15, "protect: no sawtooth");
+  check(eng.get_rider_by_id(1)->get_cda_factor() < 0.8,
+        "protect: ward is sheltered (cda_factor drops)");
+  // The protector leads: no shelter beyond the front rider's small push from
+  // the ward on the wheel (paceline_table[0] = 0.98, D1).
+  check(eng.get_rider_by_id(2)->get_cda_factor() > 0.95,
+        "protect: protector sits in the wind (front-push only)");
+  check(!eng.get_rider_by_id(2)->get_lat_target().has_value(),
+        "protect: protector holds its line (no lat target)");
+}
+
+// The natural pairing: ward follows protector while protector protects ward
+// — two controllers regulating the same gap from both ends.  They share the
+// d0/h setpoint, so they must cooperate, not fight: on a rolling course with
+// mismatched FTPs the gap stays locked with no growing oscillation.  Runs
+// through Simulation to exercise the queued relation-carrying command.
+static void test_protect_mutual_pair() {
+  const double dt = 0.01;
+  std::vector<std::array<double, 5>> segs;
+  for (int i = 0; i < 12; ++i)
+    segs.push_back({500, (i % 2 == 0) ? 0.02 : -0.02, 0, 0, 8});
+  Course course = Course::from_segments(segs);
+  Simulation sim(&course);
+  sim.add_riders({cfg(1, 280), cfg(2, 250)}); // ward stronger than protector
+  sim.get_engine()->get_riders().at(2)->set_start_pos(5.0);
+  sim.get_engine()->get_riders().at(1)->set_start_pos(3.2); // ~on the wheel
+  sim.set_rider_effort(1, 0.75); // integrator bootstrap seeds (both sides)
+  sim.set_rider_effort(2, 0.75);
+  sim.step_fixed(dt);
+  sim.set_follow_target(1, 2); // ward follows the protector...
+  sim.set_follow_target(2, 1, FollowRelation::Ahead); // ...who protects back
+
+  for (int i = 0; i < 6000; ++i) // 60 s settle
+    sim.step_fixed(dt);
+  check(sim.get_effort_source(2) == EffortSource::Follow,
+        "mutual: protect reports EffortSource::Follow");
+
+  // Two 30 s windows: locked near the setpoint, and the second window's
+  // excursion must not exceed the first's (nothing building up).
+  auto window_stats = [&](double& mean, double& p2p) {
+    double mn = 1e9, mx = -1e9, sum = 0.0;
+    const int n = 3000;
+    for (int i = 0; i < n; ++i) {
+      sim.step_fixed(dt);
+      const double g = wheel_gap(*sim.get_engine(), 1, 2);
+      mn = std::min(mn, g);
+      mx = std::max(mx, g);
+      sum += g;
+    }
+    mean = sum / n;
+    p2p = mx - mn;
+  };
+  double mean_a, p2p_a, mean_b, p2p_b;
+  window_stats(mean_a, p2p_a);
+  window_stats(mean_b, p2p_b);
+  std::cout << "  [mutual] gap mean " << mean_a << " -> " << mean_b
+            << " m, p2p " << p2p_a << " -> " << p2p_b << " m\n";
+  check(std::fabs(mean_a - 0.25) < 0.1 && std::fabs(mean_b - 0.25) < 0.1,
+        "mutual: pair locked at the shared setpoint");
+  check(p2p_a < 0.5 && p2p_b < 0.5, "mutual: bounded ripple on rollers");
+  check(p2p_b <= p2p_a * 1.2 + 0.05, "mutual: oscillation not growing");
+}
+
 // --- Simulation-level: effort-source arbitration ---
 
 static void test_effort_source_arbitration() {
@@ -381,6 +518,9 @@ int main() {
   test_accordion();
   test_weak_follower_dropped();
   test_wake_axis_steering();
+  test_protect_controller();
+  test_protect_holds_ward();
+  test_protect_mutual_pair();
   test_effort_source_arbitration();
 
   if (checks_failed) {

@@ -95,6 +95,18 @@ public:
   void add_member(RiderId id, bool sits_in);
   void remove_member(RiderId id);
 
+  // MoveUp join (C4): a *non-member* physically rides up from the pack
+  // before being admitted — the decision-triggered counterpart of C-pre-b's
+  // rotation-internal sitter promotion, reusing the same transit state
+  // machine.  A rotator-to-be enters the promoting queue (destination:
+  // InLine tail, same attach criterion as a promoted sitter); a sitter-to-be
+  // enters the joining queue and attaches to the *sitting* tail once within
+  // engage_gap of the formation's rearmost member.  False when already a
+  // member.  Note for auto (reconciled) rotations: membership persists only
+  // while the rider declares GroupRole::Paceline — join without declaring
+  // and the next reconcile removes you.
+  bool request_join(RiderId id, bool sits_in);
+
   // All current member ids (inline, drifting, sitting, promoting).
   std::vector<RiderId> members() const;
 
@@ -107,9 +119,12 @@ public:
   int inline_count() const { return static_cast<int>(inline_.size()); }
   int drifting_count() const { return static_cast<int>(drifting_.size()); }
   int promoting_count() const { return static_cast<int>(promoting_.size()); }
+  int sitting_count() const { return static_cast<int>(sitting_.size()); }
+  int joining_count() const { return static_cast<int>(joining_.size()); }
   int member_count() const {
     return static_cast<int>(inline_.size() + drifting_.size() +
-                            sitting_.size() + promoting_.size());
+                            sitting_.size() + promoting_.size() +
+                            joining_.size());
   }
   bool is_member(RiderId id) const;
 
@@ -120,7 +135,10 @@ private:
   std::vector<RiderId> drifting_; // rotators merging back, oldest swing first
   std::vector<RiderId> sitting_;  // SittingIn members, front first
   std::vector<RiderId> promoting_; // sitters in move-up transit toward the
-                                   // InLine tail (C-pre-b)
+                                   // InLine tail (C-pre-b); pack joiners
+                                   // bound for the line share this queue (C4)
+  std::vector<RiderId> joining_;   // pack joiners in transit toward the
+                                   // *sitting* tail (C4 MoveUp, sits_in)
 
   // Per-member time spent detached (gap to the rider ahead > detach_gap).
   std::vector<std::pair<RiderId, double>> detach_timers_;

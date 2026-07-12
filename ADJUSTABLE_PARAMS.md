@@ -1,6 +1,7 @@
-# Adjustable parameters — lateral shove + C3.0 feel-check
+# Adjustable parameters — lateral shove + manual feel-check
 
-Reference for the interactive tuning session (PLAN.md § C3.0).  All of these
+Reference for the interactive tuning session (PLAN.md § Manual feel-check
+workstream, formerly C3.0).  All of these
 are tune-by-recompile: `CollisionParams` fields are engine defaults
 (`PhysicsEngine::params`, sim.h — `from_config` is declared but never
 implemented, so the struct defaults are what runs); the rest are named
@@ -71,7 +72,27 @@ echelon energetically worth forming.
 | `kMinApparentLon` | src/rider.cpp | 1.0 | m/s — floor on the longitudinal apparent wind `|u|` in the divisor; guards the standing-start spike (u → 0 while the true force → 0). Only matters below ~walking pace. |
 | `kYawFactorCap` | src/rider.cpp | 3.0 | Hard cap on the whole yaw multiplier — bounds the standing-start regime the floor doesn't catch. |
 
-## Sign-off record (PLAN.md § C3.0)
+## 4. C4 — protect controller + chase tactic
+
+Protect (`protect_effort`, src/follow.cpp — the swapped-reference gap
+regulator; ⚖️ validated by the mutual-pair test in tests/test_follow.cpp,
+retune there if the pair ever oscillates):
+
+| Param | File | Value | Mechanics |
+|---|---|---|---|
+| `protect_kp` | include/follow_params.h | 1.4 | Position gain, deliberately half the follow-side `kp`: the ward's follow controller does the tight gap-keeping, the protector corrects slowly. Raising it toward `kp` risks the mutual pairing oscillating. |
+| `protect_ki` | include/follow_params.h | 0.35 | Integral — holds the protector's entire cruise effort at lock, same discipline as the follow side (clamped [0, max_effort], never zeroed). |
+| `protect_kd` | include/follow_params.h | 5.0 | Gain on `v_ward − v_own` — the speed-matching feedforward; does most of the work on rollers. |
+
+Chase tactic (`WPrimePacingParams`, include/decision.h):
+
+| Param | File | Value | Mechanics |
+|---|---|---|---|
+| `chase_delta` | include/decision.h | 0.15 | Effort added over the pacing baseline while chasing — the bounded tactic delta, clamped to `effort_limit`. |
+| `chase_reserve_frac` | include/decision.h | 0.25 | The rider-side clamp: below this W′ fraction any Chase order is refused. |
+| `chase_gap_max` | include/decision.h | 0.0 (off) | Arms the *own-initiative* chase rule (s). Per-policy; the director's `RacePlan.chase_gap_max` is the team-ordered equivalent. |
+
+## Sign-off record (PLAN.md § Manual feel-check workstream)
 
 - [ ] Shove push signed off (values: ____)
 - [ ] A constants signed off (values: ____)

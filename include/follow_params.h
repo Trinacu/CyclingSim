@@ -35,6 +35,18 @@ typedef struct FollowParams {
   // metres of wheel gap above the setpoint, so the cut-in ends exactly on
   // the wake axis.
   double approach_fade_len = 2.0; // m
+
+  // Protect (C4): the swapped-reference regulator (ward behind).  Same d0/h
+  // setpoint as the follow side — the natural mutual pairing (ward follows
+  // protector) must agree on the gap from both ends.  The position gain is
+  // deliberately softer than kp: the ward's follow controller does the tight
+  // gap-keeping, the protector mostly speed-matches (kd term) and corrects
+  // position slowly — hard protect_kp against a following ward is how the
+  // pair oscillates.  ⚖️ Validated by the mutual-pair test
+  // (tests/test_follow.cpp); retune there.
+  double protect_kp = 1.4;
+  double protect_ki = 0.35;
+  double protect_kd = 5.0;
 } FollowParams;
 
 #endif

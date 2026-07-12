@@ -30,7 +30,10 @@
 // Per-rider controller state, owned by the engine for the lifetime of the
 // follow target.
 struct FollowState {
+  // The reference rider: the leader ahead (Behind) or the ward behind
+  // (Ahead/protect, C4).
   RiderId leader = -1;
+  FollowRelation relation = FollowRelation::Behind;
   // Integral term in effort units, hard-clamped to [0, max_effort].
   // Bootstrapped from the rider's current target_effort on assignment so a
   // mode switch never steps effort discontinuously.
@@ -69,6 +72,18 @@ struct FollowInput {
 // [0, in.max_effort].
 double follow_effort(const FollowInput& in, double dt, double& integrator,
                      const FollowParams& p);
+
+// Protect (C4): the same regulator with the reference swapped — the ward is
+// *behind*.  The caller builds the input from the protector's side of the
+// pair: gap = own_pos - ward_pos - own bike_len (the identical quantity the
+// ward's follow controller sees, so both ends agree on the setpoint),
+// rel_speed = ward speed - own speed.  Error is sign-mirrored (gap too big →
+// ease and let the ward back on; ward closing → push), position gain is the
+// softer protect_kp, and the rel_speed term speed-matches the ward.  Same
+// clamping discipline as follow_effort; no braking — a ward that eases is
+// re-collected by drag alone, same as an overrun.
+double protect_effort(const FollowInput& in, double dt, double& integrator,
+                      const FollowParams& p);
 
 // Drift speed-hold PI (rotation, D3): v_err = (v_leader - drift_delta) -
 // v_own.  Same clamping discipline as the gap controller.  The caller
