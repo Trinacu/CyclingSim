@@ -127,6 +127,11 @@ public:
   // window-averaged view of the road ahead (C1).
   double cruise_speed_at(double power, double slope, double headwind,
                          double cda_factor) const;
+  // Inverse what-if: crank power to hold speed v under the substituted
+  // conditions (same env caveat as cruise_speed_at: rho/g/bearings come
+  // from the rider's env, which is zero until the first physics step).
+  double cruise_power_at(double v, double slope, double headwind,
+                         double cda_factor) const;
   double get_total_mass() const { return state.mass_rider + state.mass_bike; }
   double get_radius() const { return 0.5; }
   double get_bike_len() const { return bike.wheelbase + 2 * bike.wheel_r; }
@@ -140,6 +145,8 @@ public:
 
   Vector2d get_pos2d() const;
   void set_pos2d(Vector2d pos);
+  // Pre-start placement (scenario setup only — never while physics steps).
+  void set_start_pos(double pos) { state.pos = pos; }
 
   RiderConfig get_config() const { return config; }
 

@@ -137,6 +137,97 @@ double line_slot_draft_factor(int depth, const DraftingParams& p) {
   return p.paceline_table[std::min(depth, kLastTableSlot)];
 }
 
+// --- C3: W′-budgeted pacing policy ---
+
+namespace {
+
+// Positive climbing (m of elevation) inside [from, to], summed over the
+// intel's climb index — overlap portions only.
+double climbing_between(const CourseIntel& intel, double from, double to) {
+  double elev = 0.0;
+  for (const Climb& c : intel.climbs()) {
+    const double lo = std::max(from, c.start);
+    const double hi = std::min(to, c.crest_pos);
+    if (hi > lo)
+      elev += (hi - lo) * c.avg_gradient;
+  }
+  return elev;
+}
+
+} // namespace
+
+WPrimePacingPolicy::WPrimePacingPolicy(WPrimePacingParams params)
+    : params_(params) {}
+
+PolicyOutput WPrimePacingPolicy::decide(const DecisionContext& ctx) {
+  PolicyOutput out;
+  out.role_decl = params_.role_decl;
+  if (!ctx.intel || !ctx.self || ctx.ftp <= 0.0)
+    return out;
+  const CourseIntel& intel = *ctx.intel;
+
+  // Horizon: the next crest if its climb starts within horizon_m (a rider
+  // already mid-climb gets that crest), else the finish.
+  const std::optional<Climb> climb = intel.next_climb(ctx.pos);
+  const bool crest_horizon =
+      climb && (climb->start - ctx.pos) <= params_.horizon_m;
+  const bool on_climb = climb && ctx.pos >= climb->start;
+
+  // Descent check on a short forward window (the point slope isn't in the
+  // context, and the window smooths segment edges).  Suppressed mid-climb:
+  // a short dip inside a merged climb must not drop the pace.
+  const double look_end =
+      std::min(ctx.pos + params_.descent_lookahead, intel.total_length());
+  const double grad_here =
+      look_end > ctx.pos ? intel.avg_gradient(ctx.pos, look_end) : 0.0;
+  if (!on_climb && grad_here < params_.descent_gradient) {
+    out.target_effort = std::min(params_.recovery_effort, ctx.effort_limit);
+    return out;
+  }
+
+  // Approach at threshold: with a crest horizon but the climb not yet under
+  // the wheels, hold FTP and open the budget at the foot — constant power
+  // over a mixed flat+climb window would leak budget into the (aero-bound,
+  // poor joules-per-second-gained) approach.
+  if (crest_horizon && !on_climb) {
+    out.target_effort = std::min(1.0, ctx.effort_limit);
+    return out;
+  }
+
+  const double target_pos =
+      crest_horizon ? climb->crest_pos : intel.total_length();
+  const double dist = target_pos - ctx.pos;
+  const double avg_grad =
+      dist > 0.0 ? intel.avg_gradient(ctx.pos, target_pos) : 0.0;
+
+  // Budget = wbal above the reserve floor, scaled by the horizon's share of
+  // the climbing left on the whole course: a joule above FTP buys the most
+  // time where gravity, not aero, sets the speed, so an early kicker must
+  // not hijack the budget from the big climbs behind it.  A lone climb —
+  // and the finish horizon, which contains everything left — gets share 1,
+  // preserving the crest-at-the-floor property.
+  const double elev_horizon = climbing_between(intel, ctx.pos, target_pos);
+  const double elev_rest =
+      climbing_between(intel, target_pos, intel.total_length());
+  const double share =
+      elev_rest > 0.0 ? elev_horizon / (elev_horizon + elev_rest) : 1.0;
+  const double w_prime = ctx.self->get_config().w_prime_base;
+  const double budget =
+      share * std::max(0.0, ctx.wbal - params_.wbal_floor_frac * w_prime);
+  double draft = 1.0;
+  if (ctx.in_rotation)
+    draft = ctx.sitting_in
+                ? line_slot_draft_factor(ctx.rotation_size - 1, draft_)
+                : rotation_avg_draft_factor(ctx.rotation_size, draft_);
+
+  const PaceEstimate est =
+      estimate_wprime_pace(*ctx.self, dist, avg_grad, 0.0, budget, draft);
+  // Feasibility clamp: the energy model throttles realized effort anyway,
+  // but the request should stay honest (it's what the UI shows).
+  out.target_effort = std::min(est.power / ctx.ftp, ctx.effort_limit);
+  return out;
+}
+
 // --- C1d: context construction ---
 
 namespace {
@@ -238,5 +329,6 @@ DecisionContext DecisionSystem::build_context(const Simulation& sim,
 
   c.intel = &intel_;
   c.clock = &clock_;
+  c.self = r;
   return c;
 }

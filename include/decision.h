@@ -93,6 +93,10 @@ struct DecisionContext {
   // --- world knowledge handles + clock time for ad-hoc queries ---
   const CourseIntel* intel = nullptr;
   const RaceClock* clock = nullptr;
+  // Own rider, const: the estimator's entry point (cruise_speed_at) lives on
+  // Rider, and a rider knows their own body.  Strangers stay behind the
+  // perception boundary above — never reach through this to the engine.
+  const Rider* self = nullptr;
   double now = 0.0;
 
   // --- directive inbox (filled by the team director from C4 on) ---
@@ -159,6 +163,38 @@ public:
   virtual ~IRiderPolicy() = default;
   virtual PolicyOutput decide(const DecisionContext& ctx) = 0;
   virtual const char* name() const = 0;
+};
+
+// --- C3: W′-budgeted pacing policy ---
+
+// Rolling re-plan at decision cadence: pick a horizon — the next crest if a
+// climb lies within horizon_m, else the finish — and hold the constant power
+// that spends the W′ budget (wbal minus a reserve) exactly over it
+// (estimate_wprime_pace).  Descents are recovery, not spending: pushing W′
+// into aero at descent speed is waste, so ride recovery_effort and let the
+// next re-plan fold the recharge back into the budget.  Draft assumption
+// from own rotation membership (the C1c helpers).  The estimator's
+// roughness is self-correcting: every tick re-plans from actual wbal/pos.
+struct WPrimePacingParams {
+  double horizon_m = 3000.0; // a climb starting within this owns the horizon
+  double wbal_floor_frac = 0.15; // reserve: W′ fraction never planned away
+  double recovery_effort = 0.6;  // FTP-relative, on descents (W′ recharges)
+  double descent_gradient = -0.01; // avg gradient below this reads as descent
+  double descent_lookahead = 100.0; // m window for the descent check
+  // Declared through PolicyOutput every tick (a policy rider's role is
+  // policy-owned); Paceline makes the rider join chase rotations (C4-era).
+  GroupRole role_decl = GroupRole::Unassigned;
+};
+
+class WPrimePacingPolicy : public IRiderPolicy {
+public:
+  explicit WPrimePacingPolicy(WPrimePacingParams params = {});
+  PolicyOutput decide(const DecisionContext& ctx) override;
+  const char* name() const override { return "wp-pace"; }
+
+private:
+  WPrimePacingParams params_;
+  DraftingParams draft_;
 };
 
 // --- The system ---

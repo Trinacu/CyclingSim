@@ -680,7 +680,7 @@ smoke exit 0). As-built notes / deviations:
   effort, policy name), snapshot fields stamped by Simulation at frame time —
   closes the deferred D-era "UI exposure of follow/rotation modes".
 
-**Next: C3.0, the manual feel-check step below.**
+**Next: the manual feel-check workstream (end of file).**
 
 - `DecisionSystem::decide(PhysicsEngine&)` fired from `step_fixed` via sim-time
   accumulator every `decision_period` (param, default **1.0 s**). Cadence ≠ thread:
@@ -712,39 +712,41 @@ smoke exit 0). As-built notes / deviations:
   determinism; arbitration transitions (policy↔schedule↔follow, slider inert when a
   policy is assigned); reconcile respects manual rotations.
 
-### C3.0. Feel-check session — MANUAL, before C3/C4
+### C3. First consumer — W′-budgeted pacing policy — DONE
 
-Interactive tuning session, **user present** — the one step in this workstream
-that cannot land from tests alone.  Blocks C3/C4 *sign-off*, not their start.
-Do it before AI behavior goes live so "the paceline looks weird" stays
-attributable to constants, not decisions.
+**Landed 2026-07-12** (gate: 0 warnings, 21/21 ctest, headless smoke exit 0).
+As-built notes / deviations:
+- `DecisionContext` gained `const Rider* self` — the estimator's entry point
+  is `Rider::cruise_speed_at` (C1 decision), so policies need the own-rider
+  handle; strangers stay behind the perception boundary.
+- Two amendments beyond the sketch below, both forced by the gate scenario
+  (an early 200 m kicker hijacked the whole budget, then the policy *lost*
+  to the uniform rider by ~9 s):
+  (1) **budget share** — a crest horizon may spend only its share of the
+  climbing left on the whole course (elevation-proportional over
+  CourseIntel's climb index; a lone climb, and the finish horizon, get
+  share 1 — preserving crest-at-the-floor); (2) **approach at threshold** —
+  with a crest horizon but the climb not yet under the wheels, hold FTP and
+  open the budget at the foot (constant power over a mixed flat+climb
+  window leaks budget into the aero-bound approach).
+- Gate numbers: policy 2680.7 s vs 2696.5 s for the equal-average-power
+  schedule rider (avg effort 1.041), finishing at wbal_frac 0.050 against a
+  0.05 floor.  The gate uses the minimal reserve deliberately: it races to
+  the line and the uniform opponent spends every joule; the 0.15 default is
+  a road-race reserve.  Unit climbs (steep-short, long-shallow) crest at
+  wbal_frac 0.1500 vs floor 0.15.
+- Params as landed: `WPrimePacingParams { horizon_m 3000, wbal_floor_frac
+  0.15, recovery_effort 0.6, descent_gradient −0.01, descent_lookahead
+  100 m, role_decl }` (role passthrough so C4 tactics can declare Paceline).
+- Still open: the interactive plot-screen eyeball — bundled into the manual
+  feel-check workstream (end of file; not yet run; gates C3/C4 *sign-off*).
+- Note: the appstate demo was rewired 2026-07-12 into a manual-formation
+  feel-check playground (riders 0–6 tight line + Luka solo, everyone
+  Manual at a common-target-speed cruise effort); the feel-check
+  workstream's "How to run" reflects that.  Tunables catalogued in
+  ADJUSTABLE_PARAMS.md.
 
-**How to run:** `./game` from build/, the appstate rotating-paceline demo
-(7 rotators + Luka sitting in, wind 3.5 m/s @ 60°, first swing at ~45 s at
-time factor 0.2).  The C0/C2 overlays help: group gaps top-right, per-rider
-mode letters + efforts bottom-left.  Tuning is by recompile — all constants
-are named locals.
-
-**What to eyeball, and which knobs:**
-- **A — lateral feel** (`kPenaltyScale`, `kMaxPenaltyRate`, lateral_solver /
-  lateral_behavior locals): does cutting across the road cost a believable
-  speed dip?  Do riders settle back toward their line naturally — neither
-  magnetized nor sluggish?  Watch the drifters' swing-off and merge-back.
-- **B2 — yaw drag** (`kYawDragGain`, `kMinApparentLon`, `kYawFactorCap` —
-  rider.cpp locals): crosswind penalty magnitude plausible (a few % CdA at
-  3.5 m/s @ 60°, not dramatic — compare cda_factor in the plot screen)?
-  Swings consistently windward?  Echelon stagger visible and energetically
-  worth forming (windward riders visibly working harder)?
-- **C-pre-b — promotion transit** (opportunistic, same session): promote a
-  sitter mid-run if reachable via test hooks, or just confirm the D3 merges
-  still read right after the C2 multi-rotation refactor.
-
-**Pass = user says it looks right.**  Record the final constant values and any
-retunes here when done:
-- [ ] A constants signed off (values: ____)
-- [ ] B2 constants signed off (values: ____)
-
-### C3. First consumer — W′-budgeted pacing policy
+Original sketch:
 
 `WPrimePacingPolicy : IRiderPolicy`:
 - Horizon each tick: next crest if a climb lies within ~`horizon_km` (CourseIntel),
@@ -762,7 +764,32 @@ retunes here when done:
 - Unit tests: budget honored on synthetic climbs (steep-short vs long-shallow);
   horizon handoff at the crest; recovery below FTP on descents.
 
-### C4. Team director, tactics, MoveUp maneuver
+### C4. Team director, tactics, protect mechanism, MoveUp maneuver
+
+**Protect mechanism** (folded in from the C-UI design — 2026-07-13 — so
+`Directive::ProtectLeader` ships with a real mechanism instead of a permanently
+inert enum value; the directive-flow tests below exercise it):
+- The follow-target record gains a **relation**: `{leader, Behind}` = follow
+  (today's behavior), `{ward, Ahead}` = protect — ride *in front of* the ward,
+  keeping them on your wheel (they get the draft; you're the windbreak — no
+  modeling change, that's just where you are).  Carried through the install API
+  (`set_follow_target` gains a relation arg, default Behind — existing callers
+  unchanged) and stored on `FollowState` (follow.h).
+- Same D2 gap controller (`follow_effort`), reference swapped: regulate
+  `own_pos − ward_pos ≈ wheel gap`, with the **same** gap definition/constant —
+  so the natural mutual pairing (ward simultaneously follows the protector)
+  agrees on the setpoint from both ends instead of fighting.  The protector runs
+  a softer position gain with the ward's speed as feedforward (the ward's follow
+  controller does the tight gap-keeping).  ⚖️ protect gains settled empirically
+  (follow_params.h).
+- `EffortSource::Follow` still reports — same controller slot, no new source
+  (the C-UI mode derivation distinguishes Follow vs Protect via the relation).
+  `PolicyOutput.follow` widens to carry the relation;
+  `Directive::ProtectLeader` compiles down to a protect install.
+- Known limit, recorded: the controller holds position ahead of the ward
+  regardless of surroundings — protecting a rider buried mid-group looks silly.
+  Group-aware positioning is out of scope here (same class as
+  follow-through-traffic).
 
 **Directives & director:**
 - `struct Directive { enum Type { Free, Pull, SitIn, Chase, ProtectLeader }; … }`;
@@ -775,6 +802,10 @@ retunes here when done:
 - **Commands with rider-side clamp**: policies obey directives but always clamp to
   feasibility (`effort_limit`, W′ floor) — a cooked rider can't chase; the clamp is
   the final authority, giving suggestion-like softness with no arbitration machinery.
+- **Radio = team membership, not policy state**: riders in human modes (C-UI)
+  still appear in the director's view with W′ and still receive directives; a
+  directive to a non-policy rider is surfaced (snapshot badge, C-UI renders
+  "ordered: Chase") but not obeyed.  No arbitration machinery.
 
 **Tactics (rider policy layer):**
 - Sit-in / chase / drift as a **bounded delta** on the pacing baseline:
@@ -797,7 +828,87 @@ C4-era, unlike C-pre-b's rotation-internal sitter promotion):
 Tests: director determinism + clamp (exhausted rider ignores Chase); directive flow
 (Pull → rider ends up puller within N ticks, offline — exercising join/promote
 end-to-end from a directive); join-from-pack arrives and merges without a lateral
-step.
+step; protect holds the ward on the protector's wheel; the mutual pair (ward
+follows protector, different FTPs, rolling course) shows no growing oscillation;
+`ProtectLeader` directive → protect install → the ward's `cda_factor` drops
+(sheltered).
+
+### C-UI. Human control modes — RiderPanel mode row (after C4)
+
+Design converged 2026-07-13.  The organizing insight: a human clicking mode
+buttons is a meta-controller emitting a one-shot `PolicyOutput` — the UI,
+policies (`PolicyOutput`) and the director (`Directive`) speak the **same intent
+vocabulary** at three tiers: director → policy → intent.  Top-level modes:
+**Manual, Pull, Sit-in, Draft (Body), Follow, Protect, Attack, Policy**.  The
+displayed mode is **derived, never stored** (no local UI state, no optimistic
+desync — clicks issue queued commands, the highlight follows the next frame);
+`EffortSource` stays the mechanism truth underneath — in Pull mode the source
+legitimately alternates Follow ↔ own-effort as the rider cycles.  Schedules stay
+dev-only (no UI).  Depends on C4: join API, protect relation, directive inbox.
+
+**Behavior half:**
+- **CUI-B1 — policy suspend/resume.** Switching to any non-Policy mode
+  *suspends* the assigned policy instead of clearing it: keep the `policies_`
+  entry + internal state, skip its `decide()`, tear down what it installed (its
+  `policy_follow_` entry, its role declaration).  POL re-click resumes (state
+  kept — it re-plans every tick anyway).  New: an active bit per assignment, a
+  `DecisionSystem` suspend path, queued suspend/resume commands on Simulation.
+- **CUI-B2 — attack flag + watchdog.** Per-rider engine flag; it does **not**
+  remap effort (the UI sends already-mapped FTP-relative values, as today).
+  Entry requires `effort_limit > 2.0` — the headroom rule: the attack slider
+  range is 2.0 → limit, empty otherwise.  Watchdog in `Simulation::step_fixed`:
+  `wbal_frac ≤ attack_bailout_frac` (0.05) → clear the flag and set
+  `target_effort = attack_bailout_effort` (~0.6 — a blown rider *eases*; without
+  this the held high effort rides the recovering limit forever).  Re-arm guard
+  `attack_rearm_frac` (0.10) against threshold flapping.  Entering Attack clears
+  role/follow and suspends the policy — attacking *means* leaving the paceline.
+  Params → ADJUSTABLE_PARAMS.md.
+- **CUI-B3 — Sit-in / Pull as intents.** Post-C4 this is thin: SIT compiles onto
+  `request_paceline_join(id, sits_in=true)`, PULL onto the join /
+  `promote_sitter`; the declaration channel follows C4's reconcile admission
+  (declared-but-pending until physically arrived).  No pre-C4 role-enum surgery.
+- **CUI-B4 — mode derivation + snapshot.** Derivation precedence at snapshot
+  time: attack flag → **Attack**; follow record by relation → **Follow** /
+  **Protect**; policy active → **Policy**; sitting → **Sit-in**; Paceline →
+  **Pull**; Body → **Draft**; else **Manual**.  `RiderSnapshot` gains: attack
+  flag, follow record {target id, relation, owner: rotation/policy/UI}, rotation
+  membership {member, line depth, sitting, roster size}, policy active bit,
+  pending directive (badge).  All stamped by Simulation at snapshot time —
+  exactly the C2 `effort_source`/`policy` pattern.
+
+**UI half:**
+- **CUI-U1 — mode row.** New reusable `SegmentedControl` primitive.  Cells:
+  MAN · PULL · SIT · DRAFT · FOL · PROT · ATK · POL.  Highlight always renders
+  the snapshot-derived mode; clicks compile to bundles of existing queued
+  commands.  DRAFT rendered-but-disabled until the body heuristic exists; ATK
+  disabled without headroom (CUI-B2).
+- **CUI-U2 — rider-pick.** FOL/PROT enter pick mode reusing
+  `SimulationRenderer::pick_rider`; click → `set_follow_target(sel, picked,
+  relation)`; Esc cancels.
+- **CUI-U3 — slider remap.** Reuses `PiecewiseSlider` (`EffortSlider::
+  make_config`, sliders.cpp) — config change only.  Normal mode:
+  `neutral_point 0.8`, lower 80 % linear 0 → 1.0 FTP, top 20 % 1.0 → 2.0.
+  Attack mode config: 2.0 → live `effort_limit` (the `cached_max_effort`
+  machinery already tracks a live ceiling).  Continuity: normal ceiling = attack
+  floor = 2.0, so the slider's meaning hands off across the mode switch.  Slider
+  live in Manual, Attack, and while on the front in Pull ("my effort when
+  pulling"); read-only `target_effort` indicator + lock glyph + owner tag
+  otherwise.  Value label shows the mapped number ("1.62× FTP").
+- **CUI-U4 — context + rotation rows.** Context line explains the owner
+  ("wp-pace (suspended)", "shielding Kojo", "blew up — W′ hit 5 %").  Rotation
+  row: "—" / "Line #k of n" / "Sitting in" / "Drifting" + contextual action
+  (SittingIn → [Promote]; non-member near a line → [Join] via C4's join API);
+  directive badge ("ordered: Chase") for human-mode riders.
+- **CUI-U5 — ISimControl widening** (simcontrol.h — today only effort + time
+  controls): passthroughs to Simulation's existing command queue for role decl,
+  follow/protect set + clear, policy suspend/resume (+ assign by factory name),
+  attack set/clear, promote, join.  Widgets stay mockable; every click stays a
+  queued command.
+- **CUI-U6 — primitives.** `SegmentedControl`, rider-scoped `ActionButton`;
+  status lines reuse the existing MetricRow string-getter machinery.
+
+Suggested order within C-UI: CUI-B1 → CUI-B4 → U1/U3/U5 skeleton → CUI-B2 →
+U2/U4 → CUI-B3.  Rough size ~2 sessions.
 
 ### C. Order, sizes, files
 
@@ -816,10 +927,18 @@ C2     cadence+policies+reconcile  DONE         2026-07-10 (bc1afd5): decision.*
                                                 reconcile), rotation.*, mytypes.h (EffortSource::Policy),
                                                 snapshot.h, simrenderer.cpp, display.* (RiderBoardDrawable),
                                                 screen.cpp
-C3.0   feel-check session          MANUAL       interactive, user present — A + B2 constants vs the
-                                                appstate demo; blocks C3/C4 sign-off
-C3     pacing policy               ~1           decision.*, analysis scenario
-C4     director+tactics+MoveUp join ~1.5        decision.*, team.h, sim.* (join API), rotation.*
+C3     pacing policy               DONE         2026-07-12: decision.* (WPrimePacingPolicy, ctx.self),
+                                                tests incl. the offline gate scenario (sign-off
+                                                awaits the feel-check)
+FEEL   manual feel-check           MANUAL       own workstream (end of file; formerly C3.0) — interactive,
+                                                user present; A + B2 constants vs the appstate demo;
+                                                blocks C3/C4 sign-off; PENDING
+C4     director+tactics+protect+join ~2         decision.* (director, PolicyOutput relation), team.h,
+                                                sim.* (join API), rotation.*, follow.* + follow_params.h
+                                                (relation + protect gains)
+C-UI   modes+attack+panel          ~2           simcontrol.h, sim.* (attack flag/watchdog, suspend,
+                                                snapshot stamping), decision.* (suspend path), snapshot.h,
+                                                widget.*, sliders.*, simrenderer.*, screen.cpp
 ```
 
 Existing pieces reused (do not rebuild): `build_group_context` (sim.h),
@@ -842,9 +961,12 @@ D1 (draft aero)     ──►  DONE (2026-07-08)
 D2 (gap-holding)    ──►  DONE (2026-07-08)
 D3 (rotation)       ──►  DONE (2026-07-09; D3.0 link-rule amendment included)
 C  (decision layer) ──►  in progress; C-pre, C0, C1, C2 DONE (2026-07-10:
-                         c94c0f4, 56962f6, 15631fd, bc1afd5) → next:
-                         **C3.0 feel-check (manual, user present)** → C3 →
-                         C4; C4 declares roles that drafting rewards
+                         c94c0f4, 56962f6, 15631fd, bc1afd5); C3 DONE
+                         (2026-07-12, sign-off awaits the feel-check) → next:
+                         **manual feel-check workstream (user present)** →
+                         C4 (protect folded in; declares roles that drafting
+                         rewards) → C-UI (human control modes; compiles onto
+                         C4's join/promote/protect seams)
 ```
 
 Rough sizes: B1 ≈ half a session; B2 ≈ half–one; C ≈ 6–8 sessions (per-phase
@@ -855,8 +977,48 @@ breakdown in "C. Order, sizes, files" above).
 Per landing: `cmake --build build -j` (0 warnings) + `ctest` (all green) + headless
 smoke run (SIGTERM → exit 0). B2 additionally needs an interactive check (echelon
 stagger + windward swings under angled wind; gates the ⚖️ yaw constants), as does A's
-still-open penalty-feel tuning (both bundled into the C3.0 manual feel-check step);
+still-open penalty-feel tuning (both bundled into the manual feel-check workstream);
 C needs scripted scenario runs — the C3 offline scenario (policy vs. schedule on
 `create_endulating`) and a C4 chase scenario (two groups, director orders a chase,
 gap closes and the time-gap readout falls), both runnable headless — plus one
-interactive plot-screen/appstate eyeball at C3 and C4.
+interactive plot-screen/appstate eyeball at C3 and C4.  C-UI is interactive-only
+beyond its unit tests: mode-row round-trip (click → queued command → next-frame
+highlight), attack blow-up auto-exit, protect pair on the demo course; the
+watchdog-threshold and mutual protect/follow stability unit tests land C4-side.
+
+---
+
+## Manual feel-check workstream — INTERACTIVE, PENDING
+
+(Formerly C3.0.)  Interactive tuning session, **user present** — the one step
+that cannot land from tests alone.  Blocks C3/C4 *sign-off*, not their start.
+Do it before AI behavior goes live so "the paceline looks weird" stays
+attributable to constants, not decisions.  This workstream is also the standing
+home for later interactive gates (the C4 chase eyeball, the C-UI mode-row /
+attack / protect checks — see Verification).
+
+**How to run:** `./game` from build/, the appstate manual-formation feel-check
+playground (rewired 2026-07-12: riders 0–6 in a tight line + Luka solo, everyone
+Manual at a common-target-speed cruise effort).  The C0/C2 overlays help: group
+gaps top-right, per-rider mode letters + efforts bottom-left.  Tunables are
+catalogued in ADJUSTABLE_PARAMS.md; tuning is by recompile — all constants are
+named locals.
+
+**What to eyeball, and which knobs:**
+- **A — lateral feel** (`kPenaltyScale`, `kMaxPenaltyRate`, lateral_solver /
+  lateral_behavior locals): does cutting across the road cost a believable
+  speed dip?  Do riders settle back toward their line naturally — neither
+  magnetized nor sluggish?  Watch the drifters' swing-off and merge-back.
+- **B2 — yaw drag** (`kYawDragGain`, `kMinApparentLon`, `kYawFactorCap` —
+  rider.cpp locals): crosswind penalty magnitude plausible (a few % CdA at
+  3.5 m/s @ 60°, not dramatic — compare cda_factor in the plot screen)?
+  Swings consistently windward?  Echelon stagger visible and energetically
+  worth forming (windward riders visibly working harder)?
+- **C-pre-b — promotion transit** (opportunistic, same session): promote a
+  sitter mid-run if reachable via test hooks, or just confirm the D3 merges
+  still read right after the C2 multi-rotation refactor.
+
+**Pass = user says it looks right.**  Record the final constant values and any
+retunes here when done:
+- [ ] A constants signed off (values: ____)
+- [ ] B2 constants signed off (values: ____)

@@ -457,6 +457,189 @@ static void test_decide_determinism() {
   check(a == b, "determinism: identical runs -> bit-identical positions");
 }
 
+// --- C3: WPrimePacingPolicy ---
+
+// One policy rider on `course`, stepped until pos >= until_pos (or cap).
+// Returns false on cap.  The sim must consume the course by reference, so
+// the caller owns both.
+static bool step_policy_rider_to(Simulation& sim, RiderId id, double until_pos,
+                                 int max_steps = 500000) {
+  const Rider* r = sim.get_engine()->get_rider_by_id(id);
+  int steps = 0;
+  while (r->get_pos() < until_pos && steps++ < max_steps)
+    sim.step_fixed(0.01);
+  return steps < max_steps;
+}
+
+// Budget honored end-to-end, policy-driven, on a steep-short and a
+// long-shallow climb: both must crest with wbal_frac ≈ the reserve floor.
+// Tolerance is one-sided-wide above: the energy model throttles effort once
+// wbal drops under 20%, so the rider physically can't ride the last stretch
+// down to exactly the floor.
+static void test_pacing_budget_on_climbs() {
+  struct Case {
+    const char* label;
+    std::vector<std::array<double, 5>> segs;
+    double crest;
+  };
+  const Case cases[] = {
+      {"steep-short",
+       {{500, 0, 0, 0, 8}, {1500, 0.10, 0, 0, 8}, {1000, 0, 0, 0, 8}},
+       2000.0},
+      {"long-shallow",
+       {{500, 0, 0, 0, 8}, {4000, 0.03, 0, 0, 8}, {1000, 0, 0, 0, 8}},
+       4500.0},
+  };
+  const WPrimePacingParams params{}; // floor 0.15
+
+  double mid_climb_effort[2] = {0.0, 0.0};
+  int i = 0;
+  for (const Case& c : cases) {
+    Course course = Course::from_segments(c.segs);
+    Simulation sim(&course);
+    sim.add_riders({cfg(1, 250, 20000)});
+    sim.set_rider_policy(1, std::make_shared<WPrimePacingPolicy>(params));
+    const Rider* r = sim.get_engine()->get_rider_by_id(1);
+
+    check(step_policy_rider_to(sim, 1, (500.0 + c.crest) / 2.0),
+          std::string(c.label) + ": reaches mid-climb");
+    mid_climb_effort[i++] = r->get_target_effort();
+    check(r->get_target_effort() > 1.0,
+          std::string(c.label) + ": climb pace above ftp");
+
+    check(step_policy_rider_to(sim, 1, c.crest),
+          std::string(c.label) + ": reaches the crest");
+    const double frac = r->get_energy_fraction();
+    std::cout << "  [pace] " << c.label << ": crest wbal_frac " << frac
+              << " (floor " << params.wbal_floor_frac << ")\n";
+    check(frac > params.wbal_floor_frac - 0.05 && frac < 0.30,
+          std::string(c.label) + ": crests near the reserve floor");
+  }
+  check(mid_climb_effort[0] > mid_climb_effort[1],
+        "pace: steep-short demands a harder pace than long-shallow");
+}
+
+// Horizon handoff: pacing toward the crest, then — once past it — toward
+// the finish, where the spent budget drops the pace back to ~ftp.
+static void test_pacing_horizon_handoff() {
+  Course course = Course::from_segments(
+      {{500, 0, 0, 0, 8}, {1500, 0.08, 0, 0, 8}, {3000, 0, 0, 0, 8}});
+  Simulation sim(&course);
+  sim.add_riders({cfg(1, 250, 20000)});
+  sim.set_rider_policy(1, std::make_shared<WPrimePacingPolicy>());
+  const Rider* r = sim.get_engine()->get_rider_by_id(1);
+
+  check(step_policy_rider_to(sim, 1, 1900.0), "handoff: reaches 1900 m");
+  const double effort_before = r->get_target_effort();
+  check(effort_before > 1.05, "handoff: spending toward the crest");
+
+  check(step_policy_rider_to(sim, 1, 2100.0), "handoff: past the crest");
+  for (int i = 0; i < 150; ++i) // guarantee a decide tick after crossing
+    sim.step_fixed(0.01);
+  const double effort_after = r->get_target_effort();
+  std::cout << "  [pace] handoff: effort " << effort_before << " -> "
+            << effort_after << "\n";
+  check(effort_after < effort_before - 0.05,
+        "handoff: pace drops once the horizon flips to the finish");
+  check(effort_after < 1.05, "handoff: post-crest pace back near ftp");
+}
+
+// Descents are recovery: sub-FTP effort, W′ recharging.
+static void test_pacing_recovery_on_descent() {
+  Course course = Course::from_segments(
+      {{500, 0, 0, 0, 8}, {2000, -0.05, 0, 0, 8}, {2000, 0, 0, 0, 8}});
+  Simulation sim(&course);
+  sim.add_riders({cfg(1, 250, 20000)});
+  const WPrimePacingParams params{};
+  sim.set_rider_policy(1, std::make_shared<WPrimePacingPolicy>(params));
+  const Rider* r = sim.get_engine()->get_rider_by_id(1);
+
+  check(step_policy_rider_to(sim, 1, 700.0), "recovery: onto the descent");
+  for (int i = 0; i < 150; ++i) // a decide tick on the descent
+    sim.step_fixed(0.01);
+  check(near(r->get_target_effort(), params.recovery_effort, 1e-9),
+        "recovery: descent effort is the recovery param");
+  const double frac_on_descent = r->get_energy_fraction();
+
+  // Sample the recharge on the descent proper: the lookahead window flips
+  // back to spending ~100 m before the descent ends.
+  check(step_policy_rider_to(sim, 1, 2300.0), "recovery: descent ridden");
+  check(r->get_energy_fraction() > frac_on_descent,
+        "recovery: W' recharged on the way down");
+  check(step_policy_rider_to(sim, 1, 2600.0), "recovery: onto the flat");
+  for (int i = 0; i < 150; ++i) // a decide tick on the flat
+    sim.step_fixed(0.01);
+  check(r->get_target_effort() > params.recovery_effort + 0.1,
+        "recovery: spending resumes on the flat run-out");
+}
+
+// The C gate (PLAN § C3): create_endulating, one policy rider vs one
+// constant-schedule rider at the policy run's average power.  The policy
+// rider must crest (the last crest IS the finish) near the reserve floor
+// and arrive no later.
+static void test_gate_policy_vs_schedule() {
+  const double dt = 0.01;
+  double policy_time = 0.0, policy_frac = 0.0, avg_effort = 0.0;
+  {
+    Course course = Course::create_endulating();
+    const double total = course.get_total_length();
+    Simulation sim(&course);
+    sim.add_riders({cfg(1, 250, 20000)});
+    // The gate races to the line: minimal reserve.  The 0.15 default is a
+    // road-race reserve (matches kept burnable), and the equal-average-power
+    // uniform opponent spends every joule — a held-back 15% is ~10 s of
+    // climbing time given away, not pacing quality.
+    WPrimePacingParams gate_params;
+    gate_params.wbal_floor_frac = 0.05;
+    sim.set_rider_policy(1, std::make_shared<WPrimePacingPolicy>(gate_params));
+    const Rider* r = sim.get_engine()->get_rider_by_id(1);
+
+    double power_sum = 0.0;
+    int steps = 0;
+    while (r->get_pos() < total && steps < 800000) {
+      sim.step_fixed(dt);
+      power_sum += r->get_power();
+      ++steps;
+    }
+    check(steps < 800000, "gate: policy rider finishes");
+    policy_time = sim.get_decision()
+                      .race_clock()
+                      .crossing_time(1, total)
+                      .value_or(steps * dt);
+    policy_frac = r->get_energy_fraction();
+    avg_effort = (power_sum / steps) / r->get_ftp();
+  }
+
+  double schedule_time = 0.0;
+  {
+    Course course = Course::create_endulating();
+    const double total = course.get_total_length();
+    Simulation sim(&course);
+    sim.add_riders({cfg(1, 250, 20000)});
+    sim.set_effort_schedule(1, std::make_shared<StepEffortSchedule>(
+                                   std::vector<EffortBlock>{{1e9, avg_effort}}));
+    const Rider* r = sim.get_engine()->get_rider_by_id(1);
+    int steps = 0;
+    while (r->get_pos() < total && steps < 800000) {
+      sim.step_fixed(dt);
+      ++steps;
+    }
+    check(steps < 800000, "gate: schedule rider finishes");
+    schedule_time = sim.get_decision()
+                        .race_clock()
+                        .crossing_time(1, total)
+                        .value_or(steps * dt);
+  }
+
+  std::cout << "  [gate] policy " << policy_time << " s vs schedule "
+            << schedule_time << " s at equal avg effort " << avg_effort
+            << "; policy finish wbal_frac " << policy_frac << "\n";
+  check(policy_frac > 0.02 && policy_frac < 0.25,
+        "gate: policy rider finishes near the reserve floor");
+  check(policy_time <= schedule_time + 1.0,
+        "gate: policy rider arrives no later than equal-power schedule");
+}
+
 int main() {
   test_draft_helpers();
   test_estimator_properties();
@@ -469,6 +652,10 @@ int main() {
   test_reconcile();
   test_reconcile_per_group_and_manual_wins();
   test_decide_determinism();
+  test_pacing_budget_on_climbs();
+  test_pacing_horizon_handoff();
+  test_pacing_recovery_on_descent();
+  test_gate_policy_vs_schedule();
 
   if (checks_failed) {
     std::cout << checks_failed << " check(s) FAILED\n";
